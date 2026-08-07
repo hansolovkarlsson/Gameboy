@@ -15,9 +15,10 @@ section). Every ROM then loops on itself forever, so there's no clean
 default budget is what actually bounds each run.
 
 Real first-run results (see test_roms/mooneye/README.md for the full
-story): 24/44 pass. The 20 that don't aren't 20 unrelated mysteries -
-grounded by reading each failing test's real .s source rather than
-guessed at:
+story, including what's since been fixed): 24/44 pass initially. The 20
+that didn't weren't 20 unrelated mysteries - grounded by reading each
+failing test's real .s source rather than guessed at, and four of the
+five root causes found have since been fixed (28/44 now):
 
 - 14 (every *_timing ROM using start_oam_dma + tuned nop padding to
   land a specific M-cycle inside vs. just after the DMA window) are a
@@ -26,21 +27,30 @@ guessed at:
   transfer - correct for the universal busy-wait-in-HRAM convention
   real code uses, wrong for exactly this kind of adversarial mid-
   transfer access these tests are built to probe. One known cause,
-  not fourteen.
-- if_ie_registers/ie_push: a real, separate, narrower gap - cycle-exact
-  behavior when IE is written *during* interrupt dispatch's PC push
-  (can cancel/redirect the dispatch mid-flight). Not implemented.
-- bits/unused_hwio-GS: unused/unmapped $FFxx bits should read back
-  forced to 1; some registers here don't.
-- timer/tima_write_reloading, tma_write_reloading: a finer-grained,
-  single-T-state-precision sub-case of the TIMA-overflow-reload quirk
-  Phase 4 already partially modeled (see timer.c).
-- rapid_di_ei: a real, separate EI-delay edge case - rapid DI/EI
-  toggling with no real instruction between them must never actually
-  enable interrupts. Different ground than ei_sequence/ei_timing
-  (both pass already); this one isn't covered by those.
+  not fourteen. Still open - needs real per-M-cycle sub-instruction
+  stepping, a genuine architecture change, not attempted yet.
+- if_ie_registers/ie_push (FIXED): cycle-exact behavior when IE is
+  written *during* interrupt dispatch's PC push - real hardware decides
+  the vector fresh right after the high-byte push, not before either
+  push or after both; see gb_cpu_step()'s interrupt-dispatch comment.
+- bits/unused_hwio-GS (FIXED): unused/unmapped $FFxx bits (SC bits 1-6,
+  IF bits 5-7, STAT bit 7, and several fully-unmapped registers) now
+  read back forced to 1 - see mmu.c/ppu.c.
+- rapid_di_ei (FIXED): a DI immediately following EI now genuinely
+  cancels EI's still-pending delayed enable instead of a stale
+  end-of-step re-apply silently overriding DI's own effect - see
+  gb_op_di()/di_cancels_ei_delay in cpu.c/cpu.h.
+- timer/tima_write_reloading, tma_write_reloading (PARTIALLY FIXED):
+  the general cycle-A/cycle-B TIMA-overflow-reload write rule from
+  pandocs' Timer_Obscure_Behaviour.md is now implemented and covered by
+  a direct unit test (tests/test_timer.c) - 6 of these two ROMs'
+  combined 8 assertions now pass (up from 0), confirmed by rendering
+  each ROM's own on-screen diagnostic. The remaining 1 assertion each
+  still fails; plausibly the same "instruction-granular, not real
+  per-M-cycle" limitation as the OAM DMA cluster above, not yet
+  root-caused further.
 
-EXPECTED below is this real baseline, the same floor-not-target
+EXPECTED below is this real, current baseline, the same floor-not-target
 reasoning tests/compare_frame.py already uses for dmg-acid2: a ROM
 regressing from PASS to anything else is a real regression and fails
 this script; a currently-failing ROM starting to pass is real progress,
@@ -60,7 +70,7 @@ EXPECTED = {
     "acceptance/add_sp_e_timing.gb": "FAIL",
     "acceptance/bits/mem_oam.gb": "PASS",
     "acceptance/bits/reg_f.gb": "PASS",
-    "acceptance/bits/unused_hwio-GS.gb": "FAIL",
+    "acceptance/bits/unused_hwio-GS.gb": "PASS",
     "acceptance/call_cc_timing.gb": "FAIL",
     "acceptance/call_cc_timing2.gb": "FAIL",
     "acceptance/call_timing.gb": "FAIL",
@@ -73,16 +83,16 @@ EXPECTED = {
     "acceptance/halt_ime0_nointr_timing.gb": "PASS",
     "acceptance/halt_ime1_timing.gb": "PASS",
     "acceptance/halt_ime1_timing2-GS.gb": "PASS",
-    "acceptance/if_ie_registers.gb": "FAIL",
+    "acceptance/if_ie_registers.gb": "PASS",
     "acceptance/instr/daa.gb": "PASS",
-    "acceptance/interrupts/ie_push.gb": "FAIL",
+    "acceptance/interrupts/ie_push.gb": "PASS",
     "acceptance/intr_timing.gb": "PASS",
     "acceptance/jp_cc_timing.gb": "FAIL",
     "acceptance/jp_timing.gb": "FAIL",
     "acceptance/ld_hl_sp_e_timing.gb": "FAIL",
     "acceptance/pop_timing.gb": "FAIL",
     "acceptance/push_timing.gb": "FAIL",
-    "acceptance/rapid_di_ei.gb": "FAIL",
+    "acceptance/rapid_di_ei.gb": "PASS",
     "acceptance/ret_cc_timing.gb": "FAIL",
     "acceptance/ret_timing.gb": "FAIL",
     "acceptance/reti_intr_timing.gb": "PASS",

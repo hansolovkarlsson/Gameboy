@@ -89,10 +89,32 @@ void gb_timer_write(GBTimer *timer, struct GBCpu *cpu, uint16_t addr, uint8_t va
             gb_timer_reset_div(timer, cpu);
             break;
         case 0xFF05:
-            timer->tima = val;
+            // pandocs' Timer_Obscure_Behaviour.md "TIMA reloading":
+            // overflow_delay==4 is "cycle A", the same M-cycle TIMA
+            // just overflowed in - a write here genuinely cancels the
+            // pending reload/interrupt outright ("acts as if the
+            // overflow didn't happen"), and the written value sticks.
+            // Any lower nonzero value is "cycle B" (the reload is
+            // already in flight) - a TIMA write there is ignored
+            // entirely, overwritten by TMA at the end of the same
+            // cycle regardless.
+            if (timer->overflow_delay == 4) {
+                timer->overflow_delay = 0;
+                timer->tima = val;
+            } else if (timer->overflow_delay == 0) {
+                timer->tima = val;
+            }
             break;
         case 0xFF06:
             timer->tma = val;
+            // Writing TMA during "cycle B" (see above) feeds the new
+            // value into TIMA on this same cycle too, not just future
+            // overflows (same source: "Writing to TMA during cycle B
+            // will have the same value copied to TIMA as well, on the
+            // same cycle").
+            if (timer->overflow_delay > 0 && timer->overflow_delay < 4) {
+                timer->tima = val;
+            }
             break;
         case 0xFF07: {
             int old_signal = effective_signal(timer);

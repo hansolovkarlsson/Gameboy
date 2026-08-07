@@ -37,6 +37,19 @@ typedef struct GBCpu {
     // would risk that write clobbering this one's meaning.
     uint8_t ei_delay_active;
 
+    // Set by gb_op_di() when DI is the instruction immediately
+    // following an EI whose one-instruction delay hasn't resolved yet -
+    // lets gb_cpu_step() skip applying that stale delayed enable at the
+    // end of this same step, so "ei; di" (rapid or otherwise) never
+    // actually turns interrupts on even for the single instant between
+    // the two - real hardware's documented behavior, and distinct from
+    // ei_delay_active above (that one's read *during* the instruction
+    // after EI; this one's read *after* it, by the same gb_cpu_step()
+    // call that captured the pending enable at its own start). Verified
+    // against Mooneye's real-hardware-verified acceptance/rapid_di_ei.gb
+    // (test_roms/mooneye/).
+    uint8_t di_cancels_ei_delay;
+
     // HALT: true once a HALT instruction has been executed. The run loop
     // is expected to stop advancing PC (just burn cycles) while this is
     // set, until an interrupt becomes pending. STOP is similar but also

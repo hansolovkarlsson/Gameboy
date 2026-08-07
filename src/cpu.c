@@ -27,9 +27,19 @@ static inline uint16_t fetch_word(GBCpu *cpu) {
 }
 
 static void gb_push16(GBCpu *cpu, uint16_t val) {
+    // High byte is written first, low byte second - real hardware's
+    // actual M-cycle order for PUSH/CALL/RST/interrupt dispatch alike
+    // (Mooneye's push_timing.s/call_timing.s/rst_timing.s, test_roms/
+    // mooneye/, each cite this explicitly: "M=2: memory access for
+    // high byte, M=3: memory access for low byte"). Observably
+    // identical to writing low-then-high in every normal case (same
+    // final SP, same final two bytes) - only matters when one of these
+    // writes happens to alias a live register with its own side
+    // effects (see gb_cpu_step()'s interrupt-dispatch IE-aliasing
+    // handling, the one case that currently depends on this order).
     cpu->sp -= 2;
-    gb_write_byte(cpu, cpu->sp, val & 0xFF);
     gb_write_byte(cpu, (uint16_t)(cpu->sp + 1), val >> 8);
+    gb_write_byte(cpu, cpu->sp, val & 0xFF);
 }
 
 static uint16_t gb_pop16(GBCpu *cpu) {
@@ -239,7 +249,7 @@ static int gb_op_reti(GBCpu *cpu) {
     return 16;
 }
 
-static int gb_op_di(GBCpu *cpu) { cpu->ime = 0; cpu->ime_pending = 0; return 4; }
+static int gb_op_di(GBCpu *cpu) { cpu->ime = 0; cpu->ime_pending = 0; cpu->di_cancels_ei_delay = 1; return 4; }
 static int gb_op_ei(GBCpu *cpu) { cpu->ime_pending = 1; return 4; }
 
 // STOP is a real 2-byte instruction (opcode + a padding byte, normally
@@ -657,6 +667,7 @@ void gb_cpu_reset(GBCpu *cpu) {
     cpu->ime = 0;
     cpu->ime_pending = 0;
     cpu->ei_delay_active = 0;
+    cpu->di_cancels_ei_delay = 0;
     cpu->halted = 0;
     cpu->stopped = 0;
     cpu->halt_bug = 0;
@@ -680,15 +691,38 @@ int gb_cpu_step(GBCpu *cpu) {
     if (cpu->halted && pending) cpu->halted = 0;
 
     if (cpu->ime && pending) {
-        // pandocs' Interrupts.md "Interrupt handling": IF's bit and
-        // IME are both cleared, then this behaves exactly like a CALL
-        // to the vector - 5 M-cycles (20 T-states) total.
-        int bit = 0;
-        while (!(pending & (1 << bit))) bit++;
+        // pandocs' Interrupts.md "Interrupt handling": IME is cleared,
+        // then this behaves like a CALL to the vector - 5 M-cycles (20
+        // T-states) total. Which vector, though, isn't locked in until
+        // right after the PC push's *high*-byte write specifically -
+        // not before either write, and not after the low-byte write
+        // either. If SP happens to be $0000/$0001 at dispatch time,
+        // that high-byte write lands on IE ($FFFF) itself; a value
+        // clobbering away the triggering bit at that exact moment
+        // genuinely cancels the interrupt (PC ends up at $0000, IF's
+        // bit is never cleared), while the same clobber happening only
+        // on the low-byte write is real but always too late to change
+        // anything - the vector's already committed to by then.
+        // Verified against all four rounds of Mooneye's real-hardware-
+        // verified interrupts/ie_push.gb (test_roms/mooneye/), which
+        // exercises exactly this: normal dispatch, IE-clobber-cancels,
+        // IE-clobber-too-late, and a two-candidate-interrupts case
+        // proving the *fresh* IE (not the original) picks which one.
         cpu->ime = 0;
-        gb_write_byte(cpu, 0xFF0F, (uint8_t)(gb_read_byte(cpu, 0xFF0F) & ~(1 << bit)));
-        gb_push16(cpu, cpu->pc);
-        cpu->pc = interrupt_vectors[bit];
+        cpu->sp -= 2;
+        gb_write_byte(cpu, (uint16_t)(cpu->sp + 1), (uint8_t)(cpu->pc >> 8));
+
+        uint8_t final_pending = (uint8_t)(gb_read_byte(cpu, 0xFFFF) & gb_read_byte(cpu, 0xFF0F) & 0x1F);
+        uint16_t target = 0x0000;
+        if (final_pending) {
+            int bit = 0;
+            while (!(final_pending & (1 << bit))) bit++;
+            gb_write_byte(cpu, 0xFF0F, (uint8_t)(gb_read_byte(cpu, 0xFF0F) & ~(1 << bit)));
+            target = interrupt_vectors[bit];
+        }
+
+        gb_write_byte(cpu, cpu->sp, (uint8_t)(cpu->pc & 0xFF));
+        cpu->pc = target;
         return 20;
     }
 
@@ -716,14 +750,21 @@ int gb_cpu_step(GBCpu *cpu) {
     // EI has fully executed - captured here (before this step's fetch)
     // and applied at the bottom (after this step's execute), so it's
     // the instruction after EI, not EI's own step, that's affected.
+    // Unless that following instruction is DI itself: real hardware
+    // never lets interrupts turn on even momentarily in that case
+    // ("ei; di" - rapid or otherwise - never enables interrupts), so
+    // gb_op_di() cancels this same delayed enable via
+    // di_cancels_ei_delay rather than this code unconditionally
+    // re-applying it after DI already set ime back to 0.
     uint8_t ime_to_set = cpu->ime_pending;
     cpu->ime_pending = 0;
     cpu->ei_delay_active = ime_to_set;
+    cpu->di_cancels_ei_delay = 0;
 
     uint8_t opcode = fetch_byte(cpu);
     int cycles = gb_opcode_table[opcode](cpu);
 
-    if (ime_to_set) cpu->ime = 1;
+    if (ime_to_set && !cpu->di_cancels_ei_delay) cpu->ime = 1;
 
     return cycles;
 }

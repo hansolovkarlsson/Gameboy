@@ -95,6 +95,64 @@ static void test_tima_overflow_delay(void) {
           (if_reg(&cpu) & 0x04) != 0);
 }
 
+static void test_tima_write_during_reload_window(void) {
+    uint8_t memory[65536] = {0};
+    GBCpu cpu = make_test_cpu(memory);
+    GBTimer timer;
+
+    // Cycle A: a TIMA write on the exact same M-cycle it overflowed in
+    // cancels the reload/interrupt outright, and the written value
+    // persists (pandocs' Timer_Obscure_Behaviour.md: "acts as if the
+    // overflow didn't happen").
+    gb_timer_reset(&timer);
+    gb_timer_write(&timer, &cpu, 0xFF06, 0x23); // TMA
+    gb_timer_write(&timer, &cpu, 0xFF07, 0x05); // enabled, every 16 T-states
+    gb_timer_write(&timer, &cpu, 0xFF05, 0xFF); // one tick from overflow
+    gb_timer_step(&timer, &cpu, 16); // the tick that overflows: FF -> 00
+    gb_timer_write(&timer, &cpu, 0xFF05, 0x42); // cycle A write
+    check("TIMA cycle-A write: the written value sticks immediately",
+          gb_timer_read(&timer, 0xFF05) == 0x42);
+    gb_timer_step(&timer, &cpu, 4); // the M-cycle the reload would have landed on
+    check("TIMA cycle-A write: no reload from TMA happens afterward",
+          gb_timer_read(&timer, 0xFF05) == 0x42);
+    check("TIMA cycle-A write: no interrupt ever gets requested for the cancelled overflow",
+          (if_reg(&cpu) & 0x04) == 0);
+
+    // Cycle B: a TIMA write one M-cycle after the overflow (the reload
+    // is already in flight) is ignored outright - TIMA becomes TMA
+    // regardless of what was written.
+    memset(memory, 0, sizeof(memory));
+    gb_timer_reset(&timer);
+    gb_timer_write(&timer, &cpu, 0xFF06, 0x23); // TMA
+    gb_timer_write(&timer, &cpu, 0xFF07, 0x05);
+    gb_timer_write(&timer, &cpu, 0xFF05, 0xFF);
+    gb_timer_step(&timer, &cpu, 16); // overflow: FF -> 00, overflow_delay = 4
+    gb_timer_step(&timer, &cpu, 2);  // two T-states into cycle B (overflow_delay = 2)
+    gb_timer_write(&timer, &cpu, 0xFF05, 0x42); // cycle B write - should be ignored
+    gb_timer_step(&timer, &cpu, 2); // finish the reload M-cycle
+    check("TIMA cycle-B write: ignored - TIMA reloads from TMA anyway",
+          gb_timer_read(&timer, 0xFF05) == 0x23);
+    check("TIMA cycle-B write: the interrupt still fires normally",
+          (if_reg(&cpu) & 0x04) != 0);
+
+    // Cycle B, TMA instead: a *TMA* write during the same window feeds
+    // straight into TIMA on this same cycle too, not just future
+    // overflows.
+    memset(memory, 0, sizeof(memory));
+    gb_timer_reset(&timer);
+    gb_timer_write(&timer, &cpu, 0xFF06, 0x23); // TMA
+    gb_timer_write(&timer, &cpu, 0xFF07, 0x05);
+    gb_timer_write(&timer, &cpu, 0xFF05, 0xFF);
+    gb_timer_step(&timer, &cpu, 16); // overflow
+    gb_timer_step(&timer, &cpu, 2);  // two T-states into cycle B
+    gb_timer_write(&timer, &cpu, 0xFF06, 0x77); // TMA write during cycle B
+    check("TMA cycle-B write: the new value is copied into TIMA on this same cycle",
+          gb_timer_read(&timer, 0xFF05) == 0x77);
+    gb_timer_step(&timer, &cpu, 2); // finish the reload M-cycle
+    check("TMA cycle-B write: TIMA still holds it once the reload completes",
+          gb_timer_read(&timer, 0xFF05) == 0x77);
+}
+
 static void test_div_write_resets_and_can_spuriously_tick(void) {
     uint8_t memory[65536] = {0};
     GBCpu cpu = make_test_cpu(memory);
@@ -131,6 +189,7 @@ int main(void) {
     test_tima_basic_counting();
     test_tima_disabled_does_not_count();
     test_tima_overflow_delay();
+    test_tima_write_during_reload_window();
     test_div_write_resets_and_can_spuriously_tick();
     test_tac_write_spurious_tick_on_disable();
 

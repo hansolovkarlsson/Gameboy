@@ -72,43 +72,63 @@ and compares against a real, committed per-ROM baseline - the same
 floor-not-target reasoning `tests/compare_frame.py` already uses for
 dmg-acid2, just per-ROM instead of a percentage.
 
-## Real first-run results: 24/44 pass
+## Results: 24/44 on first run, 28/44 now
 
 Not 20 unrelated mysteries - grounded by reading each failing test's
 real `.s` source (`gh api repos/Gekkio/mooneye-test-suite/contents/...`)
-rather than guessed at:
+rather than guessed at, they trace to five real root causes. Four have
+since been fixed in a follow-up pass; see `docs/GAMEBOY_ROADMAP.md`'s
+own Mooneye status entries for the full story of both passes:
 
-- **14 ROMs** (`call_timing`, `call_cc_timing`/`call_cc_timing2`,
-  `jp_timing`, `jp_cc_timing`, `push_timing`, `pop_timing`,
-  `ret_timing`, `ret_cc_timing`, `reti_timing`, `rst_timing`,
-  `ld_hl_sp_e_timing`, `add_sp_e_timing`) all use the identical
-  technique: start a real OAM DMA transfer, pad with `nop`s tuned so a
-  specific M-cycle of the instruction under test lands exactly inside
-  vs. just after the DMA window, then check whether that access saw
-  DMA-source garbage. This is a direct, precise hit on the exact gap
-  `ppu.c` already documents from Phase 3: OAM DMA is an instant copy
-  here, not a real timed 160-M-cycle transfer - correct for the
-  universal busy-wait-in-HRAM convention real code uses, wrong for
-  exactly this kind of adversarial mid-transfer access these tests are
-  built to probe. One known, already-documented cause, not fourteen.
-- **`if_ie_registers`, `interrupts/ie_push`**: a real, separate,
-  narrower gap - cycle-exact behavior when `IE` is written *during*
-  interrupt dispatch's PC push (can cancel/redirect the dispatch
-  mid-flight). Not implemented.
-- **`bits/unused_hwio-GS`**: unused/unmapped `$FFxx` bits should read
-  back forced to `1`; several registers here don't.
-- **`timer/tima_write_reloading`, `timer/tma_write_reloading`**: a
-  finer-grained, single-T-state-precision sub-case of the
-  TIMA-overflow-reload quirk Phase 4 already partially modeled (see
-  `timer.c`).
-- **`rapid_di_ei`**: a real, separate EI-delay edge case - rapid DI/EI
-  toggling with no real instruction between them must never actually
-  enable interrupts. Different ground than `ei_sequence`/`ei_timing`
-  (both pass already); this specific case isn't covered by those.
+- **14 ROMs, still open** (`call_timing`, `call_cc_timing`/
+  `call_cc_timing2`, `jp_timing`, `jp_cc_timing`, `push_timing`,
+  `pop_timing`, `ret_timing`, `ret_cc_timing`, `reti_timing`,
+  `rst_timing`, `ld_hl_sp_e_timing`, `add_sp_e_timing`) all use the
+  identical technique: start a real OAM DMA transfer, pad with `nop`s
+  tuned so a specific M-cycle of the instruction under test lands
+  exactly inside vs. just after the DMA window, then check whether that
+  access saw DMA-source garbage. This is a direct, precise hit on the
+  exact gap `ppu.c` already documents from Phase 3: OAM DMA is an
+  instant copy here, not a real timed 160-M-cycle transfer - correct
+  for the universal busy-wait-in-HRAM convention real code uses, wrong
+  for exactly this kind of adversarial mid-transfer access these tests
+  are built to probe. One known, already-documented cause, not
+  fourteen - but closing it for real needs interleaved per-M-cycle
+  stepping around every memory access in `cpu.c`'s opcode handlers, a
+  genuine architecture change, not attempted here.
+- **`if_ie_registers`, `interrupts/ie_push` (FIXED)**: cycle-exact
+  behavior when `IE` is written *during* interrupt dispatch's PC push.
+  Real hardware doesn't lock in the target vector before either push
+  write or after both - it re-reads `IE & IF` right after the
+  *high*-byte push specifically, so a write that lands there (SP near
+  `$FFFF`/`$0000` at dispatch time) can genuinely cancel or redirect the
+  dispatch, while the same clobber on the low-byte write is always too
+  late. Fixed in `gb_cpu_step()`'s interrupt-dispatch block and
+  `gb_push16()`'s write order (`cpu.c`).
+- **`bits/unused_hwio-GS` (FIXED)**: unused/unmapped `$FFxx` bits should
+  read back forced to `1`. `P1`/`TAC` already did; `SC` (bits 1-6),
+  `IF` (bits 5-7), `STAT` (bit 7), and several fully-unmapped registers
+  (`$FF03`, `$FF08`-`$FF0E`, `$FF4C`-`$FF7F`) didn't - fixed in
+  `mmu.c`/`ppu.c`.
+- **`rapid_di_ei` (FIXED)**: a real, separate EI-delay edge case - `DI`
+  immediately after `EI` must never let interrupts turn on even
+  momentarily. `gb_cpu_step()`'s "apply EI's delayed enable at the end
+  of this step" logic was unconditionally re-applying that enable even
+  when this step's own instruction was `DI` (which had just set
+  `ime=0`), silently undoing it. Fixed via a new `di_cancels_ei_delay`
+  flag `gb_op_di()` sets (`cpu.c`/`cpu.h`).
+- **`timer/tima_write_reloading`, `timer/tma_write_reloading`
+  (PARTIALLY FIXED)**: pandocs' `Timer_Obscure_Behaviour.md` "TIMA
+  reloading" quirk - a TIMA write during the same M-cycle TIMA
+  overflowed in cancels the pending reload/interrupt outright; one
+  M-cycle later, a TIMA write is ignored but a TMA write propagates
+  into TIMA immediately. Implemented in `timer.c` and covered by a
+  direct unit test (`tests/test_timer.c`, all 7 new checks pass) - 6 of
+  these two ROMs' combined 8 assertions now pass (confirmed by
+  rendering each ROM's own on-screen diagnostic via `--ppm`, up from 0
+  of 8 before). The remaining 1 assertion each still fails; plausibly
+  the same instruction-granular (not real per-M-cycle) limitation as
+  the OAM DMA cluster above, not yet root-caused further.
 
-None of these were fixed as part of adopting this suite - the point of
-this pass was landing a real, independent, committable correctness
-signal (closing the gap Phase 1 originally flagged Mooneye for: Blargg
-ROMs can't be committed at all), not fixing every gap it immediately
-found. See `tests/run_mooneye.py`'s own `EXPECTED` table for the
-per-ROM baseline this locks in as a regression floor.
+See `tests/run_mooneye.py`'s own `EXPECTED` table for the per-ROM
+baseline this locks in as a regression floor.

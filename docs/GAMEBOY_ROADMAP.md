@@ -998,3 +998,98 @@ model" work already flagged as dmg-acid2's own remaining open gap
 `unused_hwio-GS`, TIMA/TMA reload-window precision, `rapid_di_ei`) are
 each small and narrow enough to fix independently whenever CPU/timer
 correctness is the active focus again.
+
+**Mooneye follow-up: the four small, narrow gaps fixed - 24/44 to
+28/44.** Deliberately scoped to skip the OAM-DMA-timing cluster (real,
+but needs the architecture change named above) and fix the four
+self-contained ones instead, one at a time, each verified against its
+own real Mooneye ROM (and, for the timer quirk, a new direct unit test
+too):
+
+- **`bits/unused_hwio-GS` - fixed.** Diagnosed by rendering the ROM's
+  own on-screen failure report (`--ppm`, since this specific test draws
+  its diagnostic to the LCD via Mooneye's `quit_inline`/tile-font
+  machinery, not serial text) rather than guessing: `$FF02` (SC) was
+  the first mismatch. Checked pandocs' `Serial_Data_Transfer_(Link_
+  Cable).html` (bit 7 transfer-enable, bit 1 CGB-only clock-speed, bit
+  0 clock-select - bits 2-6 have no function at all) and `Interrupts.
+  html` (`IF`'s bits 0-4 are the five real interrupt sources, bits 5-7
+  unused) to ground the exact masks, matching Mooneye's own real-
+  hardware-verified `0x7E`/`0xE0` test values precisely. `P1`/`TAC`
+  already forced their unused bits to `1` on read (`joypad.c`/
+  `timer.c`); `SC`, `IF`, `STAT` bit 7, and several fully-unmapped
+  registers (`$FF03`, `$FF08`-`$FF0E`, `$FF4C`-`$FF7F`) didn't - fixed
+  in `mmu.c`/`ppu.c`. Fixing this alone also flipped
+  `if_ie_registers` to passing as a side effect (its own assertions
+  directly depend on `IF`'s forced-1 upper bits), confirmed by rerunning
+  the full suite rather than assumed.
+- **`interrupts/ie_push` - fixed.** Root-caused by reading all four
+  rounds of the real `.s` source rather than guessing: real hardware
+  doesn't lock in an interrupt's target vector before dispatch's PC
+  push, or after both push writes - it re-reads `IE & IF` fresh right
+  after the *high*-byte push specifically. If that write happens to
+  land on `IE` (`$FFFF`, possible whenever `SP` is near `$0000`/`$0001`
+  at dispatch time) and clobbers away the triggering bit, the interrupt
+  is genuinely cancelled (`PC` ends up at `$0000`, `IF`'s bit is never
+  cleared) - real, deliberate, and confirmed by hand-tracing all four of
+  the ROM's rounds against pandocs' `Interrupts.md` 5-M-cycle dispatch
+  sequence before touching any code. The same clobber landing on the
+  *low*-byte write instead is real too but always too late - the vector
+  is already committed to by then. This also exposed a second, smaller
+  bug worth fixing in passing: `gb_push16()` (`cpu.c`, shared by
+  `CALL`/`PUSH`/`RST`/interrupt dispatch alike) wrote the low byte
+  before the high byte - backwards from real hardware's M-cycle order
+  (high byte at M=2, low byte at M=3, per Mooneye's own
+  `push_timing.s`/`call_timing.s`/`rst_timing.s` comments) - observably
+  identical in every normal case, but the order genuinely matters for
+  this exact IE-aliasing scenario. Both fixed in `gb_push16()` and
+  `gb_cpu_step()`'s interrupt-dispatch block, which now re-derives the
+  target vector from a fresh `IE & IF` read taken between the two push
+  writes instead of deciding it up front.
+- **`rapid_di_ei` - fixed.** `gb_cpu_step()` already modeled EI's real
+  one-instruction-delayed enable (captured at the top of a step,
+  applied at the bottom, after that step's own instruction has run) -
+  but applied it *unconditionally*, even when that step's own
+  instruction was `DI`, which had just set `ime=0` moments earlier in
+  the very same step. The delayed enable was silently re-flipping `ime`
+  back to `1` right after `DI` ran, undoing it - real hardware never
+  lets interrupts turn on even momentarily in "`ei; di`" (rapid or
+  otherwise). Hand-traced against all four of the ROM's rounds (two
+  rapid-toggle cases expecting no interrupt at all, two "nop after ei"
+  cases expecting one) to confirm the fix before writing it: a new
+  `di_cancels_ei_delay` flag, set by `gb_op_di()`, lets the end-of-step
+  apply skip itself for exactly this one case, while leaving the
+  existing "HALT immediately after EI" special case (which depends on
+  reading `ime` mid-instruction, *before* this same end-of-step apply)
+  completely untouched.
+- **`timer/tima_write_reloading`, `timer/tma_write_reloading` -
+  partially fixed.** Grounded precisely against pandocs'
+  `Timer_Obscure_Behaviour.html` "Timer overflow behavior" section
+  (fetched directly, including its real M-cycle timing diagram) before
+  writing anything: a TIMA write during the same M-cycle TIMA overflowed
+  in ("cycle A") cancels the pending reload/interrupt outright and the
+  written value sticks; a TIMA write one M-cycle later ("cycle B", while
+  the reload is already in flight) is ignored outright; a *TMA* write
+  during that same cycle B, however, does propagate into TIMA
+  immediately. Implemented in `timer.c` and verified two ways: a new
+  direct unit test (`tests/test_timer.c`, 7 new checks, all pass) for
+  the parts checkable in isolation, and by rendering each Mooneye ROM's
+  own on-screen diagnostic (`--ppm`) to read its real assertion
+  results - 6 of these two ROMs' combined 8 assertions now pass, up
+  from 0 of 8. The remaining 1 assertion each still fails; honestly
+  left open rather than forced, since it's plausibly the same
+  instruction-granular (writes are only ever observable at whole-
+  instruction boundaries, not true per-M-cycle) limitation the OAM-DMA
+  cluster above already has, not confirmed further.
+
+Verified after each individual fix, not just at the end: full
+`gameboy-test` (including the 7 new timer checks), `gameboy-visual-
+test` (98.04%, unchanged), `gameboy-2048-test`, `gameboy-droneboy-
+test`, `gameboy-tobu-test`, `gameboy-savestate-test`, and both RGBDS
+targets all still pass byte-for-byte identically after all four fixes -
+real, additive correctness improvements with zero observed regressions.
+
+**Next**: the OAM-DMA-timing cluster (14 ROMs) remains the highest-
+leverage remaining item, and now the *only* one left in this committed
+Tier 1 subset - genuinely needs the architecture change already named
+above, not a small patch.

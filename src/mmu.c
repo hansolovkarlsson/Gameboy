@@ -36,6 +36,24 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     // 01-registers.gb, whose register r/w test walks this entire span.
     if (addr >= 0xFF10 && addr <= 0xFF3F) return gb_apu_read(cpu->apu, addr);
     if (addr >= 0xFF40 && addr <= 0xFF4B) return gb_ppu_read_reg(cpu->ppu, addr);
+    // SC's bits 1-6 (pandocs' Serial_Data_Transfer.md: bit 7 transfer
+    // enable, bit 1 CGB-only clock speed, bit 0 clock select - bits
+    // 2-6 have no function at all) and IF's bits 5-7 (Interrupts.md:
+    // only bits 0-4 correspond to a real interrupt source) are unused
+    // and always read back as 1 regardless of what was written -
+    // confirmed against Mooneye's own real-hardware-verified
+    // unused_hwio-GS.gb (test_roms/mooneye/), whose exact masks
+    // (0x7E/0xE0) match.
+    if (addr == 0xFF02) return (uint8_t)(cpu->memory[addr] | 0x7E);
+    if (addr == 0xFF0F) return (uint8_t)(cpu->memory[addr] | 0xE0);
+    // Genuinely unmapped $FFxx I/O - no backing register exists at
+    // all, so these always read back as 1 in every bit (same
+    // unused_hwio-GS.gb ROM; $FF15/$FF1F/$FF27-$FF29 are the
+    // equivalent APU-range gaps, already handled by apu.c's own
+    // default case per the dmg_sound 01-registers.gb fix above).
+    if (addr == 0xFF03 || (addr >= 0xFF08 && addr <= 0xFF0E) || (addr >= 0xFF4C && addr <= 0xFF7F)) {
+        return 0xFF;
+    }
 
     addr = redirect_echo(addr);
     if (addr >= 0xFEA0 && addr <= 0xFEFF) {
@@ -54,6 +72,11 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     if (addr >= 0xFF04 && addr <= 0xFF07) { gb_timer_write(cpu->timer, cpu, addr, val); return; }
     if (addr >= 0xFF10 && addr <= 0xFF3F) { gb_apu_write(cpu->apu, addr, val); return; }
     if (addr >= 0xFF40 && addr <= 0xFF4B) { gb_ppu_write_reg(cpu->ppu, cpu, addr, val); return; }
+    // Genuinely unmapped - see the matching read-side comment above;
+    // no backing register, so the write has nowhere to go.
+    if (addr == 0xFF03 || (addr >= 0xFF08 && addr <= 0xFF0E) || (addr >= 0xFF4C && addr <= 0xFF7F)) {
+        return;
+    }
 
     addr = redirect_echo(addr);
     if (addr >= 0xFEA0 && addr <= 0xFEFF) {

@@ -373,9 +373,12 @@ uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr) {
         case 0xFF41: {
             // Mode bits are live-computed, not stored redundantly;
             // pandocs' STAT.md: "Reports 0 instead when the PPU is
-            // disabled."
+            // disabled." Bit 7 is unused and always reads as 1
+            // (confirmed against Mooneye's real-hardware-verified
+            // unused_hwio-GS.gb, test_roms/mooneye/) regardless of
+            // what was last written to it.
             uint8_t mode = (ppu->lcdc & 0x80) ? (uint8_t)ppu->mode : 0;
-            return (uint8_t)((ppu->stat & 0xFC) | mode);
+            return (uint8_t)((ppu->stat & 0xFC) | mode | 0x80);
         }
         case 0xFF42: return ppu->scy;
         case 0xFF43: return ppu->scx;
