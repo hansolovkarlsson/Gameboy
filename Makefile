@@ -120,6 +120,18 @@ RGBDS_MBC3_RTC_SRC := rgbds/examples/mbc3_rtc.asm
 RGBDS_MBC3_RTC_OBJ := $(BIN_DIR)/rgbds-mbc3-rtc.o
 RGBDS_MBC3_RTC_ROM := $(BIN_DIR)/rgbds-mbc3-rtc.gb
 
+# Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
+# ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
+# built from source here - see test_roms/mooneye/README.md for the full
+# story, including a correction to this doc's own Phase 1 note about
+# what toolchain Mooneye actually needs). tests/run_mooneye.py runs
+# every committed ROM and checks the real per-ROM baseline (24/44 pass
+# - the other 20 trace to a handful of real, grounded, already-mostly-
+# documented gaps, not committed as one-off fixes here) as a regression
+# floor, the same reasoning tests/compare_frame.py already uses for
+# dmg-acid2.
+MOONEYE_DIR := test_roms/mooneye
+
 # The real GTK4+Cairo+CoreAudio front end (gtk/src/main.c) - opt-in, the
 # only build target with an external dependency beyond a bare C
 # compiler, and links the core directly instead of spawning a separate
@@ -145,7 +157,7 @@ GTK_LIBS := $(shell pkg-config --libs $(GTK_PKGS) 2>/dev/null)
 # dependency needed.
 GTK_LIBS += -framework AudioToolbox
 
-.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-savestate-test gameboy-gtk clean
+.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-savestate-test gameboy-mooneye-test gameboy-gtk clean
 
 all: gameboy
 
@@ -196,6 +208,9 @@ gameboy-rgbds-mbc3-test: $(TARGET) | $(BIN_DIR)
 		grep -q "RAM:Rr RTC1:ABCDE RTC2(unlatched):ABCDE RTC3(relatched):abcde DONE" \
 		&& echo "gameboy-rgbds-mbc3-test: OK (RTC latch/isolation behavior correct)" \
 		|| (echo "gameboy-rgbds-mbc3-test: FAIL (expected serial output not seen)"; exit 1)
+
+gameboy-mooneye-test: $(TARGET)
+	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
 
 gameboy-gtk: $(GTK_TARGET)
 

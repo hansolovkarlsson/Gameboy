@@ -1,0 +1,178 @@
+#!/usr/bin/env python3
+"""Run every Mooneye GB Test Suite ROM committed under test_roms/mooneye/
+against bin/gameboy and check its real pass/fail result.
+
+Mooneye (<https://github.com/Gekkio/mooneye-test-suite>, MIT-licensed -
+see test_roms/mooneye/README.md for the fetch/commit story and why only
+a curated subset is committed here) reports its result over the same
+SB/SC internal-clock serial transfer Blargg's cpu_instrs/dmg_sound
+already use (src/mmu.c's gb_serial_output_hook), not printable text: a
+pass writes the Fibonacci sequence 3/5/8/13/21/34 to B/C/D/E/H/L and
+sends those six bytes over serial; a failure sends the byte 0x42 six
+times instead (see the suite's own README's "Pass/fail reporting"
+section). Every ROM then loops on itself forever, so there's no clean
+"done" signal beyond that - main.c's own fixed 20,000,000-instruction
+default budget is what actually bounds each run.
+
+Real first-run results (see test_roms/mooneye/README.md for the full
+story): 24/44 pass. The 20 that don't aren't 20 unrelated mysteries -
+grounded by reading each failing test's real .s source rather than
+guessed at:
+
+- 14 (every *_timing ROM using start_oam_dma + tuned nop padding to
+  land a specific M-cycle inside vs. just after the DMA window) are a
+  direct, precise hit on the exact gap ppu.c already documents from
+  Phase 3: OAM DMA is an instant copy here, not a real timed 160-M-cycle
+  transfer - correct for the universal busy-wait-in-HRAM convention
+  real code uses, wrong for exactly this kind of adversarial mid-
+  transfer access these tests are built to probe. One known cause,
+  not fourteen.
+- if_ie_registers/ie_push: a real, separate, narrower gap - cycle-exact
+  behavior when IE is written *during* interrupt dispatch's PC push
+  (can cancel/redirect the dispatch mid-flight). Not implemented.
+- bits/unused_hwio-GS: unused/unmapped $FFxx bits should read back
+  forced to 1; some registers here don't.
+- timer/tima_write_reloading, tma_write_reloading: a finer-grained,
+  single-T-state-precision sub-case of the TIMA-overflow-reload quirk
+  Phase 4 already partially modeled (see timer.c).
+- rapid_di_ei: a real, separate EI-delay edge case - rapid DI/EI
+  toggling with no real instruction between them must never actually
+  enable interrupts. Different ground than ei_sequence/ei_timing
+  (both pass already); this one isn't covered by those.
+
+EXPECTED below is this real baseline, the same floor-not-target
+reasoning tests/compare_frame.py already uses for dmg-acid2: a ROM
+regressing from PASS to anything else is a real regression and fails
+this script; a currently-failing ROM starting to pass is real progress,
+reported but not treated as a failure (update EXPECTED when that
+happens, rather than the script silently hiding it).
+"""
+import subprocess
+import sys
+from pathlib import Path
+
+PASS_SEQUENCE = bytes([3, 5, 8, 13, 21, 34])
+FAIL_SEQUENCE = bytes([0x42] * 6)
+
+# Real, current per-ROM baseline - see this file's own top comment for
+# the grounded root-cause breakdown behind every "FAIL" entry below.
+EXPECTED = {
+    "acceptance/add_sp_e_timing.gb": "FAIL",
+    "acceptance/bits/mem_oam.gb": "PASS",
+    "acceptance/bits/reg_f.gb": "PASS",
+    "acceptance/bits/unused_hwio-GS.gb": "FAIL",
+    "acceptance/call_cc_timing.gb": "FAIL",
+    "acceptance/call_cc_timing2.gb": "FAIL",
+    "acceptance/call_timing.gb": "FAIL",
+    "acceptance/call_timing2.gb": "FAIL",
+    "acceptance/di_timing-GS.gb": "PASS",
+    "acceptance/div_timing.gb": "PASS",
+    "acceptance/ei_sequence.gb": "PASS",
+    "acceptance/ei_timing.gb": "PASS",
+    "acceptance/halt_ime0_ei.gb": "PASS",
+    "acceptance/halt_ime0_nointr_timing.gb": "PASS",
+    "acceptance/halt_ime1_timing.gb": "PASS",
+    "acceptance/halt_ime1_timing2-GS.gb": "PASS",
+    "acceptance/if_ie_registers.gb": "FAIL",
+    "acceptance/instr/daa.gb": "PASS",
+    "acceptance/interrupts/ie_push.gb": "FAIL",
+    "acceptance/intr_timing.gb": "PASS",
+    "acceptance/jp_cc_timing.gb": "FAIL",
+    "acceptance/jp_timing.gb": "FAIL",
+    "acceptance/ld_hl_sp_e_timing.gb": "FAIL",
+    "acceptance/pop_timing.gb": "FAIL",
+    "acceptance/push_timing.gb": "FAIL",
+    "acceptance/rapid_di_ei.gb": "FAIL",
+    "acceptance/ret_cc_timing.gb": "FAIL",
+    "acceptance/ret_timing.gb": "FAIL",
+    "acceptance/reti_intr_timing.gb": "PASS",
+    "acceptance/reti_timing.gb": "FAIL",
+    "acceptance/rst_timing.gb": "FAIL",
+    "acceptance/timer/div_write.gb": "PASS",
+    "acceptance/timer/rapid_toggle.gb": "PASS",
+    "acceptance/timer/tim00.gb": "PASS",
+    "acceptance/timer/tim00_div_trigger.gb": "PASS",
+    "acceptance/timer/tim01.gb": "PASS",
+    "acceptance/timer/tim01_div_trigger.gb": "PASS",
+    "acceptance/timer/tim10.gb": "PASS",
+    "acceptance/timer/tim10_div_trigger.gb": "PASS",
+    "acceptance/timer/tim11.gb": "PASS",
+    "acceptance/timer/tim11_div_trigger.gb": "PASS",
+    "acceptance/timer/tima_reload.gb": "PASS",
+    "acceptance/timer/tima_write_reloading.gb": "FAIL",
+    "acceptance/timer/tma_write_reloading.gb": "FAIL",
+}
+
+
+def run_one(gameboy_bin, rom_path):
+    try:
+        result = subprocess.run(
+            [gameboy_bin, str(rom_path)],
+            stdout=subprocess.PIPE, stderr=subprocess.DEVNULL,
+            timeout=30,
+        )
+    except subprocess.TimeoutExpired:
+        return "TIMEOUT"
+    output = result.stdout
+    if PASS_SEQUENCE in output:
+        return "PASS"
+    if FAIL_SEQUENCE in output:
+        return "FAIL"
+    return "UNKNOWN"
+
+
+def main():
+    if len(sys.argv) != 3:
+        print(f"Usage: {sys.argv[0]} <bin/gameboy> <test_roms/mooneye dir>", file=sys.stderr)
+        return 1
+    gameboy_bin = sys.argv[1]
+    root = Path(sys.argv[2])
+    roms = sorted(root.rglob("*.gb"))
+    if not roms:
+        print(f"No .gb ROMs found under {root}", file=sys.stderr)
+        return 1
+
+    results = {}
+    for rom in roms:
+        name = str(rom.relative_to(root))
+        status = run_one(gameboy_bin, rom)
+        results[name] = status
+        print(f"  {status:8s} {name}")
+
+    passed = [n for n, s in results.items() if s == "PASS"]
+    print(f"\n{len(passed)}/{len(results)} passed")
+
+    regressions = []
+    progress = []
+    unknown_roms = []
+    for name, status in sorted(results.items()):
+        expected = EXPECTED.get(name)
+        if expected is None:
+            unknown_roms.append(name)
+        elif expected == "PASS" and status != "PASS":
+            regressions.append((name, status))
+        elif expected == "FAIL" and status == "PASS":
+            progress.append(name)
+
+    if progress:
+        print("\nReal progress since the committed baseline (update EXPECTED in this script):")
+        for name in progress:
+            print(f"  now PASS: {name}")
+
+    if unknown_roms:
+        print("\nROMs with no baseline entry in EXPECTED (add one):")
+        for name in unknown_roms:
+            print(f"  {name}")
+
+    if regressions:
+        print("\nRegressions against the committed baseline:")
+        for name, status in regressions:
+            print(f"  expected PASS, got {status}: {name}")
+        return 1
+    if unknown_roms:
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

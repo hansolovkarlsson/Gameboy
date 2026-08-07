@@ -181,6 +181,18 @@ the "interrupt already pending" condition that triggers it.
 exactly the way expected: both need a real timer/interrupt controller,
 which doesn't exist until Phase 4 - not a CPU-core correctness bug.
 
+**Correction, made while scoping Mooneye adoption much later (see this
+doc's own Status section, "Mooneye GB Test Suite adoption")**: the
+paragraph below originally claimed Mooneye "ships as assembly source
+needing `rgbds` to build." Checked against the real upstream
+`Makefile` while actually scoping that work, and that's wrong - it
+builds with WLA-DX (`wla-gb`/`wlalink`), a completely different
+assembler, never RGBDS. Left the original (wrong) reasoning below
+as-written rather than editing history, since it accurately reflects
+what was believed and decided upon *at the time* Phase 1's own
+toolchain call was made - see the Mooneye status entry for what
+actually unblocked this.
+
 **Licensing note - why `test_roms/` is still empty**: Blargg's
 test ROMs (fetched from `retrio/gb-test-roms` to validate the above,
 not committed) carry no explicit license, unlike ZEXALL/ZEXDOC (GPLv2,
@@ -891,3 +903,98 @@ comparison were left as-is where the citation itself is still accurate
 only reworded where the original phrasing specifically claimed
 same-repo containment (e.g. "elsewhere in this repo") that's no longer
 true post-split.
+
+**Mooneye GB Test Suite adoption: a real, committable CPU/timer/
+interrupt correctness gate - and a real, grounded look at what it
+found.** Phase 1 flagged Mooneye
+(`Gekkio/mooneye-test-suite`, MIT-licensed) as "the recommended path to
+a real, committable correctness gate" for the CPU, unlike Blargg's
+`cpu_instrs`/`dmg_sound` (no explicit license, fetched locally, never
+committed - both phases' own licensing notes above). Deferred at the
+time because it "ships as assembly source needing `rgbds` to build" -
+checked against the real upstream `Makefile` while actually scoping
+this work, and that belief was simply wrong: Mooneye builds with
+WLA-DX (`wla-gb`/`wlalink`), not RGBDS, so adopting RGBDS later
+(`rgbds/README.md`) never actually removed this blocker the way it
+looked like it had. The real unblock: Mooneye's own README links
+prebuilt binary ROMs, automatically built and deployed from `main` at
+<https://gekkio.fi/files/mooneye-test-suite/> - fetching those sidesteps
+needing a second assembler entirely, and matches this project's
+existing precedent exactly (`dmg-acid2`/`2048-gb`/`droneboy`/
+`tobutobugirl` are all committed prebuilt binaries, none built from
+source in this repo). See `test_roms/mooneye/README.md` for the full
+fetch/license/scoping story.
+
+A curated 44-ROM "Tier 1" subset is committed - `acceptance/timer/`
+(13), `acceptance/bits/` (3), `acceptance/interrupts/ie_push.gb`,
+`acceptance/instr/daa.gb`, and 26 top-level CPU/interrupt-timing ROMs -
+picked for being closest to functionality this project already claims
+complete (`timer.c`, interrupt dispatch, DAA, instruction timing),
+deliberately excluding: `boot_*`/`serial/boot_sclk_align-*` (this
+emulator never executes a real boot ROM - `gb_cpu_reset()` hardcodes
+post-boot register state directly, so these test something that
+doesn't apply by construction); `emulator-only/mbc2/` (not
+implemented); `emulator-only/mbc1/`+`mbc5/` and `acceptance/ppu/`+
+`oam_dma*` (real value, left for a follow-up slice); and
+`manual-only/`/`madness/`/`misc/`/`utils/` (explicitly out of scope per
+Mooneye's own README). `tests/run_mooneye.py` (new) runs every
+committed ROM through `bin/gameboy` and checks Mooneye's real
+pass/fail serial protocol (Fibonacci `3,5,8,13,21,34` vs. `0x42`×6 -
+the same SB/SC mechanism Blargg's tests already use, no new harness
+code needed) against a committed per-ROM baseline, the same
+floor-not-target reasoning `tests/compare_frame.py` already uses for
+dmg-acid2's percentage. `make gameboy-mooneye-test` (new, opt-in, same
+convention as every other real-ROM gate) wires it in.
+
+**Real first-run results, honestly reported rather than only landing
+the passing subset: 24/44 pass.** The 20 that don't aren't 20 unrelated
+mysteries - grounded by reading each failing test's real `.s` source
+(`gh api repos/Gekkio/mooneye-test-suite/contents/...`) rather than
+guessed at, they cluster into five real, distinct, already-mostly-
+understood gaps:
+
+- **14 ROMs** (`call_timing`, `call_cc_timing`/`call_cc_timing2`,
+  `jp_timing`, `jp_cc_timing`, `push_timing`, `pop_timing`,
+  `ret_timing`, `ret_cc_timing`, `reti_timing`, `rst_timing`,
+  `ld_hl_sp_e_timing`, `add_sp_e_timing`) all use one identical
+  technique: start a real OAM DMA transfer, pad with `nop`s tuned so a
+  specific M-cycle of the instruction under test lands exactly inside
+  vs. just after the DMA window, then check whether that access saw
+  DMA-source garbage. This is a direct, precise hit on the exact gap
+  `ppu.c` already documents from Phase 3: OAM DMA here is an instant
+  copy, not a real timed 160-M-cycle transfer - correct for the
+  universal busy-wait-in-HRAM convention real code uses, wrong for
+  exactly this kind of adversarial mid-transfer access these tests are
+  built to probe. One known, already-documented cause, not fourteen.
+- **`if_ie_registers`, `interrupts/ie_push`**: a real, separate,
+  narrower gap - cycle-exact behavior when `IE` is written *during*
+  interrupt dispatch's PC push (can cancel/redirect the dispatch
+  mid-flight). Not implemented.
+- **`bits/unused_hwio-GS`**: unused/unmapped `$FFxx` bits should read
+  back forced to `1`; several registers here don't.
+- **`timer/tima_write_reloading`, `timer/tma_write_reloading`**: a
+  finer-grained, single-T-state-precision sub-case of the
+  TIMA-overflow-reload quirk Phase 4 already partially modeled.
+- **`rapid_di_ei`**: a real, separate EI-delay edge case - rapid DI/EI
+  toggling with no real instruction between them must never actually
+  enable interrupts, different ground than `ei_sequence`/`ei_timing`
+  (both already pass).
+
+None of these five gaps were fixed as part of this adoption - the
+point of this pass was landing the real, independent, committable
+correctness signal Phase 1 originally wanted (closing the "Blargg ROMs
+can't be committed at all" gap), not fixing every gap the new signal
+immediately found. The full existing regression suite
+(`gameboy-test`, both RGBDS targets) still passes unchanged after this
+addition.
+
+**Next**: the OAM-DMA-timing cluster (14 ROMs, one real cause) is the
+highest-leverage follow-up - a real timed 160-M-cycle OAM DMA transfer
+(replacing the current instant-copy simplification) would plausibly
+also move `acceptance/ppu/`'s and `acceptance/oam_dma*`'s not-yet-
+committed Tier 2 ROMs, and is the same kind of "real per-dot timing
+model" work already flagged as dmg-acid2's own remaining open gap
+(Phase 8's status). The other four gaps (`ie_push`/`if_ie_registers`,
+`unused_hwio-GS`, TIMA/TMA reload-window precision, `rapid_di_ei`) are
+each small and narrow enough to fix independently whenever CPU/timer
+correctness is the active focus again.
