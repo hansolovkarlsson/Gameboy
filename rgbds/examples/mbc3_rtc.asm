@@ -1,10 +1,10 @@
 ; MBC3 real-time-clock test ROM - drives the actual memory-mapped MBC3
 ; interface (bank-select writes at $4000-$5FFF, the RTC latch sequence
 ; at $6000-$7FFF, and the shared $A000-$BFFF read/write window) the way
-; a real MBC3+RTC game would, rather than testing gameboy/src/cart.c's
-; GBCart struct directly the way gameboy/tests/test_cart.c's synthetic
+; a real MBC3+RTC game would, rather than testing src/cart.c's
+; GBCart struct directly the way tests/test_cart.c's synthetic
 ; checks already do - a genuinely different, real-hardware-shaped way
-; of exercising the identical logic. See gameboy/docs/GAMEBOY_ROADMAP.md's
+; of exercising the identical logic. See docs/GAMEBOY_ROADMAP.md's
 ; Phase 6 status ("particularly ones exercising MBC3's RTC or deeper
 ; save-RAM behavior, neither meaningfully exercised by 2048-gb") - this
 ; closes that specific, previously-flagged gap.
@@ -17,9 +17,9 @@
 ;
 ; Emits a single deterministic line over serial (SB/SC, the same
 ; mechanism hello.asm/Blargg's own test ROMs use) - see
-; gameboy/rgbds/README.md and make gameboy-rgbds-mbc3-test.
+; rgbds/README.md and make gameboy-rgbds-mbc3-test.
 ;
-; NOTE ON SCOPE: gameboy/src/cart.c's own comment is explicit that the
+; NOTE ON SCOPE: src/cart.c's own comment is explicit that the
 ; RTC registers don't yet advance with real elapsed (wall-clock or
 ; emulated) time - they're a correctly-latchable, correctly-isolated
 ; register bank, but a static one. This ROM tests exactly that scope:
@@ -33,7 +33,7 @@ SECTION "Header", ROM0[$100]
 SECTION "Main", ROM0[$150]
 EntryPoint:
     ; Enable RAM/RTC register access - real MBC3: writing $0A anywhere
-    ; in $0000-$1FFF enables both (gameboy/src/cart.c's own comment:
+    ; in $0000-$1FFF enables both (src/cart.c's own comment:
     ; "also gates RTC register access").
     ld a, $0A
     ld [$0000], a
@@ -104,7 +104,7 @@ EntryPoint:
     jr .hang
 
 ; --- RTC register helpers - each selects its own register bank at
-; $4000-$5FFF, then writes A into it via $A000, per gameboy/src/cart.c's
+; $4000-$5FFF, then writes A into it via $A000, per src/cart.c's
 ; own bank-to-register mapping (S=$08, M=$09, H=$0A, DL=$0B, DH=$0C).
 WriteRtcS:
     ld b, a

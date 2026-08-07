@@ -1,23 +1,23 @@
 # Game Boy Hardware Reference
 
 A reference for the DMG (original 1989 Game Boy) hardware this
-project's emulator (`gameboy/src/`) targets: the memory map, cartridge/
+project's emulator (`src/`) targets: the memory map, cartridge/
 MBC banking, the PPU (graphics), the APU (sound), the timer, the
 joypad, and interrupts. Grounded against [Pan
 Docs](https://gbdev.io/pandocs/) throughout, the same primary source
-`gameboy/docs/GAMEBOY_ROADMAP.md`'s own phase-by-phase status cites — each
+`docs/GAMEBOY_ROADMAP.md`'s own phase-by-phase status cites — each
 section below names the specific pandocs page(s) it's drawn from, the
 same discipline `cpm/docs/CPM_REFERENCE.md` follows for the CP/M side.
 
 Where this project's own implementation status matters — a
 simplification, a deliberately deferred obscure quirk, a genuine gap —
 it's called out explicitly in that section, not just lumped into one
-end-of-document list; see also `gameboy/docs/GAMEBOY_ROADMAP.md`'s own
+end-of-document list; see also `docs/GAMEBOY_ROADMAP.md`'s own
 Status section for the fuller phase-by-phase story (bugs found, root
 causes, exact test-ROM pass counts) behind each of these. Everything
 else describes real DMG hardware behavior, independent of this
 codebase. This document doesn't cover the CPU's own instruction set —
-see `gameboy/docs/CPU_REFERENCE.md` for that.
+see `docs/CPU_REFERENCE.md` for that.
 
 ## Memory map
 
@@ -35,7 +35,7 @@ see `gameboy/docs/CPU_REFERENCE.md` for that.
 | `0xFF80`-`0xFFFE` | 127 B | HRAM (High RAM — fast, always-accessible even during OAM DMA) |
 | `0xFFFF` | 1 B | `IE` (Interrupt Enable) |
 
-`gameboy/src/mmu.c`'s `gb_read_byte()`/`gb_write_byte()` implement this
+`src/mmu.c`'s `gb_read_byte()`/`gb_write_byte()` implement this
 routing directly: `0x0000`-`0x7FFF` and `0xA000`-`0xBFFF` go to
 `cart.c`; the named I/O sub-ranges below go to their own module
 (joypad/timer/APU/PPU); everything else (WRAM, OAM, the unusable gap,
@@ -66,7 +66,7 @@ subsystem's own section below):
 within the APU's own register span — they read back as `$FF` and
 ignore writes, not accidentally exposed as plain RAM (a real bug this
 project found and fixed via Blargg's `dmg_sound` `01-registers.gb` —
-see `gameboy/docs/GAMEBOY_ROADMAP.md`'s Phase 5 status).
+see `docs/GAMEBOY_ROADMAP.md`'s Phase 5 status).
 
 ### Serial (stub)
 
@@ -81,7 +81,7 @@ a simulation of the real serial protocol's bit-clocking/timing at all.
 
 ## Cartridge/MBC
 
-`gameboy/src/cart.c` parses a real cartridge header and implements
+`src/cart.c` parses a real cartridge header and implements
 bank switching for the overwhelming majority of real cartridges:
 no-MBC, MBC1, MBC3 (with its real-time clock), and MBC5. Grounded
 against pandocs' `The_Cartridge_Header.md`/`nombc.md`/`MBC1.md`/
@@ -183,7 +183,7 @@ that "bank 0 is actually bank 0" here, unlike MBC1/MBC3), and a full
 
 ## PPU (graphics)
 
-`gameboy/src/ppu.c` implements the LCD controller: all twelve registers
+`src/ppu.c` implements the LCD controller: all twelve registers
 (`0xFF40`-`0xFF4B`), the mode/timing state machine, and a
 scanline-at-a-time renderer covering background, window, and objects
 (sprites). Grounded against pandocs' `LCDC.md`/`STAT.md`/
@@ -347,7 +347,7 @@ produces the identical end result either way.
 
 ## APU (sound)
 
-`gameboy/src/apu.c` implements all four sound channels, the DIV-APU
+`src/apu.c` implements all four sound channels, the DIV-APU
 frame sequencer, and `NR50`/`NR51`/`NR52` mixing. Grounded against
 pandocs' `Audio.md`/`Audio_Registers.md`/`Audio_details.md`.
 
@@ -461,7 +461,7 @@ comment, not silently missing): wave-RAM trigger-time/mid-playback
 corruption (accessing Wave RAM while CH3 is actively reading it doesn't
 behave like a normal RAM access), exiting CH1's sweep negate mode
 disabling the channel, and LFSR width-switch lockup. See
-`gameboy/docs/GAMEBOY_ROADMAP.md`'s Phase 5 status for the exact
+`docs/GAMEBOY_ROADMAP.md`'s Phase 5 status for the exact
 `dmg_sound` sub-test pass/fail breakdown these gaps correspond to (7 of
 12 passing as of that phase).
 
@@ -475,14 +475,14 @@ on DMG, so implementing that would be guessing rather than grounding):
 writing `NRx2` with the envelope in increase mode and a period of zero,
 repeatedly, while the channel is already playing, increments its live
 volume by 1 each write (wrapping mod 16). Found necessary by a real
-ROM - see `gameboy/test_roms/droneboy/README.md` - whose own live volume
+ROM - see `test_roms/droneboy/README.md` - whose own live volume
 faders rely on exactly this technique, and regression-tested directly
-(`gameboy/tests/test_apu.c`, `make gameboy-test`) rather than only
+(`tests/test_apu.c`, `make gameboy-test`) rather than only
 through that one ROM.
 
 ## Timer
 
-`gameboy/src/timer.c` implements `DIV`/`TIMA`/`TMA`/`TAC`
+`src/timer.c` implements `DIV`/`TIMA`/`TMA`/`TAC`
 (`0xFF04`-`0xFF07`) as a genuine free-running 16-bit **system counter**
 — `DIV` is just that counter's visible upper byte, not a separately
 incrementing register — with `TIMA` incrementing on a **falling edge**
@@ -522,12 +522,12 @@ instead of needing special-case code:
   `DIV` write — a DMG-specific quirk (some later hardware revisions fix
   this) that real software has been observed to depend on.
 
-All three are covered by `gameboy/tests/test_timer.c` directly, independent
+All three are covered by `tests/test_timer.c` directly, independent
 of any ROM (`make gameboy-test`).
 
 ## Joypad
 
-`gameboy/src/joypad.c` implements `P1`/`JOYP` (`0xFF00`) — grounded
+`src/joypad.c` implements `P1`/`JOYP` (`0xFF00`) — grounded
 against pandocs' `Joypad_Input.md`. Two 4-button groups (action:
 A/B/Select/Start; direction: Right/Left/Up/Down) are multiplexed onto
 the same 4 read bits, selected by two CPU-written bits, with the real
@@ -540,7 +540,7 @@ Game Boy's inverted **`0` = pressed** polarity throughout.
 | 3-0 | — (read-only) | Button state for whichever group(s) are selected, `0`=pressed; both groups selected ANDs their states together |
 
 No real input source exists yet in this project — a GUI front end is
-still a Phase 7 item (see `gameboy/docs/GAMEBOY_ROADMAP.md`) — but the
+still a Phase 7 item (see `docs/GAMEBOY_ROADMAP.md`) — but the
 register logic and interrupt-request behavior are real and tested:
 `gb_joypad_set_action()`/`gb_joypad_set_direction()` are the API a
 future front end or test harness calls, and correctly request a joypad
@@ -564,7 +564,7 @@ bit layout, priority by bit order (bit 0 highest):
 
 Dispatch mechanics (delay, `IME` interaction, the HALT bug's
 interaction with pending-but-undispatched interrupts) belong to the
-CPU side of this story — see `gameboy/docs/CPU_REFERENCE.md`'s [Interrupt
+CPU side of this story — see `docs/CPU_REFERENCE.md`'s [Interrupt
 handling](CPU_REFERENCE.md#interrupt-handling) section for that half.
 
 ## Implementation status
@@ -572,7 +572,7 @@ handling](CPU_REFERENCE.md#interrupt-handling) section for that half.
 The subsystems above are all real, working implementations backed by
 Blargg's `cpu_instrs`/`instr_timing` (12/12 passing), `dmg-acid2`
 (98.04% pixel match), and `dmg_sound` (7/12 passing) — see
-`gameboy/docs/GAMEBOY_ROADMAP.md`'s Status section for the exact numbers,
+`docs/GAMEBOY_ROADMAP.md`'s Status section for the exact numbers,
 root causes behind every bug found along the way, and the full list of
 what's deliberately deferred (instant OAM DMA; the several
 named-and-cited APU quirks; MBC3's RTC not advancing by wall-clock

@@ -10,7 +10,7 @@ here.
 
 A real, unmodified "drone music application for Game Boys" (its own
 README's description) - four-channel continuous tones/chords, written
-in C with GBDK-2020. Used for `gameboy/docs/GAMEBOY_ROADMAP.md`'s Phase 7
+in C with GBDK-2020. Used for `docs/GAMEBOY_ROADMAP.md`'s Phase 7
 audio testing: unlike `2048-gb` (a single ~0.05s startup blip, then
 total silence) this ROM produces real, sustained multi-channel audio
 from the moment it boots, without needing any scripted input at all -
@@ -30,7 +30,7 @@ implement it at all until this was traced (`apu.h`'s own comment had
 already flagged it as a known, deliberately-deferred gap - this was
 the first time it actually mattered). Now implemented
 (`apply_zombie_mode_increment()` in `apu.c`, regression-tested in
-`gameboy/tests/test_apu.c`) - the earlier scripted-input attempts that
+`tests/test_apu.c`) - the earlier scripted-input attempts that
 found "no observable difference" were a separate issue (the `--input`
 script's timing didn't actually reach Droneboy's interactive volume
 page within the test window), not related to the zombie-mode gap

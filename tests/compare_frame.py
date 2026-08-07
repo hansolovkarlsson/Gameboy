@@ -2,8 +2,8 @@
 """Compare a dumped Game Boy PPU frame (PPM, see main.c's --ppm option)
 against a reference image (PNG, 2-bit grayscale) pixel-for-pixel.
 
-Written for gameboy/test_roms/dmg-acid2/reference-dmg.png specifically
-(see gameboy/docs/GAMEBOY_ROADMAP.md's Phase 3 status), but the PNG decoder
+Written for test_roms/dmg-acid2/reference-dmg.png specifically
+(see docs/GAMEBOY_ROADMAP.md's Phase 3 status), but the PNG decoder
 below is generic to any 2-bit grayscale, non-interlaced PNG. No image
 library dependency - a minimal decoder using only the standard library
 (struct + zlib, both stdlib) is enough for this one format, and this
@@ -13,17 +13,17 @@ grounded code will do.
 100% match isn't expected: as of Phase 4, this emulator gets 98.04%
 (22589/23040) - up from Phase 3's 91.31% once interrupt dispatch made
 dmg-acid2's mid-frame LY=LYC-driven register writes actually happen
-(see its own README, and gameboy/test_roms/dmg-acid2/README.md). The
+(see its own README, and test_roms/dmg-acid2/README.md). The
 remaining gap (row 0's "HELLO WORLD!" text and the tail end of the
 footer text, 451 pixels, unchanged since Phase 4) is real, open, and
-documented - see gameboy/docs/GAMEBOY_ROADMAP.md's Phase 4 and Phase 8
+documented - see docs/GAMEBOY_ROADMAP.md's Phase 4 and Phase 8
 status. Phase 8 gave Mode 3 its real, pandocs-accurate variable length
 (replacing the fixed-172-dots simplification) and *disproved* the
 Phase 4 theory that Mode 3's duration was this gap's cause: LY=0 and
 LY=133-141 turn out to have zero SCX/window/object penalties either
 way, so an accurate Mode 3 length doesn't move them at all (confirmed
 by checking exactly which scanlines get a non-default length - see
-gameboy/docs/GAMEBOY_ROADMAP.md's Phase 8 entry). The real cause is
+docs/GAMEBOY_ROADMAP.md's Phase 8 entry). The real cause is
 still open - most likely something only a full per-dot pixel-FIFO
 simulation (rather than this emulator's still-scanline-at-once
 renderer) would model correctly, but that's not confirmed either. This
@@ -146,7 +146,7 @@ def main():
         return 1
 
     print("OK (informational gate against a 95% floor, not a 100% target - see "
-          "gameboy/docs/GAMEBOY_ROADMAP.md's Phase 4 status for the still-open remaining gap)")
+          "docs/GAMEBOY_ROADMAP.md's Phase 4 status for the still-open remaining gap)")
     return 0
 
 

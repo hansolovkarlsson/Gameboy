@@ -14,7 +14,7 @@ struct GBCpu; // forward-declared - see cpu.h's own comment on why
 // priority rule below is grounded against pandocs' LCDC.md/STAT.md/
 // Tile_Data.md/Tile_Maps.md/OAM.md/Rendering.md/Palettes.md/
 // OAM_DMA_Transfer.md (fetched during this phase - see
-// gameboy/docs/GAMEBOY_ROADMAP.md), not guessed.
+// docs/GAMEBOY_ROADMAP.md), not guessed.
 //
 // Phase 8 (see the roadmap's own status entry) replaced Mode 3's fixed
 // 172-dot length with pandocs' Rendering.md "Mode 3 length" algorithm -

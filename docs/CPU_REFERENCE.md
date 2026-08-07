@@ -2,11 +2,11 @@
 
 A reference for the Sharp SM83 (commonly called "LR35902" or "GBZ80")
 instruction set as implemented by this project's Game Boy emulator core
-(`gameboy/src/cpu.c`/`alu.c`), grounded against [Pan
+(`src/cpu.c`/`alu.c`), grounded against [Pan
 Docs](https://gbdev.io/pandocs/) and the official [gbdev.io opcode
 table](https://gbdev.io/gb-opcodes/optables/) (data at
 `https://gbdev.io/gb-opcodes/Opcodes.json`) — the same primary sources
-`gameboy/docs/GAMEBOY_ROADMAP.md`'s Phase 1 status cites. Where this
+`docs/GAMEBOY_ROADMAP.md`'s Phase 1 status cites. Where this
 project's own implementation status matters, it's called out explicitly
 — see [Implementation status](#implementation-status) at the end.
 Everything else describes real SM83 behavior, independent of this
@@ -88,7 +88,7 @@ touched in 2 bytes instead of `LD (a16),A`'s 3).
 ## Instruction set by category
 
 Each category below maps to where it lives in this codebase: the
-emulator's *decoder* (`gameboy/src/cpu.c`, dispatch built in
+emulator's *decoder* (`src/cpu.c`, dispatch built in
 `gb_cpu_init_tables()`) is the authoritative source for exact opcode
 bytes — this document rounds to the pattern level, not a literal hex
 table (see the official gbdev.io opcode table linked above for that).
@@ -188,7 +188,7 @@ shape to the Z80's version, minus the `(IX+d)`/`(IY+d)` forms.
   conventionally `0x00`) per the official opcode table, not the 1-byte
   form some older references list. Resets the timer's system counter
   exactly like a `DIV` write does (pandocs'
-  `Timer_and_Divider_Registers.md`) — see `gameboy/docs/HARDWARE_REFERENCE.md`'s
+  `Timer_and_Divider_Registers.md`) — see `docs/HARDWARE_REFERENCE.md`'s
   Timer section. Real hardware's full low-power STOP mode, and exiting
   it via a joypad press, needs an actual input source to ever trigger;
   see [Implementation status](#implementation-status).
@@ -201,7 +201,7 @@ the Z80](#differences-from-the-z80).
 
 The real, confirmed differences from the Z80 core this project's
 CP/M-side emulator implements (`cpm/emu/src/z80.c`) — see
-`gameboy/docs/GAMEBOY_ROADMAP.md`'s "Architecture decision" section for why
+`docs/GAMEBOY_ROADMAP.md`'s "Architecture decision" section for why
 this is a standalone, independently-implemented core rather than a
 parameterized variant of `z80.c`, and `cpm/docs/Z80_REFERENCE.md` for the
 Z80-side detail every line below is contrasted against:
@@ -218,7 +218,7 @@ Z80-side detail every line below is contrasted against:
   unprefixed opcode here, `0xD9`, not `ED 4D`.)
 - **No `IN`/`OUT`** — I/O is entirely memory-mapped
   (`0xFF00`-`0xFF7F`), not a separate address space. See
-  `gameboy/docs/HARDWARE_REFERENCE.md`'s Memory map.
+  `docs/HARDWARE_REFERENCE.md`'s Memory map.
 - **Adds its own instructions the Z80 doesn't have**: `STOP`, the
   `LD (HL+),A`/`LD (HL-),A`/`LD A,(HL+)`/`LD A,(HL-)` auto-increment/
   decrement forms, `LDH`, `ADD SP,e8`/`LD HL,SP+e8`, and `SWAP`
@@ -277,7 +277,7 @@ resumes regular execution as soon as an interrupt becomes pending" —
 ## Interrupt handling
 
 Five interrupt sources exist: V-Blank, LCD STAT, Timer, Serial, and
-Joypad — see `gameboy/docs/HARDWARE_REFERENCE.md`'s Interrupts section for
+Joypad — see `docs/HARDWARE_REFERENCE.md`'s Interrupts section for
 `IE`/`IF`'s exact bit layout and how each source requests one.
 CPU-side, per pandocs' `Interrupts.md`:
 
@@ -311,9 +311,9 @@ CPU-side, per pandocs' `Interrupts.md`:
 ## Implementation status
 
 The full SM83 instruction set — every opcode in both the unprefixed and
-`CB`-prefixed tables — is implemented in `gameboy/src/cpu.c`, verified
+`CB`-prefixed tables — is implemented in `src/cpu.c`, verified
 against Blargg's `cpu_instrs`/`instr_timing` test ROMs (12 of 12
-sub-tests passing; see `gameboy/docs/GAMEBOY_ROADMAP.md`'s Phase 1/4
+sub-tests passing; see `docs/GAMEBOY_ROADMAP.md`'s Phase 1/4
 status). This includes:
 
 - All 8-bit/16-bit load, arithmetic, logic, rotate/shift, and bit-test
@@ -329,7 +329,7 @@ status). This includes:
 a joypad press — `cpu->stopped` is set, but nothing currently checks it
 to actually suspend execution, since there's no real input source yet
 to ever trigger the exit condition (deferred to Phase 7's real front
-end — see `gameboy/docs/GAMEBOY_ROADMAP.md`).
+end — see `docs/GAMEBOY_ROADMAP.md`).
 
 There are 11 genuinely illegal opcodes in the unprefixed table —
 `0xD3`/`0xDB`/`0xDD`/`0xE3`/`0xE4`/`0xEB`/`0xEC`/`0xED`/`0xF4`/`0xFC`/

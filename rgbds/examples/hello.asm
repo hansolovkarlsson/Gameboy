@@ -7,8 +7,8 @@
 ;
 ; Emits each character of MESSAGE over the serial port (SB/SC,
 ; $FF01/$FF02) using the same internal-clock transfer convention
-; Blargg's own test ROMs use, which gameboy/src/mmu.c's serial hook
-; already captures and gameboy/src/main.c prints to stdout - see
+; Blargg's own test ROMs use, which src/mmu.c's serial hook
+; already captures and src/main.c prints to stdout - see
 ; make gameboy-rgbds-test.
 
 SECTION "Header", ROM0[$100]

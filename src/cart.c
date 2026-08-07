@@ -22,7 +22,7 @@ static int rom_banks_for_code(uint8_t code) {
 // but this is believed to have been a mistake with early homebrew tools,
 // and the PD ROMs often don't use cartridge RAM at all." Confirmed via a
 // real one - Phase 6's 2048-gb (cart_type 0x03/MBC1+RAM+BATT, ram_code
-// 0x01, see gameboy/test_roms/2048-gb/) failed to load at all before this
+// 0x01, see test_roms/2048-gb/) failed to load at all before this
 // fix. Treated as 0 banks (no cartridge RAM), matching pandocs'
 // "often don't use cartridge RAM at all" and letting has_ram/ram_size's
 // existing zero-size handling (gb_cart_read/write_ram() below) take over
@@ -135,7 +135,7 @@ int gb_cart_load(GBCart *cart, const char *path) {
         default:
             fprintf(stderr,
                     "'%s': unsupported cartridge type 0x%02X - only MBC-less/MBC1/MBC3/MBC5 "
-                    "are implemented so far (see gameboy/docs/GAMEBOY_ROADMAP.md)\n",
+                    "are implemented so far (see docs/GAMEBOY_ROADMAP.md)\n",
                     path, cart_type);
             free(rom);
             return -1;

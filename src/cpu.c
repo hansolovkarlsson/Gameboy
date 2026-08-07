@@ -6,10 +6,10 @@
 
 // Table-driven dispatch, same *shape* as cpm/emu/src/z80.c's
 // main_opcode_table/z80_op_ld_r_r/z80_op_alu_group pattern - see
-// gameboy/docs/GAMEBOY_ROADMAP.md's "Architecture decision" for why this is an
+// docs/GAMEBOY_ROADMAP.md's "Architecture decision" for why this is an
 // independent implementation rather than shared code. Every opcode's
 // bytes/cycles/flags below were checked against the official gbdev.io
-// opcode table (fetched during this phase - see gameboy/docs/GAMEBOY_ROADMAP.md
+// opcode table (fetched during this phase - see docs/GAMEBOY_ROADMAP.md
 // Status section for the exact source and the one real erratum found
 // along the way: BIT b,(HL) is 12 cycles, not 16 like the read-modify-
 // write CB ops, since it never writes anything back).
@@ -218,7 +218,7 @@ static int gb_op_jp(GBCpu *cpu) { cpu->pc = fetch_word(cpu); return 16; }
 // Real behavior: jump straight to the value *in* HL - unlike every
 // other "(HL)" operand in this table, this one is not a memory
 // dereference (confirmed against the official opcode table's per-
-// operand `immediate` flag - see gameboy/docs/GAMEBOY_ROADMAP.md).
+// operand `immediate` flag - see docs/GAMEBOY_ROADMAP.md).
 static int gb_op_jp_hl(GBCpu *cpu) { cpu->pc = cpu->hl; return 4; }
 
 static int gb_op_call(GBCpu *cpu) {
@@ -348,7 +348,7 @@ static int gb_op_ld_r_r(GBCpu *cpu) {
             // return address - meaning RETI naturally resumes execution
             // back at this same HALT, which by then sees ime=1 for real
             // and halts properly ("waits for another interrupt", per
-            // pandocs). Found via a real ROM (gameboy/test_roms/tobutobugirl/)
+            // pandocs). Found via a real ROM (test_roms/tobutobugirl/)
             // whose main loop's own "ei; halt" idiom hit exactly this:
             // treating it as the generic halt_bug case instead pushed
             // the wrong return address (pc *after* HALT, not pc *at*
@@ -356,7 +356,7 @@ static int gb_op_ld_r_r(GBCpu *cpu) {
             // halt_bug=1 to incorrectly fire again on the interrupt
             // vector's own first instruction once inside the handler,
             // double-executing it and corrupting the stack by 2 bytes -
-            // see gameboy/test_roms/tobutobugirl/README.md for the full story.
+            // see test_roms/tobutobugirl/README.md for the full story.
             cpu->pc--;
         } else if (!cpu->ime && pending) {
             // The generic HALT bug (pandocs' halt.md): IME=0 with an
@@ -481,7 +481,7 @@ static int gb_op_prefix_cb(GBCpu *cpu) {
         // write-back cycles the other three groups need - 12, not 16.
         // Confirmed against the official gbdev.io opcode table; a
         // commonly-mirrored community JSON dataset gets this specific
-        // case wrong (says 16) - see gameboy/docs/GAMEBOY_ROADMAP.md.
+        // case wrong (says 16) - see docs/GAMEBOY_ROADMAP.md.
         return (reg_idx == 6) ? 12 : 8;
     }
     if (group == 2) {

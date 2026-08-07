@@ -15,7 +15,7 @@
 // description: "the interrupt is serviced and the handler called, but
 // the interrupt returns to the halt, which is executed again."
 //
-// Found via a real ROM (gameboy/test_roms/tobutobugirl/) whose main
+// Found via a real ROM (test_roms/tobutobugirl/) whose main
 // loop's own "ei; halt" idiom hit exactly this - treating it as the
 // generic halt_bug case instead corrupted the stack by 2 bytes (see
 // that ROM's own README.md for the full story) and eventually crashed

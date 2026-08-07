@@ -2,18 +2,23 @@
 
 ## Project
 
-A Game Boy (DMG, the original 1989 hardware) emulator, sharing this
-repo with the Z80/CP-M emulator but built as a separate subproject
-under `gameboy/` - see `gameboy/README.md` for the directory layout
-and why cartridge ROMs are split into `roms/` (your own dumps, never
-committed) vs `test_roms/` (open-source test suites, safe to commit).
-Not started yet: this document exists to scope the work before writing
-code, the same way `cpm/docs/ROADMAP.md` tracked the Z80 core before it was
-built. This document tracks *status* - for the actual SM83 instruction
-set and DMG hardware behavior (memory map, PPU, APU, timer, joypad),
-see `gameboy/docs/CPU_REFERENCE.md` and `gameboy/docs/HARDWARE_REFERENCE.md`
-instead, the same split `cpm/docs/ROADMAP.md`/`cpm/docs/Z80_REFERENCE.md`/
-`cpm/docs/CPM_REFERENCE.md` already establish on the CP/M side.
+A Game Boy (DMG, the original 1989 hardware) emulator. Originally
+developed as a separate subproject inside a Z80/CP-M emulator repo
+(sharing nothing but a build directory and general-purpose tooling with
+it - see the "Architecture decision" section just below), then split
+out into this standalone repo via `git subtree split` once real,
+end-to-end functionality (a real front end, real-game validation, save
+states) made clear the two projects would never actually share code -
+see `README.md` for the directory layout and why cartridge ROMs are
+split into `roms/` (your own dumps, never committed) vs `test_roms/`
+(open-source test suites, safe to commit). This document tracks
+*status* (see below - this project is far along, not a from-scratch
+scoping document any more) - for the actual SM83 instruction set and
+DMG hardware behavior (memory map, PPU, APU, timer, joypad), see
+`docs/CPU_REFERENCE.md` and `docs/HARDWARE_REFERENCE.md` instead, the
+same docs/status split the sibling Z80/CP-M repo uses for itself
+(`cpm/docs/ROADMAP.md`/`cpm/docs/Z80_REFERENCE.md`/
+`cpm/docs/CPM_REFERENCE.md`), not invented fresh here.
 
 ## The CPU: Sharp SM83 (commonly called "LR35902")
 
@@ -52,7 +57,7 @@ per `CLAUDE.md`'s own stated preference.
 A previous session's notes (`cpm/docs/ROADMAP.md`'s old Phase 4 entry)
 sketched extracting `z80.c`/`alu.c` into a shared `core/` and
 parameterizing the opcode table for the SM83's differences. Starting
-this project standalone instead: `gameboy/src/` gets its own CPU core,
+this project standalone instead: `src/` gets its own CPU core,
 own opcode table, own ALU code, no dependency on `cpm/emu/src/`. Reasoning:
 the ISA differences above are real and pervasive enough (missing
 register files, a materially different instruction set, different
@@ -119,8 +124,8 @@ Same convention this project already uses on the CP/M side
 (`CLAUDE.md`'s stated session convention: find a bug via real software,
 root-cause it against a grounded reference, fix, add a regression
 test): run real, well-known homebrew/open-source ROMs from
-`gameboy/test_roms/`, and - separately, locally, never committed -
-real cartridge dumps from `gameboy/roms/` the user owns, fixing bugs
+`test_roms/`, and - separately, locally, never committed -
+real cartridge dumps from `roms/` the user owns, fixing bugs
 found against Pan Docs/hardware test results rather than guessing.
 
 ### Phase 7 (exploratory, not scoped)
@@ -140,12 +145,12 @@ found against Pan Docs/hardware test results rather than guessing.
 ## Status
 
 **Phase 1 (CPU core): functionally complete and passing its gate.**
-`gameboy/src/cpu.c`/`alu.c` implement the full SM83 instruction set -
+`src/cpu.c`/`alu.c` implement the full SM83 instruction set -
 every opcode in both the unprefixed and CB-prefixed tables, table-driven
 in the same spirit as `cpm/emu/src/z80.c` (generic decode for the four fully
 regular blocks: `LD r,r`, the r8 and d8 ALU groups, and the whole
 CB-prefixed table; individually-named handlers for everything else).
-`gameboy/src/mmu.c` is a deliberately temporary flat-memory harness
+`src/mmu.c` is a deliberately temporary flat-memory harness
 (echo RAM, a "not usable" stub, a serial-port capture hook) - just
 enough to run a real, unbanked ROM, not a real MMU (Phase 2's job).
 `make gameboy` builds `bin/gameboy`, opt-in like `make gtk` (not part of
@@ -176,22 +181,24 @@ the "interrupt already pending" condition that triggers it.
 exactly the way expected: both need a real timer/interrupt controller,
 which doesn't exist until Phase 4 - not a CPU-core correctness bug.
 
-**Licensing note - why `gameboy/test_roms/` is still empty**: Blargg's
+**Licensing note - why `test_roms/` is still empty**: Blargg's
 test ROMs (fetched from `retrio/gb-test-roms` to validate the above,
-not committed) carry no explicit license, unlike ZEXALL/ZEXDOC
-(GPLv2, committed at `cpm/emu/zexall/`) - the same cautious call already
-documented in `gameboy/README.md`. This also means Blargg's ROMs can't
-be wired into `make test` the way ZEXALL is, since that would need
-either committing them anyway or a network fetch at test time (neither
-matches this project's reproducible-test convention). The Mooneye GB
-test suite (`Gekkio/mooneye-test-suite`, confirmed MIT-licensed) is the
-recommended path to a real, committable, `make test`-integrated
-correctness gate - deferred rather than pursued now since it ships as
-assembly source needing `rgbds` to build, not prebuilt ROMs, which is
-real additional setup work of its own.
+not committed) carry no explicit license, unlike ZEXALL/ZEXDOC (GPLv2,
+committed at the sibling Z80/CP-M repo's own `cpm/emu/zexall/`) - the
+same cautious call already documented in `README.md`. This also means
+Blargg's ROMs can't be wired into a committed, automatically-run
+regression target the way that sibling repo's own `make test` wires in
+ZEXALL, since that would need either committing them anyway or a
+network fetch at test time (neither matches this project's
+reproducible-test convention). The Mooneye GB test suite
+(`Gekkio/mooneye-test-suite`, confirmed MIT-licensed) is the recommended
+path to a real, committable correctness gate of that same shape -
+deferred rather than pursued now since it ships as assembly source
+needing `rgbds` to build, not prebuilt ROMs, which is real additional
+setup work of its own.
 
 **Phase 2 (memory map and cartridge/MBC support): done.**
-`gameboy/src/cart.{c,h}` parses a real cartridge header (`0x0134`-
+`src/cart.{c,h}` parses a real cartridge header (`0x0134`-
 `0x014F` - title area, cartridge-type byte, ROM/RAM size codes, header
 checksum) and implements MBC-less, MBC1, MBC3 (with its RTC latch
 register set), and MBC5 bank switching - the scope this phase's own
@@ -203,7 +210,7 @@ cartridge size; MBC3's RTC register-select-vs-RAM-bank overlap and its
 0x00-then-0x01 latch sequence; MBC5's clean 9-bit ROM bank number with
 no bank-0 translation quirk at all) is grounded against pandocs'
 `MBC1.md`/`MBC3.md`/`MBC5.md`/`nombc.md`/`The_Cartridge_Header.md`
-(fetched during this phase), not guessed. `gameboy/src/mmu.c` now
+(fetched during this phase), not guessed. `src/mmu.c` now
 routes `0x0000`-`0x7FFF` and `0xA000`-`0xBFFF` through `cart.c`;
 `cpu->memory` (see `cpu.h`) is VRAM/WRAM/OAM/I-O-registers/HRAM only, no
 longer the whole address space. `gb_cpu_reset()`'s F-register
@@ -219,7 +226,7 @@ questions) was easy to get subtly wrong and worth citing precisely.
 all (they're all plain 32 KiB MBC-less), so they don't exercise any of
 this phase's actual work, and no real MBC1/MBC3/MBC5 test ROM was
 available to fetch and commit (same licensing situation as `cpu_instrs`
-- see above). Instead, `gameboy/tests/test_cart.c` (`make gameboy-test`,
+- see above). Instead, `tests/test_cart.c` (`make gameboy-test`,
 26 checks) unit-tests `cart.c` directly against the exact scenarios in
 pandocs' own addressing diagrams - MBC1 basic and large-ROM/advanced-
 mode banking, MBC1 RAM banking (both banking modes), RAM-disabled
@@ -233,13 +240,13 @@ not part of the top-level `all`/`test` yet, matching the rest of this
 still-early subproject.
 
 **Phase 3 (PPU): done, with a documented, evidenced gap.**
-`gameboy/src/ppu.{c,h}` implements the LCD controller: all twelve
+`src/ppu.{c,h}` implements the LCD controller: all twelve
 registers (`0xFF40`-`0xFF4B`), the mode/timing state machine (OAM
 scan/Drawing/HBlank/VBlank, 456 dots/scanline, 154 scanlines/frame),
 and a scanline-at-a-time renderer covering background, window, and
 objects (both 8x8 and 8x16, correct selection/drawing priority, X/Y
 flip, the two tile-addressing modes and their signed-vs-unsigned
-quirk, DMG palette translation). `gameboy/src/mmu.c` now routes
+quirk, DMG palette translation). `src/mmu.c` now routes
 `0xFF40`-`0xFF4B` through it and triggers OAM DMA transfers. Every
 register layout, addressing mode, and priority rule is grounded
 against pandocs' `LCDC.md`/`STAT.md`/`Tile_Data.md`/`Tile_Maps.md`/
@@ -255,12 +262,12 @@ transfer (correct for any program that follows the universal
 busy-wait-in-HRAM convention real hardware requires anyway).
 
 **Correctness gate**: [dmg-acid2](https://github.com/mattcurrie/dmg-acid2)
-(Matt Currie, MIT-licensed - committed at `gameboy/test_roms/dmg-acid2/`,
+(Matt Currie, MIT-licensed - committed at `test_roms/dmg-acid2/`,
 unlike Blargg's ROMs) is the standard PPU correctness test in the Game
 Boy dev community, with a known-correct reference image to compare
 against pixel-for-pixel - exactly the gate this phase's own original
 plan called for. `make gameboy-visual-test` renders a frame and runs
-`gameboy/tests/compare_frame.py` (a small dependency-free PNG decoder +
+`tests/compare_frame.py` (a small dependency-free PNG decoder +
 comparator, since there's no image library in this project) against it:
 **21037/23040 pixels match (91.31%)**.
 
@@ -283,13 +290,13 @@ Matt Currie") is entirely blank (the window never gets disabled to
 reveal it), the eyes render differently (their two-stage window/object
 overlay never gets its mid-frame update), and the "HELLO WORLD!" text's
 exclamation mark handling is affected (the row it's on is exactly where
-`gameboy/tests/compare_frame.py`'s pixel diff concentrates). Re-run this
+`tests/compare_frame.py`'s pixel diff concentrates). Re-run this
 gate once Phase 4 lands - a rate meaningfully *below* 91.31% at that
 point would flag a real regression, which is why `compare_frame.py`
 treats its baseline as a floor to check against, not a fixed target.
 
 **Phase 4 (interrupts, timer, joypad input): done, dmg-acid2 prediction confirmed.**
-`gameboy/src/cpu.c`'s `gb_cpu_step()` now actually dispatches interrupts
+`src/cpu.c`'s `gb_cpu_step()` now actually dispatches interrupts
 (push `PC`, jump to `0x40`/`0x48`/`0x50`/`0x58`/`0x60`, 20 T-states,
 priority by bit order) instead of just leaving `IF` bits set for no one
 to read - grounded against pandocs' `Interrupts.md` (fetched during
@@ -301,7 +308,7 @@ effects (not just a refetch) before continuing normally - matching
 pandocs' `halt.md` precisely, including *why* it happens (a skipped PC
 increment), not just the visible symptom.
 
-`gameboy/src/timer.{c,h}` (new) implements `DIV`/`TIMA`/`TMA`/`TAC`
+`src/timer.{c,h}` (new) implements `DIV`/`TIMA`/`TMA`/`TAC`
 (`0xFF04`-`0xFF07`) as the real hardware does: a free-running 16-bit
 "system counter" (`DIV` is just its visible upper byte) with `TIMA`
 incrementing on a *falling edge* of one specific counter bit (selected
@@ -313,10 +320,10 @@ the same counter) can cause a spurious `TIMA` tick if the monitored bit
 happened to be set; and a `TIMA` overflow doesn't reload from `TMA` and
 request an interrupt until one M-cycle *after* the overflow, reading
 `$00` in between (pandocs' `Timer_Obscure_Behaviour.md`). Both are
-covered by `gameboy/tests/test_timer.c` (`make gameboy-test`, 14
+covered by `tests/test_timer.c` (`make gameboy-test`, 14
 checks) directly, independent of any ROM.
 
-`gameboy/src/joypad.{c,h}` (new) implements `P1`/`JOYP` (`0xFF00`) -
+`src/joypad.{c,h}` (new) implements `P1`/`JOYP` (`0xFF00`) -
 the action/direction button multiplexing and its inverted "0 = pressed"
 polarity (pandocs' `Joypad_Input.md`) - and a `gb_joypad_set_action()`/
 `gb_joypad_set_direction()` API for a future front-end or test harness
@@ -372,13 +379,13 @@ pass whenever precise Mode-3 pixel timing becomes the active work,
 rather than something to chase down mid-Phase-4.
 
 **Phase 5 (APU/sound): done, with several genuinely obscure quirks
-honestly deferred.** `gameboy/src/apu.{c,h}` (new) implements all four
+honestly deferred.** `src/apu.{c,h}` (new) implements all four
 sound channels (two pulse, one wave, one noise), the DIV-APU frame
 sequencer (512 Hz, tied to `DIV` bit 4's falling edge - the same real-
 hardware-counter approach `timer.c` already uses for `DIV`/`TIMA`, not
 an independent counter), CH1's sweep unit with its own shadow register,
 length timers, envelope, DAC on/off, and `NR50`/`NR51`/`NR52` mixing
-including the documented DMG high-pass filter. `gameboy/src/mmu.c`
+including the documented DMG high-pass filter. `src/mmu.c`
 routes the full `0xFF10`-`0xFF3F` span (not two narrower ranges split
 around `NR52`/Wave RAM, which silently missed the `0xFF27`-`0xFF2F`
 gap registers - found via Blargg's `01-registers.gb`, see below) to it.
@@ -492,9 +499,9 @@ boots, plays, and merges tiles correctly.** Same convention this
 project already uses on the CP/M side (`CLAUDE.md`'s stated session
 convention: find a bug via real software, root-cause it against a
 grounded reference, fix, add a regression test) - see
-`gameboy/test_roms/2048-gb/README.md` for the full story. The target was
+`test_roms/2048-gb/README.md` for the full story. The target was
 [2048-gb](https://github.com/Sanqui/2048-gb) (zlib-licensed, committed
-to `gameboy/test_roms/2048-gb/` same as dmg-acid2), a complete, real
+to `test_roms/2048-gb/` same as dmg-acid2), a complete, real
 homebrew Game Boy port of the 2048 sliding-tile puzzle.
 
 **A real bug found immediately, before the ROM would even load**: its
@@ -529,7 +536,7 @@ possible at all.
 
 **Validation performed**: booted 2048-gb to its title screen (rendered
 frame matches the game's own known title-screen layout - "2048-gb" /
-credits / "Press Start!" - see `gameboy/test_roms/2048-gb/README.md`),
+credits / "Press Start!" - see `test_roms/2048-gb/README.md`),
 scripted a Start press to begin a new game (two `2` tiles spawn, Score/
 High score row renders correctly), then scripted `DOWN`/`RIGHT`/`DOWN`
 moves - tiles visibly slid and a new tile spawned after each move, and
@@ -552,7 +559,7 @@ save-RAM behavior, neither meaningfully exercised by 2048-gb) is also
 worth doing opportunistically, without needing a dedicated phase for it.
 
 **Phase 7 (real graphical front end): started, video + input working,
-audio deliberately deferred.** `gameboy/gtk/src/main.c` (new, opt-in via
+audio deliberately deferred.** `gtk/src/main.c` (new, opt-in via
 `make gameboy-gtk`, same GTK4-dependency reasoning as `cpm/gtk/`) is a
 real playable front end - a GTK4 window rendering the live framebuffer
 through Cairo (nearest-neighbor-scaled 4x so the real 160x144 pixel
@@ -564,7 +571,7 @@ one spawns the real `bin/z80` as a child process and hands a pty to a
 `VteTerminal` widget, which works because CP/M output is a text/
 escape-code stream a terminal widget already knows how to interpret.
 The Game Boy's output is a raw pixel framebuffer, so this front end
-links the core (`gameboy/src/*.c`, minus `main.c`'s own competing
+links the core (`src/*.c`, minus `main.c`'s own competing
 `main()`) directly into one binary instead - no child process, no pty,
 and therefore the macOS `posix_spawn`/xzone crash documented in
 `cpm/gtk/README.md` (triggered by VTE's own child-spawn path) doesn't
@@ -584,7 +591,7 @@ by deliberate choice, not oversight - the same judgment call
 rather than adding portability guards for a platform nothing here is
 built/tested on; a portable library like SDL2 was the other option
 considered, rejected to avoid a second external dependency alongside
-GTK4). `gameboy/src/apu.c` was already generating real samples
+GTK4). `src/apu.c` was already generating real samples
 (`main.c --wav` proved that) - the gap was purely playback. `setup_audio()`/
 `flush_audio()` (`gtk/src/main.c`) use a "push" model matched to how
 sample production actually works here: `gb_apu_step()` already paces
@@ -604,7 +611,7 @@ across an extended 2048-gb session.
 **Still not done**: Game Boy Color support - the remaining Phase 7 item,
 still fully unscoped.
 
-**Save states: done** (`gameboy/src/savestate.c`/`.h`, new). Serializes
+**Save states: done** (`src/savestate.c`/`.h`, new). Serializes
 every field `gb_cpu_step()`/`gb_ppu_step()`/`gb_timer_step()`/
 `gb_apu_step()` actually consume - CPU registers, the full `memory[]`
 array (VRAM/WRAM/OAM/I-O-registers/HRAM), PPU/timer/joypad/APU register
@@ -628,13 +635,13 @@ banking/RTC state onto the wrong ROM; and the save/load API lives behind
 `joypad`/`apu` pointers), so there's no way to call it with mismatched
 structs by construction.
 
-Wired into both drivers: `gameboy/gtk/src/main.c` binds F5 (save) / F9
+Wired into both drivers: `gtk/src/main.c` binds F5 (save) / F9
 (load) to `<rom path>.state` - the same key convention several existing
 emulators (VBA-M, Dolphin, RetroArch's defaults) already use, not
-invented here - and `gameboy/src/main.c` gained `--load-state`/
+invented here - and `src/main.c` gained `--load-state`/
 `--save-state` CLI flags for scripted/test use.
 
-Verified two ways: `gameboy/tests/test_savestate.c` (new, direct
+Verified two ways: `tests/test_savestate.c` (new, direct
 round-trip - build every struct with a distinctive value in every single
 field, save, stomp everything to a *different* set of values, load, and
 check every field individually came back exactly as saved, plus a
@@ -686,7 +693,7 @@ these two, a real linked GitHub repository with its own `LICENSE` file
 independently fetched and checked before committing - the same bar
 `dmg-acid2`/`2048-gb` were already held to):
 
-- **Droneboy** (`gameboy/test_roms/droneboy/`, MIT) - the live-audio
+- **Droneboy** (`test_roms/droneboy/`, MIT) - the live-audio
   counterpart to dmg-acid2's PPU test: real, sustained multi-channel
   sound from the moment it boots, no scripted input needed, unlike
   `2048-gb`'s single ~0.05s startup blip. Its own README describes
@@ -698,7 +705,7 @@ independently fetched and checked before committing - the same bar
   genuinely expects MIDI/link-cable input) rather than claimed as
   working interaction. `make gameboy-droneboy-test` locks in a 2-second
   `--wav` capture as a byte-for-byte regression baseline.
-- **Tobu Tobu Girl** (`gameboy/test_roms/tobutobugirl/`, MIT) - a second
+- **Tobu Tobu Girl** (`test_roms/tobutobugirl/`, MIT) - a second
   real-game validation target alongside `2048-gb`, this time a
   well-known action/platformer rather than a puzzle game, and a
   substantially larger ROM (2Mbit vs. 2048-gb's 256Kbit). `make
@@ -739,9 +746,9 @@ on real DMG hardware, so only the one specific case pandocs itself
 confirms as reliable "on all units tested" was implemented
 (`apply_zombie_mode_increment()` in `apu.c`) - the fuller CGB-02/04
 algorithm would be guessing at unconfirmed DMG behavior, not grounding.
-Regression-tested directly (`gameboy/tests/test_apu.c`, new, 12 checks,
+Regression-tested directly (`tests/test_apu.c`, new, 12 checks,
 wired into `make gameboy-test`) rather than only through Droneboy
-itself - see `gameboy/test_roms/droneboy/README.md` for the full story.
+itself - see `test_roms/droneboy/README.md` for the full story.
 
 **A real, standalone CPU bug found and fixed: the "HALT immediately
 after EI" sub-case of the HALT bug.** Found through Tobu Tobu Girl,
@@ -766,10 +773,10 @@ instructions later finally popped garbage. Fixed in `gb_op_ld_r_r()`/
 as EI's delayed instruction - deliberately kept separate from
 `ime_pending` itself rather than reusing it, since EI's own opcode
 handler writes that field too. Regression-tested directly and
-precisely (`gameboy/tests/test_cpu.c`, new, 14 checks: exact interrupt-
+precisely (`tests/test_cpu.c`, new, 14 checks: exact interrupt-
 return address, exact stack balance, correct re-halt on retry - not
 just "this one ROM stops crashing"), wired into `make gameboy-test`.
-See `gameboy/test_roms/tobutobugirl/README.md` for the full
+See `test_roms/tobutobugirl/README.md` for the full
 root-causing story.
 
 **Toolchain decision: RGBDS, not a homegrown Game Boy assembler.**
@@ -782,7 +789,7 @@ CPU-*emulator* sharing this project already declined for the same
 CPU pair (see this doc's own "Architecture decision" section). Went
 with RGBDS instead: it's already the de facto standard the whole real
 Game Boy homebrew scene uses - `2048-gb`, `Tobu Tobu Girl`, and
-`Droneboy` (`gameboy/test_roms/`) are all built with RGBDS or GBDK
+`Droneboy` (`test_roms/`) are all built with RGBDS or GBDK
 (itself built on RGBDS's assembler) - so adopting it costs nothing
 against real ongoing effort maintaining a second instruction set
 inside `z80asm`, for what's fundamentally a means-to-an-end need
@@ -791,21 +798,21 @@ compiler was also considered and dismissed outright: GBDK (built on
 SDCC) already fills that role and is what real games already
 committed here are written in - a from-scratch compiler is a far
 bigger undertaking than an assembler, poor ROI for generating test
-content. See `gameboy/rgbds/README.md` for the full reasoning and
-`gameboy/rgbds/examples/hello.asm` for a real, working proof: `make
+content. See `rgbds/README.md` for the full reasoning and
+`rgbds/examples/hello.asm` for a real, working proof: `make
 gameboy-rgbds-test` assembles, links, and fixes a real RGBDS source,
 then runs the result through this project's own `bin/gameboy` and
 checks its actual output - confirming the whole round-trip works, not
 just that RGBDS itself does. Opt-in (`brew install rgbds`), same
-external-dependency reasoning as `make gtk`/`make gameboy-gtk` - never
-part of the default `make`/`make test`/`make gameboy-test`.
+external-dependency reasoning as `make gameboy-gtk` - never part of
+plain `make`/`make gameboy-test`.
 
-**First real payoff: `gameboy/rgbds/examples/mbc3_rtc.asm`, closing this
+**First real payoff: `rgbds/examples/mbc3_rtc.asm`, closing this
 doc's own previously-flagged MBC3 RTC gap.** Drives the real
 memory-mapped MBC3 interface directly (bank-select at `$4000`-`$5FFF`,
 the latch sequence at `$6000`-`$7FFF`, the shared `$A000`-`$BFFF`
 window) - a genuinely different, real-hardware-shaped way of exercising
-the same logic `gameboy/tests/test_cart.c`'s synthetic `GBCart`-struct
+the same logic `tests/test_cart.c`'s synthetic `GBCart`-struct
 checks already cover, not a duplicate. Writes sentinel bytes into two
 banked-RAM banks and all five RTC registers, latches, reads it back,
 overwrites the *live* registers without re-latching (the latch stays
@@ -817,7 +824,7 @@ found this time, a clean confirmation rather than another fix. Scoped
 to what's actually implemented: `cart.c`'s own comment already states
 the RTC registers don't advance with real elapsed time, so this ROM
 tests write/latch/read fidelity, not "does time actually pass". See
-`gameboy/rgbds/README.md` for the full story.
+`rgbds/README.md` for the full story.
 
 **Phase 8: Mode 3's real, variable-length timing - implemented, and a
 real, honest finding about what it did and didn't fix.** Replaced the
@@ -854,9 +861,33 @@ object penalty either way (checked directly), so an accurate Mode 3
 *duration* was never going to move them - this **disproves** the
 Phase 4 theory that blamed Mode 3's fixed length for this specific
 gap, real information even though it doesn't close it. The full
-regression suite (every existing `make test`/`make gameboy-test`/ROM
-target) still passes byte-for-byte identically after this change - a
+regression suite (`make gameboy-test` plus every existing ROM target)
+still passes byte-for-byte identically after this change - a
 real, additive correctness fix with zero observed regressions, just
 not the one that happens to fix `dmg-acid2`'s last mismatch. The
 actual cause remains open, most plausibly needing the full pixel-FIFO
 simulation this phase deliberately still didn't build.
+
+**Repo split: this project is now its own standalone repository**,
+separated from the Z80/CP-M repo it was originally developed inside.
+Rationale: by this point `gameboy/` shared zero code with `cpm/` (the
+"Architecture decision" section above explains why that was true from
+the very start, not something that only became true later) - the only
+things shared between the two were a root `Makefile`, a `bin/` build
+output directory, and general-purpose `scripts/`, none of which
+constitutes real coupling. Done via `git subtree split --prefix=gameboy
+-b gameboy-history`, not a fresh copy or a squashed single commit -
+this project's own standard of grounded, traceable history applies to
+its own git history too, so the real commit-by-commit record of every
+phase/fix documented throughout this file (94 total repo commits
+scanned, 22 of them touching `gameboy/`) moved intact to this repo
+rather than being discarded. Every in-repo path reference that used to
+read `gameboy/...` (this document, `README.md`, every source comment,
+every test ROM's own `README.md`) was updated to drop that now-nonexistent
+prefix; comments that cited the sibling Z80/CP-M repo's own files
+(`cpm/emu/src/z80.c` and similar) as real prior art or a point of
+comparison were left as-is where the citation itself is still accurate
+(a real precedent this project's own design was checked against), and
+only reworded where the original phrasing specifically claimed
+same-repo containment (e.g. "elsewhere in this repo") that's no longer
+true post-split.

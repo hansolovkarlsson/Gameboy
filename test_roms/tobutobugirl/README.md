@@ -11,7 +11,7 @@ here.
 A real, unmodified, well-known homebrew action game - a "flap to fly"
 platformer, originally made for a game jam and widely used across the
 Game Boy dev community as a real-game test target. A second real-game
-validation ROM alongside `2048-gb` (`gameboy/docs/GAMEBOY_ROADMAP.md`'s
+validation ROM alongside `2048-gb` (`docs/GAMEBOY_ROADMAP.md`'s
 Phase 6), this time an action/platformer rather than a puzzle game -
 exercises MBC1 banking (same as `2048-gb`) but a substantially larger
 ROM (2Mbit vs. 2048-gb's 256Kbit) with real sprite-heavy scrolling
@@ -39,7 +39,7 @@ flag to double-execute the interrupt vector's own first instruction,
 silently corrupting the stack by 2 bytes on every occurrence until a
 `RETI` finally popped garbage. Fixed in `gb_op_ld_r_r()`/`gb_cpu_step()`
 (`cpu.c`) and covered by a direct, ROM-independent unit test
-(`gameboy/tests/test_cpu.c`, `make gameboy-test`) that exercises the exact
+(`tests/test_cpu.c`, `make gameboy-test`) that exercises the exact
 `ei; halt` sequence and asserts the correct interrupt-return address
 and stack balance - not just "this one ROM stops crashing." Confirmed
 fixed: this ROM now runs well past the previous crash point (1289+

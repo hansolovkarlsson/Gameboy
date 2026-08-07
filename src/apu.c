@@ -434,7 +434,7 @@ static void extra_length_clock_on_enable(GBApu *apu, int ch, uint8_t old_nrx4, u
 // increase mode and a period of zero increments the live volume by 1
 // each time (wrapping mod 16, so 15 repeats decrements by 1) - exactly
 // apu.h's own "Obscure Behavior" comment named as deliberately
-// unimplemented, until a real ROM (Droneboy, gameboy/test_roms/droneboy/)
+// unimplemented, until a real ROM (Droneboy, test_roms/droneboy/)
 // turned out to rely on precisely this technique for its live volume
 // faders. Deliberately narrower than the full CGB-02/04 algorithm
 // pandocs also documents - that one isn't confirmed for DMG, so
@@ -450,7 +450,7 @@ void gb_apu_write(GBApu *apu, uint16_t addr, uint8_t val) {
     // not affect Wave RAM... which can always be read/written"). This
     // phase doesn't model the DMG's exact "only accessible on the same
     // cycle CH3 itself reads" mid-playback lock - see
-    // gameboy/docs/GAMEBOY_ROADMAP.md's Phase 5 status.
+    // docs/GAMEBOY_ROADMAP.md's Phase 5 status.
     if (addr >= 0xFF30 && addr <= 0xFF3F) {
         apu->wave_ram[addr - 0xFF30] = val;
         return;

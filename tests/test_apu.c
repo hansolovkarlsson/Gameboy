@@ -23,7 +23,7 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
 // algorithm is explicitly "crazy"/unreliable on DMG, so only this
 // narrow case is implemented - see apply_zombie_mode_increment()'s own
 // comment in apu.c). Found necessary by a real ROM, Droneboy
-// (gameboy/test_roms/droneboy/droneboy.gb), whose own volume-fader code
+// (test_roms/droneboy/droneboy.gb), whose own volume-fader code
 // relies on exactly this technique - see its README.md for the story.
 //
 // gb_apu_write()/gb_apu_reset() need no GBCpu at all (triggers and

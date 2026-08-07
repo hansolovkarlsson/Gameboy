@@ -3,16 +3,16 @@
 Fetched from <https://sanqui.rustedlogic.net/etc/2048.gb> (linked from
 <https://github.com/Sanqui/2048-gb>'s own README as the prebuilt
 release), zlib/libpng-licensed (`LICENSE`, Copyright (c) 2014 "Sanqui")
-- like `gameboy/test_roms/dmg-acid2/`, this one has an explicit permissive
+- like `test_roms/dmg-acid2/`, this one has an explicit permissive
 license, so it's safe to keep here. A real, unmodified, complete
 homebrew game (a Game Boy port of the 2048 sliding-tile puzzle), used
-for `gameboy/docs/GAMEBOY_ROADMAP.md`'s Phase 6 real-game validation - the
+for `docs/GAMEBOY_ROADMAP.md`'s Phase 6 real-game validation - the
 Game Boy side's counterpart to the CP/M side's Tasty Basic/MBASIC/BDS C
 real-software testing (`cpm/docs/ROADMAP.md`'s Phase 3).
 
 **A real bug found and fixed getting this ROM to load at all**: its
 cartridge header declares RAM size code `0x01`, which
-`gameboy/src/cart.c` rejected outright before this phase - pandocs'
+`src/cart.c` rejected outright before this phase - pandocs'
 `The_Cartridge_Header.md` documents `0x01` as officially "Unused" but
 also that "Various 'PD' ROMs... are known to use the `$01` RAM Size
 tag, but this is believed to have been a mistake with early homebrew

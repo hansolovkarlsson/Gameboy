@@ -1,0 +1,6 @@
+bin/
+src/*.o
+gtk/src/*.o
+tests/__pycache__/
+.claude/
+.DS_Store

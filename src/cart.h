@@ -6,12 +6,12 @@
 
 // Phase 2: real cartridge loading and Memory Bank Controller emulation,
 // replacing Phase 1's "whole ROM is one flat, unbanked block" stand-in.
-// Scope per gameboy/docs/GAMEBOY_ROADMAP.md: no-MBC (plain 32KB ROM), MBC1,
+// Scope per docs/GAMEBOY_ROADMAP.md: no-MBC (plain 32KB ROM), MBC1,
 // MBC3 (with its RTC), and MBC5 - covering the overwhelming majority of
 // real cartridges. Every register layout/banking quirk below is
 // grounded against pandocs' MBC1.md/MBC3.md/MBC5.md/nombc.md and
 // The_Cartridge_Header.md (fetched during this phase), not guessed -
-// see gameboy/src/cart.c's own comments for the specific citations.
+// see src/cart.c's own comments for the specific citations.
 typedef enum {
     GB_MBC_NONE,
     GB_MBC1,

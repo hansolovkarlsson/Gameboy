@@ -1,24 +1,25 @@
-// A real GTK4+Cairo front end for the Game Boy core (gameboy/src/) -
-// Phase 7's "real graphical front end" (see gameboy/docs/GAMEBOY_ROADMAP.md).
-// Unlike cpm/gtk/src/main.c, this links the core directly into one
-// binary rather than spawning a separate process: the Game Boy's output
-// is a pixel framebuffer, not a text/escape-code stream, so there's no
-// VteTerminal-shaped widget to hand a pty to - cpm/gtk's whole approach
-// doesn't transfer. Because nothing is spawned here, the macOS
-// posix_spawn/xzone crash documented in cpm/gtk/README.md (triggered by
-// VTE's own child-spawn path) doesn't apply to this binary at all.
+// A real GTK4+Cairo front end for the Game Boy core (src/) -
+// Phase 7's "real graphical front end" (see docs/GAMEBOY_ROADMAP.md).
+// Unlike the sibling Z80/CP-M repo's own cpm/gtk/src/main.c, this links
+// the core directly into one binary rather than spawning a separate
+// process: the Game Boy's output is a pixel framebuffer, not a text/
+// escape-code stream, so there's no VteTerminal-shaped widget to hand a
+// pty to - cpm/gtk's whole approach doesn't transfer. Because nothing is
+// spawned here, the macOS posix_spawn/xzone crash that sibling repo's
+// cpm/gtk/README.md documents (triggered by VTE's own child-spawn path)
+// doesn't apply to this binary at all.
 //
 // Kept as its own opt-in binary (`make gameboy-gtk`), same reasoning as
-// cpm/gtk: the GTK4 dependency stays out of the default `make`/`make
-// test` build, and gameboy/src/main.c's existing --ppm/--wav/--input
+// that sibling cpm/gtk: the GTK4 dependency stays out of the default
+// plain `make` build, and src/main.c's existing --ppm/--wav/--input
 // bring-up driver keeps working unmodified for testing.
 //
 // Real-time video, keyboard input, live audio (via CoreAudio's
 // AudioQueue - see setup_audio()'s own comment for why that API and not
-// a portable one), and save states (F5 save / F9 load, gameboy/src/
+// a portable one), and save states (F5 save / F9 load, src/
 // savestate.c - see on_key_pressed() below). CGB support is still
 // unimplemented anywhere in this project - see
-// gameboy/docs/GAMEBOY_ROADMAP.md's Phase 7.
+// docs/GAMEBOY_ROADMAP.md's Phase 7.
 
 #include <gtk/gtk.h>
 #include <AudioToolbox/AudioToolbox.h>
@@ -67,7 +68,7 @@ static char *g_rom_path = NULL;
 static GameboyApp g_app;
 
 // DMG shade index (0=white..3=black) -> 8-bit grayscale sample, exactly
-// matching gameboy/src/main.c's own shade_to_gray() - keeps this front
+// matching src/main.c's own shade_to_gray() - keeps this front
 // end's look consistent with the --ppm dumps used for testing rather
 // than inventing a separate (unconfirmed) "real DMG green" palette.
 static uint8_t shade_to_gray(uint8_t shade) {
@@ -165,7 +166,7 @@ static void flush_audio(GameboyApp *app) {
 }
 
 // Runs the core until one real video frame completes (VBlank), the same
-// per-tick shape gameboy/src/main.c's own --ppm loop uses. The ~16ms
+// per-tick shape src/main.c's own --ppm loop uses. The ~16ms
 // GLib timeout below is what actually paces wall-clock speed - stepping
 // one frame's ~70224 T-states worth of instructions takes microseconds,
 // nowhere near the timer interval, so this loop itself needs no pacing
@@ -290,7 +291,7 @@ static void activate(GtkApplication *gtk_app, gpointer user_data) {
 
     if (gb_cart_load(&g_app.cart, g_rom_path) != 0) {
         // gb_cart_load() already printed why - nothing more useful to
-        // do than give up (matches gameboy/src/main.c's own behavior).
+        // do than give up (matches src/main.c's own behavior).
         exit(EXIT_FAILURE);
     }
 

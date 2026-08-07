@@ -1,41 +1,57 @@
 # Game Boy emulator - directory layout
 
-See `gameboy/docs/GAMEBOY_ROADMAP.md` for project status and phases,
+A standalone Game Boy (DMG) emulator. Originally developed as a
+subproject inside a Z80/CP-M emulator repo, then split out (via `git
+subtree split`, preserving its real commit history) once it became
+clear the two shared no code at all - see `docs/GAMEBOY_ROADMAP.md`'s
+"Architecture decision" section for the reasoning behind keeping them
+separate even before the split, and its Status section for exactly
+when/how the split happened. Several comments throughout this codebase
+still cite `cpm/...` paths from that sibling Z80/CP-M repo (now a
+separate GitHub repository, not a directory here) as the real prior art
+a given design decision was compared against or modeled on - those
+citations remain accurate as "this is where the reasoning/precedent
+came from", just no longer as "elsewhere in this same repo".
+
+See `docs/GAMEBOY_ROADMAP.md` for project status and phases,
 [`CPU_REFERENCE.md`](docs/CPU_REFERENCE.md) for the SM83 instruction
 set, and [`HARDWARE_REFERENCE.md`](docs/HARDWARE_REFERENCE.md) for the
 memory map, cartridge/MBC banking, PPU (graphics), APU (sound), timer,
 and joypad. This file just covers the two ROM directories and why
 they're treated differently.
 
-- `src/` - the emulator source itself, completely separate from
-  `cpm/emu/src/` (the Z80/CP-M emulator elsewhere in this repo, kept
-  under `cpm/` - see the top-level `README.md`/`CLAUDE.md` for that
-  split). See `gameboy/docs/GAMEBOY_ROADMAP.md` for why this isn't sharing code
-  with the Z80 core, at least not yet.
+- `src/` - the emulator source itself: own opcode table, own ALU code,
+  no dependency on the sibling Z80/CP-M repo's emulator - see
+  `docs/GAMEBOY_ROADMAP.md`'s "Architecture decision" section for why
+  that repo's Z80 core and this one's SM83 core were kept as separate
+  implementations even while they lived in the same repo.
 
 - `test_roms/` - open-source correctness test suites (Blargg's
-  `gb-test-roms`, the Mooneye GB test suite, etc.) - the direct
-  equivalent of `cpm/emu/zexall/` for the Z80 core. Safe to commit once
-  fetched, same reasoning `cpm/resources/bdsc/upstream/README.md` already
-  documents for BDS C: verify the actual license before adding anything
-  here, and note where it came from.
+  `gb-test-roms`, the Mooneye GB test suite, etc.) - this project's own
+  equivalent of the Z80/CP-M repo's ZEXALL/ZEXDOC exercisers. Safe to
+  commit once fetched, same reasoning that sibling repo's
+  `cpm/resources/bdsc/upstream/README.md` documents for BDS C: verify
+  the actual license before adding anything here, and note where it
+  came from.
 
 - `roms/` - real cartridge dumps, gitignored (`roms/.gitignore`) and
-  **never committed, not even to this private repo**. Unlike the CP/M
-  side of this project (where a judgment call was already made to keep
-  a real dBASE II binary in `cpm/cpm_disk/`), commercial Game Boy ROMs are
+  **never committed, not even to this private repo**. Unlike the
+  sibling Z80/CP-M repo (where a judgment call was already made to keep
+  a real dBASE II binary committed), commercial Game Boy ROMs are
   Nintendo's copyrighted work, actively and specifically enforced -
   meaningfully different risk than 1980s CP/M software whose publishers
   mostly no longer exist or have released it. Keep your own dumps here
   locally; they'll never leave your machine via this repo.
 
-- `gtk/` - Phase 7's real GTK4+Cairo+CoreAudio front end (`make
-  gameboy-gtk`, opt-in like `cpm/gtk/`), a live playable window (video,
-  keyboard input, and sound) rather than the `--ppm`/`--wav`/`--input`
+- `gtk/` - the real GTK4+Cairo+CoreAudio front end (`make gameboy-gtk`,
+  opt-in - the only build target with an external dependency beyond a
+  bare C compiler), a live playable window (video, keyboard input,
+  sound, and save states) rather than the `--ppm`/`--wav`/`--input`
   bring-up driver `src/main.c` still provides for testing.
-  Architecturally different from `cpm/gtk/`: it links the core directly
-  instead of spawning a process and driving a terminal widget, since
-  Game Boy output is a pixel framebuffer, not text - see
-  `gtk/src/main.c`'s own top comment and `gameboy/docs/GAMEBOY_ROADMAP.md`'s
-  Phase 7 status for the full reasoning, current key bindings, and
-  what's still unscoped (CGB support, save states).
+  Architecturally different from the sibling Z80/CP-M repo's own
+  `cpm/gtk/`: it links the core directly instead of spawning a process
+  and driving a terminal widget, since Game Boy output is a pixel
+  framebuffer, not text - see `gtk/src/main.c`'s own top comment and
+  `docs/GAMEBOY_ROADMAP.md`'s Phase 7 status for the full reasoning,
+  current key bindings, and what's still unscoped (Game Boy Color
+  support).
