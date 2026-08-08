@@ -268,10 +268,11 @@ subdirectory of the same tarball).
   by setting `rom_bank_lo = 1` for `GB_MBC5` in `gb_cart_load()`
   (`cart.c`); also covered by a new direct unit test
   (`tests/test_cart.c`'s `test_mbc5_default_bank_is_one()`).
-- **`mbc1/multicart_rom_8Mb.gb` (not attempted)**: a genuinely distinct
-  MBC1 hardware variant, not a regular large-ROM MBC1 cart bug. MBC1M
-  multi-game compilation carts wire bit 4 of the `$2000-3FFF` ROM bank
-  register out entirely (pandocs' `MBC1.md` "MBC1M addressing
+- **`mbc1/multicart_rom_8Mb.gb` (not attempted at the time - since
+  FIXED, see "Results: MBC1M multicart detection" below)**: a genuinely
+  distinct MBC1 hardware variant, not a regular large-ROM MBC1 cart bug.
+  MBC1M multi-game compilation carts wire bit 4 of the `$2000-3FFF` ROM
+  bank register out entirely (pandocs' `MBC1.md` "MBC1M addressing
   diagrams": "From 2000-3FFF bank register (bit 4 unused)"), so the
   bank-number formula genuinely differs from `cart.c`'s existing MBC1
   handling, which assumes the regular large-ROM wiring. Real detection
@@ -288,3 +289,48 @@ subdirectory of the same tarball).
 
 See `tests/run_mooneye.py`'s own `EXPECTED` table for the per-ROM
 baseline this locks in as a regression floor.
+
+## Results: MBC1M multicart detection - `mbc1/multicart_rom_8Mb.gb` fixed, 62/65
+
+A later follow-up slice picked up the one deferred ROM from the section
+above. This ROM's own `.s` source is explicit that "MBC1 multicarts
+*cannot* be detected from the header alone" - a real MBC1M cart's
+header is indistinguishable from a regular large-ROM MBC1 cart's - so
+a real fix needs both a detection heuristic and a distinct address
+decode, not a one-line quirk.
+
+pandocs' `MBC1.md` "MBC1M" section documents the real wiring
+difference precisely: the secondary 2-bit register lands on ROM-bank
+bits 4-5 instead of the usual 5-6, and the primary 5-bit register is
+truncated to its low 4 bits for banking - but the *full* 5-bit register
+still feeds the existing "reads as bank 1, not bank 0" quirk, computed
+*before* any multicart truncation (a consequence pandocs states the
+inputs for but doesn't spell out directly). Confirmed byte-for-byte
+against this ROM's own `expected_banks` table (fetched from
+Gekkio/mooneye-test-suite): writing the primary register to 16
+(`0b10000`) does *not* trigger the quirk even though its truncated low
+nibble is 0 - only a literal 0 does - now covered directly by
+`tests/test_cart.c`'s `test_mbc1_multicart_rom_banking()`.
+
+For detection, pandocs only documents the identifying trait itself ("a
+Nintendo copyright header in bank $10"), not a precise algorithm, so
+`is_mbc1_multicart()` (`cart.c`) is a direct port of Gekkio's own
+mooneye-gb (`core/src/config/cartridge.rs`) - the same reference
+already cross-checked elsewhere in this file, and the concrete
+implementation this ROM's own comment ("this triggers heuristics in
+some emulators (e.g. mooneye-gb)") was written to satisfy: only a real
+1 MiB ROM ("only 8 Mbit MBC1 multicarts exist", per both pandocs and
+mooneye-gb) with a valid Nintendo logo at 3 or more of its 4 256 KiB
+page boundaries counts - tolerating a menu-less layout while not
+misfiring on a regular 1 MiB MBC1 game, which only ever has a valid
+logo in page 0. Covered by `test_mbc1_multicart_detection()`'s two
+synthetic ROMs (one flagged multicart, one correctly not).
+
+The new `mbc1_multicart` field needed no savestate changes - like
+`mbc_type`/`rom_banks`, it's fully re-derived from the ROM file at
+`gb_cart_load()` time, and `gb_savestate_load()`'s own fingerprint
+check already guarantees the same ROM is loaded first.
+
+Zero regressions across the full existing suite. `EXPECTED` in
+`tests/run_mooneye.py` updated to `PASS` for this ROM - **62/65** on
+the committed Mooneye subset, up from 61/65.

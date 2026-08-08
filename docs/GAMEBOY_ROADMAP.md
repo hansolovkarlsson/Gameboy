@@ -1225,8 +1225,9 @@ See `test_roms/mooneye/README.md`'s own "Results: Tier 2's mbc1/mbc5"
 section and `tests/run_mooneye.py`'s `EXPECTED` table for the full
 per-ROM baseline.
 
-**Next**: three known, distinct, honestly-scoped-out gaps remain across
-the committed Mooneye subset (61/65 overall) - none blocking, none
+**Next**: two known, distinct, honestly-scoped-out gaps remain across
+the committed Mooneye subset (62/65 overall, `mbc1/multicart_rom_8Mb.gb`
+fixed - see the MBC1M entry further below) - neither blocking, neither
 guessed at:
 
 - `pop_timing.gb` (and the last unresolved assertion each in
@@ -1235,8 +1236,6 @@ guessed at:
   for why this turned out to be a genuinely bigger change than the
   OAM-DMA-timing rewrite above, not a smaller version of the same
   pattern as first assumed.
-- `mbc1/multicart_rom_8Mb.gb`: MBC1M's genuinely distinct addressing
-  scheme, needs its own multicart-detection heuristic first.
 - `acceptance/ppu/` (11) + `acceptance/oam_dma*` (6), the two Tier 2
   slices deferred since the original Tier 1 adoption - now that OAM DMA
   is real and timed, these are worth revisiting; the `oam_dma*` ones in
@@ -1341,3 +1340,54 @@ tests, dmg-acid2/2048-gb/droneboy/tobu/savestate, RGBDS, Mooneye) all
 still passing unmodified, plus a manual smoke test of the new binary
 itself (window opens, keys move the D-pad/press A/B/Start/Select,
 audio plays, F5/F9 round-trips a save state).
+
+**`mbc1/multicart_rom_8Mb.gb`: FIXED - MBC1M multicart wiring, detected
+by porting mooneye-gb's own real-hardware-verified heuristic rather
+than inventing one.** The Mooneye ROM's own `.s` source says outright
+"MBC1 multicarts *cannot* be detected from the header alone" (a real
+1 MiB MBC1M cart's header looks identical to a regular 1 MiB MBC1
+game's), so any fix needs both a detection heuristic and a distinct
+address decode, not just a register tweak.
+
+pandocs' MBC1.md "MBC1M" section documents the real-hardware wiring
+difference precisely: the secondary 2-bit register lands on ROM-bank
+bits 4-5 instead of the usual 5-6, and the primary 5-bit register is
+truncated to its low 4 bits for banking - though (a detail pandocs
+states but doesn't spell out the consequence of) the *full* 5-bit
+register still feeds the existing "reads as bank 1, not bank 0" quirk,
+computed *before* any multicart truncation. Confirmed byte-for-byte
+against real values in the test ROM's own `expected_banks` table
+(fetched from Gekkio/mooneye-test-suite): writing primary register
+value 16 (0b10000) does *not* trigger the quirk even though its
+truncated low nibble is 0 - only writing literal 0 does - which
+`tests/test_cart.c`'s new `test_mbc1_multicart_rom_banking()` checks
+directly, alongside the bits-4-5-not-5-6 placement.
+
+For detection, pandocs only documents the identifying trait ("a
+Nintendo copyright header in bank $10"), not a precise algorithm - so
+`is_mbc1_multicart()` (`cart.c`) is a direct port of Gekkio's own
+mooneye-gb (`core/src/config/cartridge.rs`), the same reference this
+project already cross-checks other MBC behavior against, and the
+concrete implementation the Mooneye ROM's own comment ("this triggers
+heuristics in some emulators (e.g. mooneye-gb)") was written to
+satisfy: only a real 1 MiB ROM (`rom.len() == 0x100000` - "only 8 Mbit
+MBC1 multicarts exist" per both pandocs and mooneye-gb) with a valid
+Nintendo logo at >=3 of its 4 256 KiB page boundaries counts,
+tolerating a menu-less layout while still not misfiring on a regular
+1 MiB MBC1 game, which only ever has a valid logo in page 0 - covered
+by `test_mbc1_multicart_detection()`'s two synthetic ROMs (one flagged,
+one not).
+
+Checked whether the new `mbc1_multicart` field needed its own
+savestate field: it doesn't, for the same reason `mbc_type`/`rom_banks`
+already aren't serialized either - it's fully re-derived from the ROM
+file at `gb_cart_load()` time, and `gb_savestate_load()`'s own
+fingerprint check already guarantees the same ROM is loaded first (see
+`savestate.c`'s own comment on that fingerprint).
+
+Zero regressions: full existing suite (unit tests including the two
+new ones above, dmg-acid2/2048-gb/droneboy/tobu/savestate, Mooneye)
+all still pass, and the previously-gated
+`mbc1/multicart_rom_8Mb.gb` (added to `EXPECTED` as `PASS` in
+`tests/run_mooneye.py`) now passes too - **62/65** on the committed
+Mooneye subset, up from 61/65.

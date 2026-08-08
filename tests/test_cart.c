@@ -128,6 +128,121 @@ static void test_mbc1_ram_disabled(void) {
     free(cart.ram);
 }
 
+// MBC1M multicart addressing (cart.c's gb_cart_read(), mbc1_multicart
+// branch) - spot-checked directly against real values from Mooneye's
+// own emulator-only/mbc1/multicart_rom_8Mb.s "expected_banks" table
+// (fetched from Gekkio/mooneye-test-suite), not invented here. That
+// table confirms two things this test isolates: the secondary register
+// lands on bits 4-5 (not 5-6), and the 0->1 "cannot duplicate bank 0"
+// quirk is decided on the full 5-bit primary register *before* it gets
+// truncated to 4 bits - so writing 16 (0b10000) does NOT trigger the
+// quirk even though its truncated low nibble is 0, unlike writing 0
+// itself.
+static void test_mbc1_multicart_rom_banking(void) {
+    GBCart cart = {0};
+    cart.mbc_type = GB_MBC1;
+    cart.mbc1_multicart = 1;
+    cart.rom_banks = 64; // 1 MiB = the only real MBC1M size
+    cart.rom = make_marked_rom(cart.rom_banks);
+    cart.rom_size = (size_t)cart.rom_banks * 0x4000;
+
+    gb_cart_write_ctrl(&cart, 0x4000, 1); // secondary register = 1 -> bits 4-5 (bank 16), not 5-6 (bank 32)
+    gb_cart_write_ctrl(&cart, 0x2000, 0); // primary register = 0 -> 0->1 quirk -> bank 16|1 = 17
+    check("MBC1M: secondary=1, primary=0 (quirked to 1) -> bank 17", gb_cart_read(&cart, 0x4000) == 17);
+
+    gb_cart_write_ctrl(&cart, 0x2000, 16); // primary register = 16 (0b10000): raw value is nonzero, no quirk
+    check("MBC1M: primary=16 truncates to nibble 0, no quirk applied (raw value was nonzero) -> bank 16",
+          gb_cart_read(&cart, 0x4000) == 16);
+
+    check("MBC1M: 0x0000-0x3FFF stays bank 0 in simple mode regardless of the secondary register",
+          gb_cart_read(&cart, 0x0000) == 0);
+
+    gb_cart_write_ctrl(&cart, 0x4000, 2); // secondary register = 2 -> bits 4-5 (bank 32 in mode 1), not 64
+    gb_cart_write_ctrl(&cart, 0x6000, 1); // advanced mode
+    check("MBC1M: advanced mode exposes bank 32 (2<<4) at 0x0000-0x3FFF, not bank 64 (2<<5)",
+          gb_cart_read(&cart, 0x0000) == 32);
+
+    free(cart.rom);
+}
+
+// is_mbc1_multicart()'s own detection heuristic (cart.c, ported from
+// Gekkio's mooneye-gb config/cartridge.rs): only a real 1 MiB MBC1 ROM
+// with a valid Nintendo logo at >=3 of its 4 256 KiB page boundaries is
+// flagged - a regular (non-multicart) 1 MiB MBC1 game, which only ever
+// has a valid logo in page 0, must NOT be misdetected as a multicart.
+static void write_logo(uint8_t *rom, size_t page_offset) {
+    static const uint8_t logo[48] = {
+        0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+        0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+        0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+    };
+    memcpy(rom + page_offset + 0x0104, logo, sizeof(logo));
+}
+
+static void test_mbc1_multicart_detection(void) {
+    size_t rom_size = 0x100000; // 1 MiB - the only size real MBC1M carts use
+
+    // Multicart: logo present at 3 of the 4 page boundaries (0x00000, 0x40000, 0x80000, 0xC0000).
+    {
+        const char *path = "/tmp/gb_test_cart_multicart.gb";
+        uint8_t *rom = calloc(1, rom_size);
+        rom[0x0147] = 0x01; // MBC1, no RAM
+        rom[0x0148] = 0x05; // 1 MiB / 64 banks
+        rom[0x0149] = 0x00;
+        write_logo(rom, 0x00000);
+        write_logo(rom, 0x40000);
+        write_logo(rom, 0x80000);
+        // page 3 (0xC0000) deliberately left without a logo - real
+        // carts can have a menu-less layout, matching mooneye-gb's own
+        // ">=3 of 4" threshold rather than requiring all 4.
+        uint8_t checksum = 0;
+        for (uint16_t addr = 0x0134; addr <= 0x014C; addr++) checksum = (uint8_t)(checksum - rom[addr] - 1);
+        rom[0x014D] = checksum;
+
+        FILE *f = fopen(path, "wb");
+        fwrite(rom, 1, rom_size, f);
+        fclose(f);
+        free(rom);
+
+        GBCart cart;
+        int rc = gb_cart_load(&cart, path);
+        check("gb_cart_load: succeeds on a synthetic 1 MiB MBC1 ROM", rc == 0);
+        if (rc == 0) {
+            check("MBC1M detection: 3-of-4 valid logo pages flags mbc1_multicart", cart.mbc1_multicart == 1);
+            gb_cart_free(&cart);
+        }
+        remove(path);
+    }
+
+    // Regular (non-multicart) 1 MiB MBC1 game: logo only in page 0.
+    {
+        const char *path = "/tmp/gb_test_cart_regular_1mb.gb";
+        uint8_t *rom = calloc(1, rom_size);
+        rom[0x0147] = 0x01;
+        rom[0x0148] = 0x05; // 1 MiB / 64 banks
+        rom[0x0149] = 0x00;
+        write_logo(rom, 0x00000);
+        uint8_t checksum = 0;
+        for (uint16_t addr = 0x0134; addr <= 0x014C; addr++) checksum = (uint8_t)(checksum - rom[addr] - 1);
+        rom[0x014D] = checksum;
+
+        FILE *f = fopen(path, "wb");
+        fwrite(rom, 1, rom_size, f);
+        fclose(f);
+        free(rom);
+
+        GBCart cart;
+        int rc = gb_cart_load(&cart, path);
+        check("gb_cart_load: succeeds on a synthetic regular 1 MiB MBC1 ROM", rc == 0);
+        if (rc == 0) {
+            check("MBC1M detection: a regular 1 MiB MBC1 game (logo in page 0 only) is not misdetected",
+                  cart.mbc1_multicart == 0);
+            gb_cart_free(&cart);
+        }
+        remove(path);
+    }
+}
+
 static void test_mbc3_rom_banking(void) {
     GBCart cart = {0};
     cart.mbc_type = GB_MBC3;
@@ -286,6 +401,8 @@ int main(void) {
     test_mbc1_large_rom_advanced_mode();
     test_mbc1_ram_banking();
     test_mbc1_ram_disabled();
+    test_mbc1_multicart_rom_banking();
+    test_mbc1_multicart_detection();
     test_mbc3_rom_banking();
     test_mbc3_rtc_latch();
     test_mbc5_rom_banking();

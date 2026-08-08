@@ -39,6 +39,45 @@ static int ram_banks_for_code(uint8_t code) {
     }
 }
 
+// The standard Nintendo logo bytes every real cartridge header stores at
+// 0x0104-0x0133 (pandocs' The_Cartridge_Header.md) - what the boot ROM
+// itself checks before ever running a cartridge. Reused below purely as
+// a fixed 48-byte fingerprint to detect MBC1M multicarts, not for any
+// boot-time validation of our own (this project's gb_cpu_reset() never
+// runs the real boot ROM - see its own comment).
+static const uint8_t nintendo_logo[48] = {
+    0xCE, 0xED, 0x66, 0x66, 0xCC, 0x0D, 0x00, 0x0B, 0x03, 0x73, 0x00, 0x83, 0x00, 0x0C, 0x00, 0x0D,
+    0x00, 0x08, 0x11, 0x1F, 0x88, 0x89, 0x00, 0x0E, 0xDC, 0xCC, 0x6E, 0xE6, 0xDD, 0xDD, 0xD9, 0x99,
+    0xBB, 0xBB, 0x67, 0x63, 0x6E, 0x0E, 0xEC, 0xCC, 0xDD, 0xDC, 0x99, 0x9F, 0xBB, 0xB9, 0x33, 0x3E,
+};
+
+// MBC1M multicart detection, ported directly from Gekkio's mooneye-gb
+// (core/src/config/cartridge.rs's own is_mbc1_multicart()) - the same
+// reference this project already cross-checks other MBC behavior
+// against. pandocs' MBC1.md "MBC1M" section documents the real-hardware
+// identifying trait this checks for ("a Nintendo copyright header in
+// bank $10") but not a precise algorithm; mooneye-gb's is the concrete,
+// already-battle-tested one its own multicart_rom_8Mb.gb test ROM (see
+// test_roms/mooneye/README.md) was itself written to require, since (as
+// that ROM's own comment says) "MBC1 multicarts *cannot* be detected
+// from the header alone" - only by inspecting the ROM body itself.
+// Every real MBC1M cart is exactly 1 MiB (only ROM size that exists in
+// the wild, per that same comment), split into 4 256 KiB "pages" of 16
+// banks each; a real multicart's menu + sub-games each carry their own
+// valid Nintendo logo at the start of their own page, so requiring 3 of
+// 4 pages to match (not all 4, matching mooneye-gb exactly) tolerates a
+// menu-less layout while still not misfiring on a regular 1 MiB MBC1
+// game (which only ever has a valid logo in page 0).
+static int is_mbc1_multicart(const uint8_t *rom, size_t rom_size) {
+    if (rom_size != 0x100000) return 0;
+    int matches = 0;
+    for (int page = 0; page < 4; page++) {
+        size_t start = (size_t)page * 0x40000 + 0x0104;
+        if (memcmp(rom + start, nintendo_logo, sizeof(nintendo_logo)) == 0) matches++;
+    }
+    return matches >= 3;
+}
+
 // GBMbcType's own enum ordinals (GB_MBC_NONE=0, GB_MBC1=1, GB_MBC3=2,
 // GB_MBC5=3) don't match real MBC generation numbers - printing the raw
 // ordinal directly (as this file's own startup message used to) reads
@@ -169,6 +208,9 @@ int gb_cart_load(GBCart *cart, const char *path) {
     if (mbc_type == GB_MBC5) {
         cart->rom_bank_lo = 1;
     }
+    if (mbc_type == GB_MBC1) {
+        cart->mbc1_multicart = (uint8_t)is_mbc1_multicart(rom, (size_t)file_size);
+    }
 
     if (has_ram && ram_banks > 0) {
         cart->ram_banks = ram_banks;
@@ -222,18 +264,28 @@ uint8_t gb_cart_read(GBCart *cart, uint16_t addr) {
         // register also applies here (letting banks 0x20/0x40/0x60 be
         // reached at all, since 4000-7FFF's own 0->1 quirk below can
         // never land exactly on one of those otherwise).
-        if (addr < 0x4000) {
-            bank = 0;
-            if (cart->banking_mode == 1 && cart->rom_banks > 32) {
-                bank = (cart->ram_bank & 0x03) << 5;
-            }
+        //
+        // MBC1M multicarts (cart->mbc1_multicart, see is_mbc1_multicart()
+        // above) wire the same two registers differently - pandocs'
+        // MBC1.md "MBC1M" section: the secondary register lands on bits
+        // 4-5 instead of 5-6, and the primary register is truncated to
+        // its low 4 bits for banking (though the full 5 bits still feed
+        // the 0->1 quirk below, computed first) - reachable banks
+        // become $00/$10/$20/$30 in mode 1 instead of $00/$20/$40/$60.
+        int lo = cart->rom_bank_lo & 0x1F;
+        if (lo == 0) lo = 1; // "cannot duplicate bank 0" quirk - on the full 5-bit register, before any multicart truncation
+        int upper_bits, lower_bits;
+        if (cart->mbc1_multicart) {
+            upper_bits = (cart->ram_bank & 0x03) << 4;
+            lower_bits = lo & 0x0F;
         } else {
-            int lo = cart->rom_bank_lo & 0x1F;
-            if (lo == 0) lo = 1; // "cannot duplicate bank 0" quirk
-            bank = lo;
-            if (cart->rom_banks > 32) {
-                bank |= (cart->ram_bank & 0x03) << 5;
-            }
+            upper_bits = (cart->ram_bank & 0x03) << 5;
+            lower_bits = lo;
+        }
+        if (addr < 0x4000) {
+            bank = (cart->banking_mode == 1) ? upper_bits : 0;
+        } else {
+            bank = upper_bits | lower_bits;
         }
     } else if (cart->mbc_type == GB_MBC3) {
         // pandocs' MBC3.md: same 0->1 quirk as MBC1 on the 7-bit

@@ -90,16 +90,22 @@ pass.
   Mbc5State::default()), a real-hardware-checked reference. Fixed in
   gb_cart_load() (cart.c); also covered by a direct unit test
   (tests/test_cart.c's test_mbc5_default_bank_is_one()).
-- mbc1/multicart_rom_8Mb.gb (not attempted): a genuinely distinct MBC1
-  variant, not a regular large-ROM MBC1 cart - MBC1M multi-game
-  compilation carts wire bit 4 of the $2000-3FFF ROM bank register out
-  entirely (pandocs' MBC1.md "MBC1M addressing diagrams"), so the
-  bank-number formula differs from cart.c's existing MBC1 handling.
-  Needs its own multicart-detection heuristic (real emulators
-  typically check for a valid Nintendo logo at each 256 KiB boundary)
-  plus a distinct address decode, not just a register tweak - a small
-  but genuinely separate feature, left for a follow-up slice rather
-  than guessed at here.
+- mbc1/multicart_rom_8Mb.gb (FIXED, follow-up slice): MBC1M multi-game
+  compilation carts wire the same two MBC1 registers differently -
+  pandocs' MBC1.md "MBC1M" section: the secondary 2-bit register lands
+  on bank-number bits 4-5 instead of 5-6, and the primary 5-bit
+  register is truncated to its low 4 bits for banking (the full 5 bits
+  still feed the existing 0->1 quirk first, computed before any
+  multicart truncation). Detected at load time via
+  is_mbc1_multicart(), ported directly from Gekkio's mooneye-gb
+  (core/src/config/cartridge.rs) since - as this ROM's own .s source
+  says - "MBC1 multicarts *cannot* be detected from the header alone":
+  only a real 1 MiB ROM with a valid Nintendo logo at 3 of its 4
+  256 KiB page boundaries (mooneye-gb's own >=3-of-4 threshold, not all
+  4, to tolerate a menu-less layout) gets flagged, so no regular 1 MiB
+  MBC1 game (logo in page 0 only) misfires as a multicart. See cart.c's
+  own is_mbc1_multicart()/gb_cart_read() comments for the full
+  citations and formula.
 
 EXPECTED below is this real, current baseline, the same floor-not-target
 reasoning tests/compare_frame.py already uses for dmg-acid2: a ROM
@@ -166,7 +172,7 @@ EXPECTED = {
     "emulator-only/mbc1/bits_bank2.gb": "PASS",
     "emulator-only/mbc1/bits_mode.gb": "PASS",
     "emulator-only/mbc1/bits_ramg.gb": "PASS",
-    "emulator-only/mbc1/multicart_rom_8Mb.gb": "FAIL",
+    "emulator-only/mbc1/multicart_rom_8Mb.gb": "PASS",
     "emulator-only/mbc1/ram_256kb.gb": "PASS",
     "emulator-only/mbc1/ram_64kb.gb": "PASS",
     "emulator-only/mbc1/rom_16Mb.gb": "PASS",

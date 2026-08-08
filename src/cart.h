@@ -56,6 +56,13 @@ typedef struct GBCart {
                           // RTC-register selector; MBC5's 4-bit RAM bank
     uint8_t banking_mode; // MBC1 only: 0=simple, 1=advanced
 
+    // MBC1 only: set at load time (see gb_cart_load()'s is_mbc1_multicart())
+    // for the rare "MBC1M" 1 MiB multi-game compilation wiring, which
+    // resolves ROM bank numbers differently from a regular MBC1 cart of
+    // the same size - pandocs' MBC1.md "MBC1M" section, cited fully in
+    // cart.c's gb_cart_read().
+    uint8_t mbc1_multicart;
+
     // MBC3 real-time clock. rtc holds the live, ticking values (not
     // actually advanced by wall-clock time yet - see cart.c); rtc_latched
     // is the snapshot the CPU actually reads/writes, updated only by the
