@@ -144,7 +144,23 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
 // its own bytes.
 void gb_dma_tick(GBCpu *cpu) {
     if (cpu->dma_active) {
-        uint16_t src = (uint16_t)((cpu->dma_source_page << 8) + cpu->dma_progress);
+        // DMA's own address generator has no special case for OAM/I-O -
+        // unlike the CPU's normal bus decoder, it just keeps counting
+        // through the same 13-bit WRAM address space echo RAM mirrors
+        // with. A source page of $E0-$FF (nominally OAM/unusable/I-O -
+        // pandocs' OAM_DMA_Transfer.md only documents $00-$DF as valid)
+        // actually reads WRAM at $C000-$DFFF instead, real hardware's
+        // page with bit 5 (0x20) cleared - confirmed against Gekkio's
+        // own mooneye-gb (hardware.rs's emulate_oam_dma(): source pages
+        // 0xe0..=0xef and 0xf0..=0xff route to the exact same
+        // work_ram.read_lower()/read_upper() calls as 0xc0..=0xcf/
+        // 0xd0..=0xdf), and against this project's own
+        // test_roms/mooneye/acceptance/oam_dma/sources-GS.gb, which
+        // sources DMA from page $FE/$FF and asserts OAM ends up with
+        // whatever was written to $DE00/$DF00 beforehand.
+        uint8_t page = cpu->dma_source_page;
+        if (page >= 0xC0) page &= 0xDF;
+        uint16_t src = (uint16_t)((page << 8) + cpu->dma_progress);
         cpu->memory[0xFE00 + cpu->dma_progress] = gb_read_byte(cpu, src);
         cpu->dma_progress++;
         if (cpu->dma_progress >= 160) {

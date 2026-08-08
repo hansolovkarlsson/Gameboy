@@ -334,3 +334,63 @@ check already guarantees the same ROM is loaded first.
 Zero regressions across the full existing suite. `EXPECTED` in
 `tests/run_mooneye.py` updated to `PASS` for this ROM - **62/65** on
 the committed Mooneye subset, up from 61/65.
+
+## Results: Tier 2's `acceptance/oam_dma*` - 6/6, and two more real gaps in the OAM-DMA-timing rewrite
+
+Fetched from the same prebuilt archive as the other Tier 2 slices
+(`mts-20260714-0944-31510e1`) - `acceptance/oam_dma_start.gb`,
+`oam_dma_timing.gb`, `oam_dma_restart.gb`, and `acceptance/oam_dma/
+basic.gb`/`reg_read.gb`/`sources-GS.gb`, deferred at the original Tier
+1 adoption and picked up now that DMA is real and timed. 2 passed
+immediately (`basic.gb`, `reg_read.gb`); the other 4 exposed two more
+real, distinct gaps in the OAM-DMA-timing rewrite itself.
+
+- **`oam_dma_start.gb`/`oam_dma_timing.gb`/`oam_dma_restart.gb`
+  (FIXED)**: `oam_dma_start.gb`'s own `.s` source (fetched in full, not
+  guessed at) uses a genuinely clever trick to probe the exact
+  DMA-pipeline M-cycle boundary - it self-modifies ROM so a `jp` lands
+  on an `LD (HL),A` opcode sitting one byte before OAM, whose execution
+  both writes `$FF46` (starting DMA) *and* falls straight through into
+  fetching the next opcode from OAM itself, which reads back `$FF`
+  (`RST $38`) once DMA has actually gone active, vs. the real `INC B`
+  opcode still sitting there if it hasn't. `oam_dma_timing.gb` is more
+  direct: it NOP-pads an `LD A,(HL)` read of OAM to land exactly one
+  T-state before vs. after DMA's 160th and final copy. Both `LD (HL),A`
+  and `LD A,(HL)` - along with every other `LD r,(HL)`/`LD (HL),r`
+  opcode, `$40`-`$7F` - are dispatched through one shared handler,
+  `gb_op_ld_r_r` (`cpu.c`), which wasn't in `is_dma_precise_op()`'s set,
+  so its one real memory access got the same "lump sum after the whole
+  instruction" treatment any ordinary opcode gets - exactly the class
+  of bug the original OAM-DMA-timing rewrite's own `LDH (a8),A` fix
+  (see "Results: the OAM-DMA-timing rewrite" above) already found and
+  fixed once, just in a far more commonly-executed opcode this time.
+  Fixed identically: tick once immediately before the one real memory
+  access (only when either operand is index 6, i.e. `(HL)` - plain
+  register moves and HALT touch no memory and don't need it); added
+  `gb_op_ld_r_r` to `is_dma_precise_op()`.
+- **`oam_dma/sources-GS.gb` (FIXED)**: a wholly different, real
+  hardware quirk, not a timing gap. DMA's own address generator has no
+  special case for OAM/I-O the way the CPU's normal bus decoder does,
+  so a source page of `$E0`-`$FF` (pandocs' `OAM_DMA_Transfer.md`
+  documents only `$00`-`$DF` as valid) actually reads WRAM at
+  `$C000`-`$DFFF` instead - real hardware's page with bit 5 (`0x20`)
+  cleared. Confirmed against Gekkio's own mooneye-gb (`hardware.rs`'s
+  `emulate_oam_dma()`: source pages `0xe0..=0xef` and `0xf0..=0xff`
+  route to the exact same `work_ram.read_lower()`/`read_upper()` calls
+  as `0xc0..=0xcf`/`0xd0..=0xdf`) and against this ROM's own body: it
+  sources DMA from page `$FE`/`$FF` and asserts OAM ends up with
+  whatever pattern was written to `$DE00`/`$DF00` beforehand - exactly
+  what a cleared bit 5 predicts. Fixed in `gb_dma_tick()` (`mmu.c`) by
+  masking source pages `>= 0xC0` with `& 0xDF` before forming the
+  source address, so the existing `gb_read_byte()` call naturally lands
+  on real WRAM.
+
+Covered by `tests/test_cpu.c`'s new `test_dma_wram_mirror_source()`
+(three cases: page `$FE`->`$DE00`, page `$FF`->`$DF00`, and a
+legitimate page `$C0` left untouched by the masking). Zero regressions
+across the full existing suite. All 6 ROMs added to `EXPECTED` as
+`PASS` - **68/71** on the committed Mooneye subset, up from 62/65.
+
+The one Tier 2 slice still never fetched at all is `acceptance/ppu/`
+(11 ROMs) - PPU STAT/mode-interrupt timing, a distinct area from
+anything this project's OAM-DMA or MBC1M work above grounds.

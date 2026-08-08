@@ -107,6 +107,35 @@ pass.
   own is_mbc1_multicart()/gb_cart_read() comments for the full
   citations and formula.
 
+A later follow-up slice added Tier 2's acceptance/oam_dma* (6 ROMs,
+never fetched before now that OAM DMA is real and timed): 6/6 pass,
+after two more real gaps in the OAM-DMA-timing rewrite itself.
+
+- oam_dma_start.gb/oam_dma_timing.gb/oam_dma_restart.gb (FIXED): all
+  three needed a real memory access - LD (HL),A (self-modified into
+  ROM to trigger the $FF46 write, oam_dma_start.gb's own trick) or LD
+  A,(HL) (reading OAM back at a NOP-padded instant meant to land
+  exactly one T-state before vs. after DMA's last copy,
+  oam_dma_timing.gb) - to be M-cycle-precise against DMA, same root
+  cause as the earlier LDH (a8),A gap the 13/14 OAM-DMA-timing fix
+  found: gb_op_ld_r_r (cpu.c, covers the whole LD r,r'/LD r,(HL)/LD
+  (HL),r 0x40-0x7F block) was a lump-sum "fallback" opcode, so its one
+  real memory access could land up to 1 M-cycle off from where DMA's
+  own state said it should. Fixed by ticking once before that access,
+  the same pattern as LDH (a8),A; added to is_dma_precise_op()'s set.
+- oam_dma/sources-GS.gb (FIXED): a genuine, separate hardware quirk,
+  not a timing gap - DMA's own address generator has no OAM/I-O special
+  case the way the CPU's normal bus decoder does, so a source page of
+  $E0-$FF (pandocs' OAM_DMA_Transfer.md only documents $00-$DF as
+  valid) actually reads WRAM at $C000-$DFFF instead - real hardware's
+  page with bit 5 (0x20) cleared. Confirmed against Gekkio's own
+  mooneye-gb (hardware.rs's emulate_oam_dma(): source pages 0xe0..=0xef
+  and 0xf0..=0xff route to the same work_ram.read_lower()/
+  read_upper() calls as 0xc0..=0xcf/0xd0..=0xdf) and against this ROM's
+  own assertions (sourcing DMA from page $FE/$FF and expecting OAM to
+  match whatever was written to $DE00/$DF00 beforehand). Fixed in
+  gb_dma_tick() (mmu.c).
+
 EXPECTED below is this real, current baseline, the same floor-not-target
 reasoning tests/compare_frame.py already uses for dmg-acid2: a ROM
 regressing from PASS to anything else is a real regression and fails
@@ -147,6 +176,12 @@ EXPECTED = {
     "acceptance/jp_cc_timing.gb": "PASS",
     "acceptance/jp_timing.gb": "PASS",
     "acceptance/ld_hl_sp_e_timing.gb": "PASS",
+    "acceptance/oam_dma/basic.gb": "PASS",
+    "acceptance/oam_dma/reg_read.gb": "PASS",
+    "acceptance/oam_dma/sources-GS.gb": "PASS",
+    "acceptance/oam_dma_restart.gb": "PASS",
+    "acceptance/oam_dma_start.gb": "PASS",
+    "acceptance/oam_dma_timing.gb": "PASS",
     "acceptance/pop_timing.gb": "FAIL",
     "acceptance/push_timing.gb": "PASS",
     "acceptance/rapid_di_ei.gb": "PASS",

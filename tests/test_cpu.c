@@ -38,7 +38,7 @@ static void check(const char *name, int condition) {
     }
 }
 
-int main(void) {
+static void test_halt_after_ei(void) {
     uint8_t memory[65536] = {0};
     // The real Timer vector (0x0050) is a ROM address (<0x8000), routed
     // through gb_cart_read() rather than the flat memory[] array below -
@@ -98,6 +98,51 @@ int main(void) {
     gb_cpu_step(&cpu); // HALT retried, this time with a genuine ime=1
     check("HALT retried: halts for real now that ime is genuinely 1", cpu.halted == 1);
     check("HALT retried: still no halt_bug", cpu.halt_bug == 0);
+}
+
+// Direct unit test for gb_dma_tick()'s (mmu.c) WRAM-mirror source quirk:
+// unlike the CPU's normal bus decoder, OAM DMA's own address generator
+// has no special case for OAM/I-O, so a source page of $E0-$FF actually
+// reads WRAM at $C000-$DFFF instead (real hardware's page with bit 5
+// cleared) - found via test_roms/mooneye/acceptance/oam_dma/
+// sources-GS.gb, confirmed against Gekkio's own mooneye-gb
+// (hardware.rs's emulate_oam_dma()). See mmu.c's own gb_dma_tick()
+// comment for the full citation.
+static void test_dma_wram_mirror_source(void) {
+    uint8_t memory[65536] = {0};
+    GBCpu cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    cpu.memory = memory;
+
+    memory[0xDE00] = 0xAB; // what source page $FE should really read
+    memory[0xDF00] = 0xCD; // what source page $FF should really read
+    memory[0xFE00] = 0x00; // real OAM at the same offset - must NOT be what gets copied
+
+    cpu.dma_active = 1;
+    cpu.dma_source_page = 0xFE;
+    cpu.dma_progress = 0;
+    gb_dma_tick(&cpu);
+    check("DMA: source page $FE reads WRAM at $DE00, not literal $FE00",
+          memory[0xFE00] == 0xAB);
+
+    cpu.dma_active = 1;
+    cpu.dma_source_page = 0xFF;
+    cpu.dma_progress = 0;
+    gb_dma_tick(&cpu);
+    check("DMA: source page $FF reads WRAM at $DF00", memory[0xFE00] == 0xCD);
+
+    memory[0xC000] = 0x42; // a legitimate, already-valid source page - must be unaffected by the >=0xC0 masking
+    cpu.dma_active = 1;
+    cpu.dma_source_page = 0xC0;
+    cpu.dma_progress = 0;
+    gb_dma_tick(&cpu);
+    check("DMA: source page $C0 (already valid) is untouched by the mirror-fixup",
+          memory[0xFE00] == 0x42);
+}
+
+int main(void) {
+    test_halt_after_ei();
+    test_dma_wram_mirror_source();
 
     if (failures == 0) {
         printf("\nAll cpu.c tests passed.\n");

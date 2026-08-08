@@ -458,6 +458,19 @@ static int gb_op_ld_r_r(GBCpu *cpu) {
     }
     uint8_t dst_idx = (opcode >> 3) & 0x07;
     uint8_t src_idx = opcode & 0x07;
+    // LD (HL),r / LD r,(HL) - a real memory access (M1), needed precise
+    // for Mooneye's acceptance/oam_dma_start.gb/oam_dma_timing.gb/
+    // oam_dma_restart.gb (test_roms/mooneye/): oam_dma_timing.gb reads
+    // OAM back with `ld a, (hl)` (this opcode) at a NOP-padded instant
+    // meant to land exactly one T-state before vs. after DMA's last
+    // copy, and oam_dma_start.gb's self-modifying-code trick relies on
+    // `ld (hl), a` (also this opcode) being the exact instruction that
+    // writes $FF46, both needing this access on the right M-cycle
+    // relative to gb_dma_tick(), same reasoning as gb_op_ldh_a8_a's own
+    // fix. Register-to-register moves (neither operand index 6) and
+    // HALT (opcode 0x76, handled above) touch no memory at all, so they
+    // don't need this and aren't ticked here.
+    if (dst_idx == 6 || src_idx == 6) gb_dma_tick(cpu);
     set_reg8(cpu, dst_idx, get_reg8(cpu, src_idx));
     return (dst_idx == 6 || src_idx == 6) ? 8 : 4;
 }
@@ -824,7 +837,7 @@ static int is_dma_precise_op(GBOpcodeHandler handler) {
            handler == gb_op_ret || handler == gb_op_ret_cc || handler == gb_op_reti ||
            handler == gb_op_rst || handler == gb_op_push_rr2 || handler == gb_op_pop_rr2 ||
            handler == gb_op_add_sp_e8 || handler == gb_op_ld_hl_sp_e8 ||
-           handler == gb_op_ldh_a8_a;
+           handler == gb_op_ldh_a8_a || handler == gb_op_ld_r_r;
 }
 
 static int fetch_and_dispatch_ticked(GBCpu *cpu) {
