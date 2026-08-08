@@ -36,3 +36,20 @@ path), so the test is a plain byte-for-byte `cmp` against that
 baseline, not a fuzzy match - it exists to catch a future regression,
 not to independently prove correctness the way dmg-acid2's external
 reference image does.
+
+**Reference recaptured once, deliberately** (the per-M-cycle CPU
+rewrite - see `docs/GAMEBOY_ROADMAP.md`'s own entry): this game seeds
+its tile-spawn RNG from a single `LDH A,(DIV)` read (confirmed by
+scanning the ROM - exactly one `$F0 $04` occurrence), so the *exact*
+T-state DIV is read at is part of this test's own determinism, not
+incidental to it. The per-M-cycle rewrite made that read genuinely more
+precise (every opcode now advances the timer per real M-cycle, not in
+a lump sum after the whole instruction), which changed the RNG draw at
+that point and, cascading through 180 frames of scripted play, the
+tile-spawn positions in the final frame - reconfirmed by hand exactly
+the same way as the original capture: still one merge (two `2`s into a
+single `4`), still score `00004`, only the tiles' board positions
+differ. Recaptured rather than treated as a regression, since the
+*old* baseline was never a ground truth to begin with (unlike Mooneye's
+real-hardware-verified assertions or dmg-acid2's reference image) -
+just a snapshot of this emulator's own prior, less precise output.

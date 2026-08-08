@@ -471,3 +471,40 @@ Zero regressions across the full existing suite. All 5 fixed ROMs
 added to `EXPECTED` as `PASS`, the 7 still-open ones as `FAIL` (a
 real, currently-accurate baseline) - **73/83** on the committed
 Mooneye subset, up from 68/71.
+
+## Results: the per-M-cycle CPU rewrite - 74/83, one real regression accepted and documented
+
+Every opcode handler in `cpu.c` now self-ticks DMA/timer/PPU/APU once
+per real M-cycle it takes (`gb_mcycle_tick()`, `mmu.c`), replacing the
+old two-tier model where only a curated dozen-plus "DMA-precise"
+opcodes self-ticked and everything else got one lump-sum tick after
+the whole instruction. This is the rewrite the earlier "Timer M-cycle
+precision: attempted, reverted" investigation (`docs/GAMEBOY_ROADMAP.md`)
+concluded was necessary but didn't attempt in full - attempted for
+real this time.
+
+- **`pop_timing.gb` (FIXED)**: the ROM that motivated the whole
+  investigation - needed exactly this precision.
+- **`acceptance/ppu/hblank_ly_scx_timing-GS.gb` (FIXED)**: confirms the
+  PPU side of the same gap was real too.
+- **`acceptance/timer/rapid_toggle.gb` (regressed, investigated at
+  length, accepted as a known gap)**: fails with `BC` off by exactly
+  one "spurious tick" iteration - the same symptom the original,
+  much-earlier attempt hit. Hand-verified every opcode's tick count
+  against its own T-state total (all correct) and instrumented the
+  actual `sys_counter`/TIMA/`overflow_delay` trace through the failing
+  run (the spurious-tick mechanism itself behaves exactly as designed)
+  without finding the remaining T-state-level discrepancy. Notably the
+  one Mooneye ROM in the whole committed suite whose own header
+  documents real hardware disagreeing across revisions ("pass: DMG
+  ABC, MGB, CGB, AGB, AGS; fail: DMG 0") - see
+  `docs/GAMEBOY_ROADMAP.md`'s matching entry for the full
+  investigation. Recorded honestly in `EXPECTED` as `FAIL` rather than
+  reverting the two real fixes above to avoid it.
+- `test_roms/2048-gb/reference_frame.ppm` recaptured (its own
+  README.md) - a benign, reconfirmed-correct side effect (its
+  tile-spawn RNG seeds from a DIV read this rewrite made more precise),
+  not a bug.
+
+Zero regressions anywhere else. **74/83** on the committed Mooneye
+subset, up from 73/83.

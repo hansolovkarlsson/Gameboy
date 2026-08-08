@@ -286,9 +286,11 @@ int main(int argc, char **argv) {
             fprintf(stderr, "\nIllegal/unimplemented opcode at PC=0x%04X\n", (unsigned)(cpu.pc - 1));
             break;
         }
-        gb_ppu_step(&ppu, &cpu, cycles);
-        gb_timer_step(&timer, &cpu, cycles);
-        gb_apu_step(&apu, &cpu, cycles);
+        // PPU/timer/APU all advance internally now, ticked once per
+        // real M-cycle from inside gb_cpu_step() itself (gb_mcycle_tick(),
+        // mmu.c) - calling gb_ppu_step()/gb_timer_step()/gb_apu_step()
+        // again here with the whole instruction's cycle count would
+        // double-advance all three.
 
         if (ppu.frame_ready) {
             ppu.frame_ready = 0;

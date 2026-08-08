@@ -4,3 +4,4 @@ sdl/src/*.o
 tests/__pycache__/
 .claude/
 .DS_Store
+*.state

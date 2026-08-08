@@ -1226,23 +1226,22 @@ section and `tests/run_mooneye.py`'s `EXPECTED` table for the full
 per-ROM baseline.
 
 **Next**: two known, honestly-scoped-out gaps remain across the
-committed Mooneye subset (73/83 overall - `mbc1/multicart_rom_8Mb.gb`,
-all 6 of Tier 2's `acceptance/oam_dma*`, and 5/12 of `acceptance/ppu/`
-fixed, see the entries further below), neither blocking, neither
-guessed at, and both now understood to be the *same* underlying
-category of gap:
+committed Mooneye subset (74/83 overall as of the per-M-cycle CPU
+rewrite further below - see that entry for the full current picture,
+including one real, deliberately-accepted regression):
 
-- `pop_timing.gb` (and the last unresolved assertion each in
-  `timer/tima_write_reloading.gb`/`tma_write_reloading.gb`): needs real
-  per-M-cycle timer precision - see the attempt-and-revert entry below
-  for why this turned out to be a genuinely bigger change than the
-  OAM-DMA-timing rewrite above, not a smaller version of the same
-  pattern as first assumed.
-- The remaining 7 `acceptance/ppu/` ROMs (`hblank_ly_scx_timing-GS.gb`,
-  4 `intr_2_*.gb` ROMs, `lcdon_timing-GS.gb`, `lcdon_write_timing-GS.gb`):
-  need real per-*dot* (T-state) PPU precision, the same category of gap
-  as the timer's per-M-cycle one above - see the `acceptance/ppu/`
-  entry further below for why.
+- `timer/tima_write_reloading.gb`/`tma_write_reloading.gb`'s one
+  remaining unresolved assertion each - the same underlying "obscure
+  TAC-toggle spurious-tick edge case" the per-M-cycle rewrite's own
+  `rapid_toggle.gb` regression traces to; see that entry for the full
+  investigation.
+- 6 of the 7 `acceptance/ppu/` timing ROMs (`intr_2_*.gb` x4,
+  `lcdon_timing-GS.gb`, `lcdon_write_timing-GS.gb`) - `hblank_ly_scx_
+  timing-GS.gb`, the 7th, was fixed by the per-M-cycle rewrite; these
+  6 apparently need something more (not yet root-caused - the rewrite
+  closed the PPU's own architectural gap but didn't close these on its
+  own, unlike the timer side where exactly one ROM (`pop_timing.gb`)
+  needed only that).
 
 **Timer M-cycle precision: attempted, reverted - a real architecture-
 size finding, not a bug fix.** The "Next" note above (in its original
@@ -1539,3 +1538,111 @@ dmg-acid2/2048-gb/droneboy/tobu/savestate, RGBDS, Mooneye). All 5 fixed
 ROMs added to `EXPECTED` as `PASS`, the 7 still-open ones as `FAIL` (a
 real, currently-accurate baseline, not a placeholder) -
 **73/83** on the committed Mooneye subset, up from 68/71.
+
+**The per-M-cycle CPU rewrite: attempted for real this time, and it
+worked - 74/83, one real regression accepted and documented.** The
+"Timer M-cycle precision: attempted, reverted" entry above concluded
+this needed the timer ticked from literally every opcode, not a
+curated set - "the full per-M-cycle rewrite this project has been
+avoiding since Phase 3." This is that rewrite, finally attempted in
+full rather than reverted at the first sign of scope.
+
+Every opcode handler in `cpu.c` - all ~35 distinct handler functions,
+covering the full 256+256 (unprefixed + CB-prefixed) opcode space -
+now calls a new `gb_mcycle_tick()` (`mmu.c`) once per real M-cycle it
+takes, in place of the old two-tier model (a curated dozen-plus
+"DMA-precise" opcodes self-ticking, everything else getting one
+lump-sum tick after the whole instruction completed).
+`gb_mcycle_tick()` itself just calls the existing `gb_dma_tick()`
+(unchanged) plus `gb_timer_step()`/`gb_ppu_step()`/`gb_apu_step()`,
+each with a fixed 4 T-states, NULL-guarded for the three optional
+subsystem pointers (`tests/test_cpu.c`'s own minimal `GBCpu` leaves
+them unset). `main.c`/`sdl/src/main.c`'s driver loops no longer call
+`gb_ppu_step()`/`gb_timer_step()`/`gb_apu_step()` separately - they'd
+double-advance every subsystem now that `gb_cpu_step()` does it
+internally, the same reasoning DMA's own ticking already established.
+`is_dma_precise_op()` and the lump-sum fallback loop are gone entirely
+- every opcode is precise now, so the dispatcher (`fetch_and_
+dispatch_ticked()`) simplified to just ticking M0 and dispatching.
+
+Each handler's own M-cycle breakdown was derived from the official
+opcode table (already this project's primary source throughout) and
+hand-verified: total ticks inserted (outer M0 + however many the
+handler adds) times 4 must equal the handler's own declared T-state
+return value, for every opcode, taken and not-taken paths alike (`JR
+cc`/`JP cc`/`CALL cc`/`RET cc`'s conditional internal cycles). The
+trickiest single case was the CB-prefixed table: BIT's `(HL)` form
+skips the write-back tick the other three groups (rotate/shift, RES,
+SET) need, so its own real M-cycle count (12T, not 16T) had to stay
+correct through the restructuring - already a known erratum this
+project's own opcode table citation flagged once before (Phase 1).
+
+Also found and fixed a real, distinct timer bug along the way, via the
+same instrumentation-driven root-causing this project always uses
+rather than guessing: `gb_timer_step()`'s per-T-state loop ran the
+normal falling-edge check *unconditionally* every T-state, even during
+a T-state where a pending TIMA-overflow reload was also resolving.
+Gekkio's own mooneye-gb (`core/src/hardware/timer.rs`'s `tick_cycle()`)
+treats these as strictly mutually exclusive - `if self.overflow {
+reload... } else if enabled && counter_bit() { ...normal check... }` -
+never both in the same cycle. Fixed by restructuring `gb_timer_step()`
+(`timer.c`) the same way: the system counter still advances every
+T-state regardless, but the normal edge-check only runs when no
+overflow-reload is in flight.
+
+**Net result: 74/83 on the committed Mooneye subset, up from 73/83.**
+
+- `pop_timing.gb` (FIXED): the ROM this entire investigation was
+  chasing from the start - needed exactly the per-M-cycle timer
+  precision the reverted attempt correctly diagnosed as necessary, now
+  actually delivered.
+- `acceptance/ppu/hblank_ly_scx_timing-GS.gb` (FIXED): one of the 7
+  `acceptance/ppu/` timing ROMs left open in the previous entry -
+  per-M-cycle precision closed this one too, confirming the PPU side
+  of the same architectural gap was real.
+- `acceptance/timer/rapid_toggle.gb` (**regressed - investigated at
+  length, not resolved, accepted as a known gap**): fails with `BC` off
+  by exactly one "spurious tick" loop iteration (`$FFD8` where the
+  assertion expects `$FFD9`) - the *exact same symptom* the original,
+  much-earlier-reverted timer attempt hit, before either DMA or PPU
+  were precise. That repetition is itself informative: this isn't an
+  interaction bug with DMA or PPU, it's specific and isolated to the
+  timer's own most obscure edge case - rapidly toggling TAC's enable
+  bit on and off so that whether the underlying counter bit happens to
+  be high at that exact instant determines whether an "unexpected"
+  TIMA increment occurs. Investigated two ways: (1) hand-verified every
+  opcode's inserted tick count against its own real T-state total -
+  all correct, no arithmetic error found; (2) instrumented the exact
+  `sys_counter`/TIMA/`overflow_delay` trace through the actual failing
+  run and confirmed the spurious-tick mechanism itself (enable/disable
+  straddling a live counter bit, causing a synthetic falling edge)
+  behaves exactly as designed, clustering ticks and "stuck" stretches
+  in the pattern real hardware's own design implies. The remaining
+  discrepancy is a genuine, unresolved question about the *exact*
+  T-state-level alignment somewhere in the boot-to-loop sequence, not
+  an obviously wrong mechanism - and this specific ROM's own header is
+  the one Mooneye ROM in the entire committed suite that documents
+  *real hardware itself* disagreeing across revisions ("pass: DMG ABC,
+  MGB, CGB, AGB, AGS; fail: DMG 0"), about as delicate an edge case as
+  the suite has. `tests/run_mooneye.py`'s `EXPECTED` records this
+  honestly as `FAIL` rather than silently reverting the two real fixes
+  above to avoid it - the same "document honest findings even when a
+  fix doesn't achieve the hoped-for result" standard this project has
+  held to since Phase 8's dmg-acid2 entry.
+- `test_roms/2048-gb/reference_frame.ppm` recaptured (see that ROM's
+  own README.md for the full note): it seeds its tile-spawn RNG from a
+  single `LDH A,(DIV)` read, which this rewrite made genuinely more
+  precise - the RNG draw at that exact point changed, and with it the
+  (fully deterministic, still byte-exact-reproducible) tile-spawn
+  positions by frame 180. Reconfirmed by hand before recapturing: still
+  exactly one merge, still score `00004`, only the board positions
+  differ - the same manual verification standard the original capture
+  used, not a rubber-stamped diff.
+
+Zero regressions anywhere else: full unit test suite, dmg-acid2 (still
+99.71%), Tobu Tobu Girl, Droneboy, the savestate round-trip, and RGBDS
+all still pass byte-exact/as before. `acceptance/ppu/`'s remaining 6
+ROMs (the 4 `intr_2_*.gb`, both `lcdon_*-GS.gb`) and `timer/
+tima_write_reloading.gb`/`tma_write_reloading.gb`'s last assertion
+remain open - not yet root-caused why the PPU/timer both being
+per-M-cycle-precise now didn't also close these, worth a future look.

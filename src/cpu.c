@@ -20,22 +20,17 @@ static inline uint8_t fetch_byte(GBCpu *cpu) {
     return gb_read_byte(cpu, cpu->pc++);
 }
 
-static inline uint16_t fetch_word(GBCpu *cpu) {
-    uint8_t lo = fetch_byte(cpu);
-    uint8_t hi = fetch_byte(cpu);
-    return (uint16_t)((hi << 8) | lo);
-}
-
-// Ticked push/pop - used by every opcode handler whose own real M-cycle
-// timing is precise enough to matter for OAM DMA bus-conflict tests
-// (CALL/CALL cc/RST/PUSH rr and RET/RET cc/RETI/POP rr - see each
-// handler below). One gb_dma_tick() call per real M-cycle these two
-// M-cycle memory accesses take, called *before* the matching
-// gb_read_byte()/gb_write_byte() so DMA's state is fully up to date
-// (possibly just finishing its own transfer, or dropping this exact
-// write) by the time that access is evaluated - the same per-M-cycle
-// ordering Gekkio's mooneye-gb reference emulator uses (see
-// gb_dma_tick()'s own comment, mmu.c).
+// Ticked push/pop - used by every opcode handler that pushes/pops a
+// 16-bit value (CALL/CALL cc/RST/PUSH rr and RET/RET cc/RETI/POP rr).
+// One gb_mcycle_tick() call per real M-cycle these two M-cycle memory
+// accesses take, called *before* the matching gb_read_byte()/
+// gb_write_byte() so DMA/timer/PPU state is fully up to date (possibly
+// DMA finishing its own transfer, or dropping this exact write; a
+// timer TAC/TIMA write's edge-detection seeing the counter exactly as
+// of this instant; a PPU register write landing in the right mode) by
+// the time that access is evaluated - the same per-M-cycle ordering
+// Gekkio's mooneye-gb reference emulator uses (see gb_mcycle_tick()'s
+// own comment, mmu.c).
 static void gb_push16_ticked(GBCpu *cpu, uint16_t val) {
     // High byte is written first, low byte second - real hardware's
     // actual M-cycle order for PUSH/CALL/RST/interrupt dispatch alike
@@ -46,20 +41,20 @@ static void gb_push16_ticked(GBCpu *cpu, uint16_t val) {
     // final SP, same final two bytes) - only matters when one of these
     // writes happens to alias a live register with its own side
     // effects (see gb_cpu_step()'s interrupt-dispatch IE-aliasing
-    // handling, the one case that currently depends on this order) or,
-    // as of this OAM-DMA timing work, when one of the two lands inside
-    // an active DMA transfer's bus-conflict window and the other doesn't.
+    // handling, the one case that currently depends on this order), or
+    // when one of the two lands inside an active DMA transfer's
+    // bus-conflict window and the other doesn't.
     cpu->sp -= 2;
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     gb_write_byte(cpu, (uint16_t)(cpu->sp + 1), val >> 8);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     gb_write_byte(cpu, cpu->sp, val & 0xFF);
 }
 
 static uint16_t gb_pop16_ticked(GBCpu *cpu) {
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t lo = gb_read_byte(cpu, cpu->sp);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t hi = gb_read_byte(cpu, (uint16_t)(cpu->sp + 1));
     cpu->sp += 2;
     return (uint16_t)((hi << 8) | lo);
@@ -166,76 +161,89 @@ static void gb_alu_dispatch(GBCpu *cpu, uint8_t op_idx, uint8_t val) {
 
 static int gb_op_nop(GBCpu *cpu) { (void)cpu; return 4; }
 
-static int gb_op_ld_bc_a(GBCpu *cpu) { gb_write_byte(cpu, cpu->bc, cpu->a); return 8; }
-static int gb_op_ld_de_a(GBCpu *cpu) { gb_write_byte(cpu, cpu->de, cpu->a); return 8; }
-static int gb_op_ld_a_bc(GBCpu *cpu) { cpu->a = gb_read_byte(cpu, cpu->bc); return 8; }
-static int gb_op_ld_a_de(GBCpu *cpu) { cpu->a = gb_read_byte(cpu, cpu->de); return 8; }
+static int gb_op_ld_bc_a(GBCpu *cpu) { gb_mcycle_tick(cpu); gb_write_byte(cpu, cpu->bc, cpu->a); return 8; }
+static int gb_op_ld_de_a(GBCpu *cpu) { gb_mcycle_tick(cpu); gb_write_byte(cpu, cpu->de, cpu->a); return 8; }
+static int gb_op_ld_a_bc(GBCpu *cpu) { gb_mcycle_tick(cpu); cpu->a = gb_read_byte(cpu, cpu->bc); return 8; }
+static int gb_op_ld_a_de(GBCpu *cpu) { gb_mcycle_tick(cpu); cpu->a = gb_read_byte(cpu, cpu->de); return 8; }
 
-static int gb_op_ld_hli_a(GBCpu *cpu) { gb_write_byte(cpu, cpu->hl, cpu->a); cpu->hl++; return 8; }
-static int gb_op_ld_hld_a(GBCpu *cpu) { gb_write_byte(cpu, cpu->hl, cpu->a); cpu->hl--; return 8; }
-static int gb_op_ld_a_hli(GBCpu *cpu) { cpu->a = gb_read_byte(cpu, cpu->hl); cpu->hl++; return 8; }
-static int gb_op_ld_a_hld(GBCpu *cpu) { cpu->a = gb_read_byte(cpu, cpu->hl); cpu->hl--; return 8; }
+static int gb_op_ld_hli_a(GBCpu *cpu) { gb_mcycle_tick(cpu); gb_write_byte(cpu, cpu->hl, cpu->a); cpu->hl++; return 8; }
+static int gb_op_ld_hld_a(GBCpu *cpu) { gb_mcycle_tick(cpu); gb_write_byte(cpu, cpu->hl, cpu->a); cpu->hl--; return 8; }
+static int gb_op_ld_a_hli(GBCpu *cpu) { gb_mcycle_tick(cpu); cpu->a = gb_read_byte(cpu, cpu->hl); cpu->hl++; return 8; }
+static int gb_op_ld_a_hld(GBCpu *cpu) { gb_mcycle_tick(cpu); cpu->a = gb_read_byte(cpu, cpu->hl); cpu->hl--; return 8; }
 
 static int gb_op_ld_a16_sp(GBCpu *cpu) {
-    uint16_t addr = fetch_word(cpu);
+    gb_mcycle_tick(cpu);
+    uint8_t lo = fetch_byte(cpu);
+    gb_mcycle_tick(cpu);
+    uint8_t hi = fetch_byte(cpu);
+    uint16_t addr = (uint16_t)((hi << 8) | lo);
+    gb_mcycle_tick(cpu);
     gb_write_byte(cpu, addr, cpu->sp & 0xFF);
+    gb_mcycle_tick(cpu);
     gb_write_byte(cpu, (uint16_t)(addr + 1), cpu->sp >> 8);
     return 20;
 }
 
 static int gb_op_ld_a16_a(GBCpu *cpu) {
-    uint16_t addr = fetch_word(cpu);
+    gb_mcycle_tick(cpu);
+    uint8_t lo = fetch_byte(cpu);
+    gb_mcycle_tick(cpu);
+    uint8_t hi = fetch_byte(cpu);
+    uint16_t addr = (uint16_t)((hi << 8) | lo);
+    gb_mcycle_tick(cpu);
     gb_write_byte(cpu, addr, cpu->a);
     return 16;
 }
 
 static int gb_op_ld_a_a16(GBCpu *cpu) {
-    uint16_t addr = fetch_word(cpu);
+    gb_mcycle_tick(cpu);
+    uint8_t lo = fetch_byte(cpu);
+    gb_mcycle_tick(cpu);
+    uint8_t hi = fetch_byte(cpu);
+    uint16_t addr = (uint16_t)((hi << 8) | lo);
+    gb_mcycle_tick(cpu);
     cpu->a = gb_read_byte(cpu, addr);
     return 16;
 }
 
-// Needs precise per-M-cycle DMA ticking, unlike almost every other
-// non-precise/fallback opcode in this file - not because *this*
-// instruction's own timing is Mooneye-tested, but because this is the
-// specific instruction Mooneye's own start_oam_dma macro (`ldh
-// (<DMA), a`) uses to trigger a transfer, and this OAM-DMA-timing
-// rewrite's whole model measures the transfer's start relative to the
-// exact M-cycle the CPU's write to $FF46 happens on (see gb_dma_tick(),
-// mmu.c). Ticking this handler as a single post-hoc lump sum (like
-// every other fallback opcode) instead of M1-then-M2 would set
-// dma_request_pending 2 M-cycles too early relative to instruction
-// boundaries - harmless for the register write itself, but it would
-// shift every downstream NOP-padding-based timing test in test_roms/
-// mooneye/ by exactly the 2 ticks this fixes.
+// The specific instruction Mooneye's own start_oam_dma macro (`ldh
+// (<DMA), a`) uses to trigger a transfer - this OAM-DMA-timing rewrite's
+// whole model measures the transfer's start relative to the exact
+// M-cycle the CPU's write to $FF46 happens on (see gb_mcycle_tick(),
+// mmu.c).
 static int gb_op_ldh_a8_a(GBCpu *cpu) {
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t off = fetch_byte(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     gb_write_byte(cpu, (uint16_t)(0xFF00 + off), cpu->a);
     return 12;
 }
 
 static int gb_op_ldh_a_a8(GBCpu *cpu) {
+    gb_mcycle_tick(cpu);
     uint8_t off = fetch_byte(cpu);
+    gb_mcycle_tick(cpu);
     cpu->a = gb_read_byte(cpu, (uint16_t)(0xFF00 + off));
     return 12;
 }
 
-static int gb_op_ldh_c_a(GBCpu *cpu) { gb_write_byte(cpu, (uint16_t)(0xFF00 + cpu->c), cpu->a); return 8; }
-static int gb_op_ldh_a_c(GBCpu *cpu) { cpu->a = gb_read_byte(cpu, (uint16_t)(0xFF00 + cpu->c)); return 8; }
+static int gb_op_ldh_c_a(GBCpu *cpu) { gb_mcycle_tick(cpu); gb_write_byte(cpu, (uint16_t)(0xFF00 + cpu->c), cpu->a); return 8; }
+static int gb_op_ldh_a_c(GBCpu *cpu) { gb_mcycle_tick(cpu); cpu->a = gb_read_byte(cpu, (uint16_t)(0xFF00 + cpu->c)); return 8; }
 
-static int gb_op_ld_sp_hl(GBCpu *cpu) { cpu->sp = cpu->hl; return 8; }
+// No memory access at all - just an extra internal M-cycle for the
+// 16-bit register-to-register transfer, same reasoning as INC/DEC rr
+// and ADD HL,rr below.
+static int gb_op_ld_sp_hl(GBCpu *cpu) { gb_mcycle_tick(cpu); cpu->sp = cpu->hl; return 8; }
 
 // M-cycle breakdown per Mooneye's own add_sp_e_timing.s comment (M=0
 // decode, M=1 read e, M=2/M=3 internal) - the caller (gb_cpu_step) has
 // already ticked M=0 before dispatch, so this handler only needs to
 // tick M=1-M=3 itself.
 static int gb_op_add_sp_e8(GBCpu *cpu) {
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     int8_t e8 = (int8_t)fetch_byte(cpu);
-    gb_dma_tick(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
+    gb_mcycle_tick(cpu);
     cpu->sp = gb_alu_add_sp_e8(cpu, e8);
     return 16;
 }
@@ -244,9 +252,9 @@ static int gb_op_add_sp_e8(GBCpu *cpu) {
 // (Mooneye's ld_hl_sp_e_timing.s) - the load into HL needs one less
 // internal cycle than SP itself gets overwritten.
 static int gb_op_ld_hl_sp_e8(GBCpu *cpu) {
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     int8_t e8 = (int8_t)fetch_byte(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     cpu->hl = gb_alu_add_sp_e8(cpu, e8);
     return 12;
 }
@@ -260,8 +268,14 @@ static int gb_op_cpl(GBCpu *cpu) { gb_alu_cpl(cpu); return 4; }
 static int gb_op_scf(GBCpu *cpu) { gb_alu_scf(cpu); return 4; }
 static int gb_op_ccf(GBCpu *cpu) { gb_alu_ccf(cpu); return 4; }
 
+// M-cycle breakdown per the official opcode table (M=0 decode, M=1
+// read offset, M=2 internal - applying the offset to PC costs its own
+// cycle, same reasoning as every other "compute a new PC" instruction
+// below).
 static int gb_op_jr(GBCpu *cpu) {
+    gb_mcycle_tick(cpu);
     int8_t off = (int8_t)fetch_byte(cpu);
+    gb_mcycle_tick(cpu);
     cpu->pc = (uint16_t)(cpu->pc + off);
     return 12;
 }
@@ -269,11 +283,11 @@ static int gb_op_jr(GBCpu *cpu) {
 // M-cycle breakdown per Mooneye's jp_timing.s (M=0 decode, M=1 read
 // low byte, M=2 read high byte, M=3 internal delay).
 static int gb_op_jp(GBCpu *cpu) {
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t lo = fetch_byte(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t hi = fetch_byte(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     cpu->pc = (uint16_t)((hi << 8) | lo);
     return 16;
 }
@@ -287,11 +301,11 @@ static int gb_op_jp_hl(GBCpu *cpu) { cpu->pc = cpu->hl; return 4; }
 // M-cycle breakdown per Mooneye's call_timing.s (M=0 decode, M=1/M=2
 // read nn, M=3 internal, M=4/M=5 PC push).
 static int gb_op_call(GBCpu *cpu) {
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t lo = fetch_byte(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t hi = fetch_byte(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint16_t addr = (uint16_t)((hi << 8) | lo);
     gb_push16_ticked(cpu, cpu->pc);
     cpu->pc = addr;
@@ -302,7 +316,7 @@ static int gb_op_call(GBCpu *cpu) {
 // pop, M=3 internal).
 static int gb_op_ret(GBCpu *cpu) {
     uint16_t addr = gb_pop16_ticked(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     cpu->pc = addr;
     return 16;
 }
@@ -313,7 +327,7 @@ static int gb_op_ret(GBCpu *cpu) {
 // Same M-cycle breakdown as RET (Mooneye's reti_timing.s).
 static int gb_op_reti(GBCpu *cpu) {
     uint16_t addr = gb_pop16_ticked(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     cpu->pc = addr;
     cpu->ime = 1;
     return 16;
@@ -347,13 +361,21 @@ static int gb_op_illegal(GBCpu *cpu) { (void)cpu; return -1; }
 static int gb_op_ld_rr_d16(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 4) & 0x03;
-    set_rr(cpu, idx, fetch_word(cpu));
+    gb_mcycle_tick(cpu);
+    uint8_t lo = fetch_byte(cpu);
+    gb_mcycle_tick(cpu);
+    uint8_t hi = fetch_byte(cpu);
+    set_rr(cpu, idx, (uint16_t)((hi << 8) | lo));
     return 12;
 }
 
+// No memory access - the extra M-cycle beyond the opcode fetch is a
+// real internal delay every 16-bit register-pair ALU op needs (also
+// DEC rr/ADD HL,rr/LD SP,HL above), per the official opcode table.
 static int gb_op_inc_rr(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 4) & 0x03;
+    gb_mcycle_tick(cpu);
     set_rr(cpu, idx, (uint16_t)(get_rr(cpu, idx) + 1));
     return 8;
 }
@@ -361,6 +383,7 @@ static int gb_op_inc_rr(GBCpu *cpu) {
 static int gb_op_dec_rr(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 4) & 0x03;
+    gb_mcycle_tick(cpu);
     set_rr(cpu, idx, (uint16_t)(get_rr(cpu, idx) - 1));
     return 8;
 }
@@ -368,6 +391,7 @@ static int gb_op_dec_rr(GBCpu *cpu) {
 static int gb_op_add_hl_rr(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 4) & 0x03;
+    gb_mcycle_tick(cpu);
     gb_alu_add_hl(cpu, get_rr(cpu, idx));
     return 8;
 }
@@ -377,7 +401,7 @@ static int gb_op_add_hl_rr(GBCpu *cpu) {
 static int gb_op_push_rr2(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 4) & 0x03;
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     gb_push16_ticked(cpu, get_rr2(cpu, idx));
     return 16;
 }
@@ -391,24 +415,37 @@ static int gb_op_pop_rr2(GBCpu *cpu) {
     return 12;
 }
 
+// idx==6 ((HL)) is a real read-modify-write: M0(fetch)+M1(read
+// (HL))+M2(write back) - the two extra ticks bracket get_reg8()'s own
+// read and set_reg8()'s own write respectively. Every other register
+// index is a pure register op, no memory access, no extra tick beyond
+// the outer M0.
 static int gb_op_inc_r(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 3) & 0x07;
-    set_reg8(cpu, idx, gb_alu_inc(cpu, get_reg8(cpu, idx)));
+    if (idx == 6) gb_mcycle_tick(cpu);
+    uint8_t val = gb_alu_inc(cpu, get_reg8(cpu, idx));
+    if (idx == 6) gb_mcycle_tick(cpu);
+    set_reg8(cpu, idx, val);
     return (idx == 6) ? 12 : 4;
 }
 
 static int gb_op_dec_r(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 3) & 0x07;
-    set_reg8(cpu, idx, gb_alu_dec(cpu, get_reg8(cpu, idx)));
+    if (idx == 6) gb_mcycle_tick(cpu);
+    uint8_t val = gb_alu_dec(cpu, get_reg8(cpu, idx));
+    if (idx == 6) gb_mcycle_tick(cpu);
+    set_reg8(cpu, idx, val);
     return (idx == 6) ? 12 : 4;
 }
 
 static int gb_op_ld_r_d8(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 3) & 0x07;
+    gb_mcycle_tick(cpu);
     uint8_t val = fetch_byte(cpu);
+    if (idx == 6) gb_mcycle_tick(cpu);
     set_reg8(cpu, idx, val);
     return (idx == 6) ? 12 : 8;
 }
@@ -458,28 +495,23 @@ static int gb_op_ld_r_r(GBCpu *cpu) {
     }
     uint8_t dst_idx = (opcode >> 3) & 0x07;
     uint8_t src_idx = opcode & 0x07;
-    // LD (HL),r / LD r,(HL) - a real memory access (M1), needed precise
-    // for Mooneye's acceptance/oam_dma_start.gb/oam_dma_timing.gb/
-    // oam_dma_restart.gb (test_roms/mooneye/): oam_dma_timing.gb reads
-    // OAM back with `ld a, (hl)` (this opcode) at a NOP-padded instant
-    // meant to land exactly one T-state before vs. after DMA's last
-    // copy, and oam_dma_start.gb's self-modifying-code trick relies on
-    // `ld (hl), a` (also this opcode) being the exact instruction that
-    // writes $FF46, both needing this access on the right M-cycle
-    // relative to gb_dma_tick(), same reasoning as gb_op_ldh_a8_a's own
-    // fix. Register-to-register moves (neither operand index 6) and
-    // HALT (opcode 0x76, handled above) touch no memory at all, so they
-    // don't need this and aren't ticked here.
-    if (dst_idx == 6 || src_idx == 6) gb_dma_tick(cpu);
+    // LD (HL),r / LD r,(HL) - a real memory access (M1). Register-to-
+    // register moves (neither operand index 6) and HALT (opcode 0x76,
+    // handled above) touch no memory at all, so they don't need this
+    // and aren't ticked here.
+    if (dst_idx == 6 || src_idx == 6) gb_mcycle_tick(cpu);
     set_reg8(cpu, dst_idx, get_reg8(cpu, src_idx));
     return (dst_idx == 6 || src_idx == 6) ? 8 : 4;
 }
 
-// Covers 0x80-0xBF: ADD/ADC/SUB/SBC/AND/XOR/OR/CP against r8.
+// Covers 0x80-0xBF: ADD/ADC/SUB/SBC/AND/XOR/OR/CP against r8. reg_idx==6
+// ((HL)) is one real memory read (M1); every other register index is
+// pure register-to-register, no extra tick beyond the outer M0.
 static int gb_op_alu_group(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t op_idx = (opcode >> 3) & 0x07;
     uint8_t reg_idx = opcode & 0x07;
+    if (reg_idx == 6) gb_mcycle_tick(cpu);
     gb_alu_dispatch(cpu, op_idx, get_reg8(cpu, reg_idx));
     return (reg_idx == 6) ? 8 : 4;
 }
@@ -489,15 +521,21 @@ static int gb_op_alu_group(GBCpu *cpu) {
 static int gb_op_alu_d8_group(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t op_idx = (opcode >> 3) & 0x07;
+    gb_mcycle_tick(cpu);
     gb_alu_dispatch(cpu, op_idx, fetch_byte(cpu));
     return 8;
 }
 
+// M-cycle breakdown per the official opcode table (M=0 decode, M=1
+// read offset, M=2 internal PC-adjust *only if taken* - the not-taken
+// case skips it, same 8T/12T split JP cc/CALL cc below also have).
 static int gb_op_jr_cc(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 3) & 0x03;
+    gb_mcycle_tick(cpu);
     int8_t off = (int8_t)fetch_byte(cpu);
     if (check_cond(cpu, idx)) {
+        gb_mcycle_tick(cpu);
         cpu->pc = (uint16_t)(cpu->pc + off);
         return 12;
     }
@@ -510,13 +548,13 @@ static int gb_op_jr_cc(GBCpu *cpu) {
 static int gb_op_jp_cc(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 3) & 0x03;
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t lo = fetch_byte(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t hi = fetch_byte(cpu);
     uint16_t addr = (uint16_t)((hi << 8) | lo);
     if (check_cond(cpu, idx)) {
-        gb_dma_tick(cpu);
+        gb_mcycle_tick(cpu);
         cpu->pc = addr;
         return 16;
     }
@@ -530,13 +568,13 @@ static int gb_op_jp_cc(GBCpu *cpu) {
 static int gb_op_call_cc(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 3) & 0x03;
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t lo = fetch_byte(cpu);
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     uint8_t hi = fetch_byte(cpu);
     uint16_t addr = (uint16_t)((hi << 8) | lo);
     if (check_cond(cpu, idx)) {
-        gb_dma_tick(cpu);
+        gb_mcycle_tick(cpu);
         gb_push16_ticked(cpu, cpu->pc);
         cpu->pc = addr;
         return 24;
@@ -551,10 +589,10 @@ static int gb_op_call_cc(GBCpu *cpu) {
 static int gb_op_ret_cc(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint8_t idx = (opcode >> 3) & 0x03;
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     if (check_cond(cpu, idx)) {
         uint16_t addr = gb_pop16_ticked(cpu);
-        gb_dma_tick(cpu);
+        gb_mcycle_tick(cpu);
         cpu->pc = addr;
         return 20;
     }
@@ -567,7 +605,7 @@ static int gb_op_ret_cc(GBCpu *cpu) {
 static int gb_op_rst(GBCpu *cpu) {
     uint8_t opcode = gb_read_byte(cpu, (uint16_t)(cpu->pc - 1));
     uint16_t target = opcode & 0x38;
-    gb_dma_tick(cpu);
+    gb_mcycle_tick(cpu);
     gb_push16_ticked(cpu, cpu->pc);
     cpu->pc = target;
     return 16;
@@ -579,11 +617,17 @@ static int gb_op_rst(GBCpu *cpu) {
 // IX/IY-driven exceptions to carve out the way the Z80's version has
 // to): bits 7-6 select the operation group, bits 5-3 select which
 // rotate/shift/bit-index, bits 2-0 select the r8 operand.
+// M-cycle breakdown: M0(decode, outer)+M1(this CB-prefixed opcode
+// byte's own fetch, always) - then, only for the (HL) operand
+// (reg_idx==6): M2(read (HL)) and, for every group except BIT (which
+// never writes anything back), M3(write back).
 static int gb_op_prefix_cb(GBCpu *cpu) {
+    gb_mcycle_tick(cpu);
     uint8_t opcode = fetch_byte(cpu);
     uint8_t reg_idx = opcode & 0x07;
     uint8_t bit_idx = (opcode >> 3) & 0x07;
     uint8_t group = (opcode >> 6) & 0x03;
+    if (reg_idx == 6) gb_mcycle_tick(cpu);
     uint8_t val = get_reg8(cpu, reg_idx);
 
     if (group == 0) {
@@ -598,6 +642,7 @@ static int gb_op_prefix_cb(GBCpu *cpu) {
             case 6: result = gb_alu_swap(cpu, val); break;
             default: result = gb_alu_srl(cpu, val); break; // 7
         }
+        if (reg_idx == 6) gb_mcycle_tick(cpu);
         set_reg8(cpu, reg_idx, result);
         return (reg_idx == 6) ? 16 : 8;
     }
@@ -610,11 +655,9 @@ static int gb_op_prefix_cb(GBCpu *cpu) {
         // case wrong (says 16) - see docs/GAMEBOY_ROADMAP.md.
         return (reg_idx == 6) ? 12 : 8;
     }
-    if (group == 2) {
-        set_reg8(cpu, reg_idx, gb_alu_res(bit_idx, val));
-    } else {
-        set_reg8(cpu, reg_idx, gb_alu_set(bit_idx, val));
-    }
+    uint8_t result = (group == 2) ? gb_alu_res(bit_idx, val) : gb_alu_set(bit_idx, val);
+    if (reg_idx == 6) gb_mcycle_tick(cpu);
+    set_reg8(cpu, reg_idx, result);
     return (reg_idx == 6) ? 16 : 8;
 }
 
@@ -801,56 +844,32 @@ void gb_cpu_reset(GBCpu *cpu) {
 // "find the highest-priority one" in the same pass.
 static const uint16_t interrupt_vectors[5] = {0x0040, 0x0048, 0x0050, 0x0058, 0x0060};
 
-// Fetches and dispatches one opcode, ticking OAM DMA by exactly one
-// M-cycle per real M-cycle this instruction takes - the M0 (opcode
-// fetch) tick happens right here, once, for every instruction; what
-// happens for the rest of the instruction's M-cycles depends on which
-// handler this opcode maps to:
+// Fetches and dispatches one opcode. Every handler in gb_opcode_table[]
+// self-ticks gb_mcycle_tick() once per real M-cycle it takes - the M0
+// (opcode fetch) tick happens right here, once, for every instruction;
+// each handler's own comment documents its exact M-cycle breakdown
+// (which of its reads/writes/internal delays gets its own tick).
 //
-// - The dozen opcodes whose own real M-cycle boundaries this project's
-//   Mooneye OAM-DMA-timing ROMs actually probe (CALL/CALL cc/RET/RET
-//   cc/RETI/RST/PUSH rr/POP rr/JP nn/JP cc/ADD SP,e8/LD HL,SP+e8 - see
-//   each handler's own comment for its exact M-cycle breakdown), plus
-//   LDH (a8),A (gb_op_ldh_a8_a - see its own comment on why *it*, of
-//   all things, needs this too: it's the exact instruction that
-//   triggers a transfer in the first place), call gb_dma_tick()
-//   themselves, once per remaining M-cycle, interleaved with their own
-//   reads/writes/internal delays. is_dma_precise_op() below recognizes
-//   them by function pointer so this dispatcher knows to leave them
-//   alone.
-// - Every other opcode doesn't self-tick at all - this function just
-//   advances DMA by whatever's left (`cycles/4 - 1`, the "-1" for M0
-//   already ticked above) in one lump sum once the handler returns.
-//   This is deliberately *not* per-M-cycle-accurate for these opcodes'
-//   own internal reads/writes against DMA - but nothing needs it to be:
-//   real code never touches OAM directly during an active transfer (it
-//   busy-waits in HRAM instead, the same convention this project's PPU
-//   code already relies elsewhere), and none of the Mooneye ROMs here
-//   probe any other opcode's timing against DMA. What *does* need to be
-//   right is DMA's total progress after N real M-cycles of ordinary
-//   code (e.g. the NOP-padding loops these same ROMs use to line up
-//   their *own* precise instruction against DMA's countdown) - and a
-//   same-total lump sum gets that exactly right.
-static int is_dma_precise_op(GBOpcodeHandler handler) {
-    return handler == gb_op_jp || handler == gb_op_jp_cc ||
-           handler == gb_op_call || handler == gb_op_call_cc ||
-           handler == gb_op_ret || handler == gb_op_ret_cc || handler == gb_op_reti ||
-           handler == gb_op_rst || handler == gb_op_push_rr2 || handler == gb_op_pop_rr2 ||
-           handler == gb_op_add_sp_e8 || handler == gb_op_ld_hl_sp_e8 ||
-           handler == gb_op_ldh_a8_a || handler == gb_op_ld_r_r;
-}
-
+// This wasn't always true: earlier revisions only self-ticked a
+// curated set of opcodes whose own timing Mooneye's OAM-DMA-timing
+// ROMs happened to probe, lump-summing every other opcode's ticks in
+// one batch after the fact - fine for DMA's own state (which only
+// cares about *total* progress after N real M-cycles, not the exact
+// instant within an unrelated instruction), but proven wrong for the
+// timer and PPU (see docs/GAMEBOY_ROADMAP.md's "Timer M-cycle
+// precision: attempted, reverted" entry): a TAC/TIMA write's spurious-
+// tick edge-detection, or a Mode 0 STAT interrupt firing one T-state
+// before the real mode switch, both need the counter/mode exactly
+// current at that specific instant, for *any* opcode, not just a
+// dozen "timing-sensitive" ones. Every handler below being precise is
+// what closes that gap for real - the same per-M-cycle interleaving
+// Gekkio's own mooneye-gb reference emulator uses throughout (see
+// gb_mcycle_tick()'s own comment, mmu.c).
 static int fetch_and_dispatch_ticked(GBCpu *cpu) {
-    gb_dma_tick(cpu); // M0: opcode fetch
+    gb_mcycle_tick(cpu); // M0: opcode fetch
     uint8_t opcode = fetch_byte(cpu);
     GBOpcodeHandler handler = gb_opcode_table[opcode];
-    int cycles = handler(cpu);
-    if (cycles > 0 && !is_dma_precise_op(handler)) {
-        for (int remaining = cycles / 4 - 1; remaining > 0; remaining--) {
-            gb_dma_tick(cpu);
-        }
-    }
-    return cycles;
+    return handler(cpu);
 }
 
 int gb_cpu_step(GBCpu *cpu) {
@@ -881,20 +900,17 @@ int gb_cpu_step(GBCpu *cpu) {
         // exercises exactly this: normal dispatch, IE-clobber-cancels,
         // IE-clobber-too-late, and a two-candidate-interrupts case
         // proving the *fresh* IE (not the original) picks which one.
-        // Not one of Mooneye's precisely-probed opcodes (none of this
-        // project's committed ROMs test interrupt dispatch racing an
-        // active OAM DMA transfer), so these 5 ticks - one per real
-        // M-cycle, matching pandocs' own 5-M-cycle dispatch sequence -
-        // are placed at reasonable points rather than exhaustively
-        // verified against a real ROM the way the 12 opcode handlers
-        // above are.
-        gb_dma_tick(cpu); // M0: decode/IME clear
+        // These 5 ticks - one per real M-cycle, matching pandocs' own
+        // 5-M-cycle dispatch sequence - are placed at the points that
+        // match real hardware's own decode/push/push/internal shape,
+        // same as every opcode handler above.
+        gb_mcycle_tick(cpu); // M0: decode/IME clear
         cpu->ime = 0;
         cpu->sp -= 2;
-        gb_dma_tick(cpu); // M1: high byte push
+        gb_mcycle_tick(cpu); // M1: high byte push
         gb_write_byte(cpu, (uint16_t)(cpu->sp + 1), (uint8_t)(cpu->pc >> 8));
 
-        gb_dma_tick(cpu); // M2: internal (decide the target vector)
+        gb_mcycle_tick(cpu); // M2: internal (decide the target vector)
         uint8_t final_pending = (uint8_t)(gb_read_byte(cpu, 0xFFFF) & gb_read_byte(cpu, 0xFF0F) & 0x1F);
         uint16_t target = 0x0000;
         if (final_pending) {
@@ -904,15 +920,15 @@ int gb_cpu_step(GBCpu *cpu) {
             target = interrupt_vectors[bit];
         }
 
-        gb_dma_tick(cpu); // M3: low byte push
+        gb_mcycle_tick(cpu); // M3: low byte push
         gb_write_byte(cpu, cpu->sp, (uint8_t)(cpu->pc & 0xFF));
-        gb_dma_tick(cpu); // M4: internal
+        gb_mcycle_tick(cpu); // M4: internal
         cpu->pc = target;
         return 20;
     }
 
     if (cpu->halted) {
-        gb_dma_tick(cpu);
+        gb_mcycle_tick(cpu);
         return 4; // still waiting - no enabled interrupt pending yet
     }
 

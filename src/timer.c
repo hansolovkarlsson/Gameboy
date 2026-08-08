@@ -51,17 +51,32 @@ void gb_timer_reset(GBTimer *timer) {
 void gb_timer_step(GBTimer *timer, struct GBCpu *cpu, int cycles) {
     for (int i = 0; i < cycles; i++) {
         if (timer->overflow_delay > 0) {
+            // The system counter still advances, but the normal falling-
+            // edge check is skipped for the entire 1 M-cycle reload gap -
+            // mutually exclusive with it, not layered alongside it.
+            // Grounded against Gekkio's own mooneye-gb
+            // (core/src/hardware/timer.rs's tick_cycle(): `if
+            // self.overflow { reload... } else if enabled && counter_bit()
+            // { ...falling-edge check... }`, an if/else-if, never both in
+            // the same cycle). Found via Mooneye's own real-hardware-
+            // verified acceptance/timer/rapid_toggle.gb (test_roms/
+            // mooneye/): running both checks unconditionally every T-state
+            // let a rapid-TAC-toggling "spurious tick" coincide with an
+            // in-flight reload's own T-state, occasionally producing one
+            // extra TIMA increment mooneye-gb's mutually-exclusive model
+            // never allows.
             timer->overflow_delay--;
             if (timer->overflow_delay == 0) {
                 timer->tima = timer->tma;
                 request_timer_interrupt(cpu);
             }
+            timer->sys_counter++;
+        } else {
+            int old_signal = effective_signal(timer);
+            timer->sys_counter++;
+            int new_signal = effective_signal(timer);
+            tick_tima_on_falling_edge(timer, old_signal, new_signal);
         }
-
-        int old_signal = effective_signal(timer);
-        timer->sys_counter++;
-        int new_signal = effective_signal(timer);
-        tick_tima_on_falling_edge(timer, old_signal, new_signal);
     }
 }
 

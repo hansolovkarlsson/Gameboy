@@ -179,3 +179,38 @@ void gb_dma_tick(GBCpu *cpu) {
         cpu->dma_request_pending = 0;
     }
 }
+
+// Advances every subsystem whose own state depends on precise sub-
+// instruction timing - DMA, the timer, the PPU, and the APU - by
+// exactly one real M-cycle (4 T-states), called once per real M-cycle
+// of CPU execution (cpu.c's every opcode handler, not once per whole
+// instruction the way main.c/sdl's driver loop used to call
+// gb_ppu_step()/gb_timer_step()/gb_apu_step() directly). This is the
+// same per-M-cycle interleaving Gekkio's own mooneye-gb reference
+// emulator uses throughout (every register access goes through its
+// shared generic_mem_cycle/timer_mem_cycle, not a curated subset of
+// "timing-sensitive" opcodes) - the exact lesson this project's own
+// "Timer M-cycle precision: attempted, reverted" investigation
+// (docs/GAMEBOY_ROADMAP.md) found the hard way: a timer that only
+// self-ticks a dozen or so opcode handlers (matching what sufficed for
+// DMA) leaves its own counter wrong at every *other* opcode's TAC/TIMA
+// write, since edge-detection needs it exactly current at that instant,
+// not just correct in total by the end of an instruction. Folding the
+// PPU in too closes the matching per-dot gap `acceptance/ppu/`'s
+// remaining timing ROMs (test_roms/mooneye/) found - mooneye-gb's own
+// ppu.rs requests Mode 0's STAT interrupt one T-state before the real
+// Mode 3->0 switch, something only reachable with per-T-state PPU
+// stepping, not the once-per-instruction lump sum ppu.h's own comment
+// already documented as a scope limit.
+//
+// timer/ppu/apu are each NULL-guarded: tests/test_cpu.c's own minimal
+// GBCpu (built to exercise cpu.c/mmu.c in isolation, no PPU/timer/APU
+// wired up at all) still needs gb_cpu_step() to work without crashing -
+// gb_dma_tick() itself has never needed this guard since DMA state
+// lives directly on GBCpu, not behind one of these optional pointers.
+void gb_mcycle_tick(GBCpu *cpu) {
+    gb_dma_tick(cpu);
+    if (cpu->timer) gb_timer_step(cpu->timer, cpu, 4);
+    if (cpu->ppu) gb_ppu_step(cpu->ppu, cpu, 4);
+    if (cpu->apu) gb_apu_step(cpu->apu, cpu, 4);
+}

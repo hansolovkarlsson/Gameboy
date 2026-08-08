@@ -152,9 +152,11 @@ static int step_frame(GameboyApp *app) {
                     (unsigned)(app->cpu.pc - 1));
             return 0;
         }
-        gb_ppu_step(&app->ppu, &app->cpu, cycles);
-        gb_timer_step(&app->timer, &app->cpu, cycles);
-        gb_apu_step(&app->apu, &app->cpu, cycles);
+        // PPU/timer/APU all advance internally now, ticked once per
+        // real M-cycle from inside gb_cpu_step() itself (gb_mcycle_tick(),
+        // mmu.c) - calling gb_ppu_step()/gb_timer_step()/gb_apu_step()
+        // again here with the whole instruction's cycle count would
+        // double-advance all three.
         if (app->ppu.frame_ready) {
             app->ppu.frame_ready = 0;
             break;

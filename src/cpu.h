@@ -132,6 +132,15 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val);
 // rather than an instant bulk copy.
 void gb_dma_tick(GBCpu *cpu);
 
+// Advances DMA, the timer, the PPU, and the APU each by exactly one
+// real M-cycle - what every opcode handler in cpu.c actually calls
+// once per real M-cycle it takes (gb_dma_tick() above is kept as its
+// own function purely because a few direct unit tests, e.g.
+// tests/test_cpu.c's test_dma_wram_mirror_source(), exercise DMA in
+// isolation without a full GBCpu/GBTimer/GBPpu/GBApu wired together).
+// See mmu.c's own comment for the full reasoning.
+void gb_mcycle_tick(GBCpu *cpu);
+
 // Unlike Z80OpcodeHandler (cpm/emu/src/z80.h), no separate ram parameter -
 // GBCpu carries its own memory pointer and every handler goes through
 // gb_read_byte/gb_write_byte, so there's nothing a second parameter
