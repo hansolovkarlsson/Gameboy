@@ -216,6 +216,58 @@ unconditionally every T-state).
   (one merge, score 4) before recapturing, the same verification the
   original capture used.
 
+A follow-up pass picked back up the 6 remaining acceptance/ppu/ timing
+ROMs the per-M-cycle rewrite left open (the "1 known gap" note above,
+now updated to reflect it): 3/6 fixed, 77/83 overall, up from 74/83.
+
+- acceptance/ppu/intr_2_mode0_timing.gb and intr_2_mode3_timing.gb
+  (FIXED): traced with hand-verified T-state instrumentation
+  (mode-transition timestamps, exact NOP-loop iteration counts) to a
+  real, precise mechanism: gb_mcycle_tick() (mmu.c) ticks the PPU and
+  then immediately performs the CPU's own memory access for that same
+  M-cycle, so a STAT register read landing on the *exact* M-cycle a
+  mode transition occurs would see the *new* mode - but real hardware
+  doesn't make a transition externally visible that fast; only from
+  the *next* M-cycle does a register read observe it. Fixed with a new
+  `ppu->visible_mode` (ppu.h/ppu.c) that gb_ppu_read_reg()'s STAT case
+  reads instead of `mode` directly, snapshotted one M-cycle behind -
+  deliberately *not* applied to the interrupt-triggering logic itself
+  (update_stat_line() etc.), which independently already fires at the
+  correct, unlagged instant (stat_irq_blocking.gb/vblank_stat_intr-
+  GS.gb/stat_lyc_onoff.gb all still pass unchanged).
+- acceptance/ppu/intr_2_oam_ok_timing.gb (FIXED): a separate, real,
+  more broadly-impactful gap found investigating this cluster - mmu.c
+  only ever blocked CPU access to OAM during an active DMA transfer;
+  pandocs' Rendering.md "PPU modes" table documents OAM as
+  inaccessible during Modes 2 and 3 too (the PPU itself is using that
+  bus), independent of DMA entirely. Added gb_ppu_oam_blocked()
+  (ppu.h/ppu.c, using the same visible_mode lag as the STAT fix above)
+  and wired it into both of mmu.c's OAM read/write paths. This
+  required a companion fix: ppu.c's own *internal* OAM reads (object
+  selection, Mode 3 length computation, rendering) previously went
+  through the same gb_read_byte() the new block now applies to - which
+  would have made the PPU unable to read its own OAM during Modes 2/3,
+  exactly when it needs to. Redirected those to a new
+  read_oam_internal() that reads cpu->memory[] directly, bypassing all
+  CPU-facing bus-conflict checks - the same "PPU's own access is never
+  blocked by logic that exists to block the *CPU*" pattern
+  gb_dma_tick()'s own destination write already established.
+- acceptance/ppu/intr_2_mode0_timing_sprites.gb,
+  acceptance/ppu/lcdon_timing-GS.gb, acceptance/ppu/lcdon_write_timing-
+  GS.gb (still open): the first is an exhaustive 60+ case stress test
+  of compute_mode3_length()'s own OBJ-penalty formula, not the mode-
+  timing mechanism just fixed above - a separate audit, not yet done.
+  The latter two both test a documented special case ("the PPU is late
+  by 2 T-cycles" on the very first line after LCD is enabled) that
+  this project has no dedicated model for at all yet, distinct from
+  every other gap this file tracks.
+
+Also added stat_line and visible_mode to savestate.c's PPU section
+(SAVESTATE_VERSION 2->3) - both were live PPU state a save/load round
+trip previously dropped silently; stat_line was a pre-existing gap
+from the earlier STAT-interrupt-model rework, found in passing while
+adding visible_mode.
+
 EXPECTED below is this real, current baseline, the same floor-not-target
 reasoning tests/compare_frame.py already uses for dmg-acid2: a ROM
 regressing from PASS to anything else is a real regression and fails
@@ -266,10 +318,10 @@ EXPECTED = {
     "acceptance/ppu/hblank_ly_scx_timing-GS.gb": "PASS",
     "acceptance/ppu/intr_1_2_timing-GS.gb": "PASS",
     "acceptance/ppu/intr_2_0_timing.gb": "PASS",
-    "acceptance/ppu/intr_2_mode0_timing.gb": "FAIL",
+    "acceptance/ppu/intr_2_mode0_timing.gb": "PASS",
     "acceptance/ppu/intr_2_mode0_timing_sprites.gb": "FAIL",
-    "acceptance/ppu/intr_2_mode3_timing.gb": "FAIL",
-    "acceptance/ppu/intr_2_oam_ok_timing.gb": "FAIL",
+    "acceptance/ppu/intr_2_mode3_timing.gb": "PASS",
+    "acceptance/ppu/intr_2_oam_ok_timing.gb": "PASS",
     "acceptance/ppu/lcdon_timing-GS.gb": "FAIL",
     "acceptance/ppu/lcdon_write_timing-GS.gb": "FAIL",
     "acceptance/ppu/stat_irq_blocking.gb": "PASS",

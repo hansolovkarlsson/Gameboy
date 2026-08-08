@@ -508,3 +508,59 @@ real this time.
 
 Zero regressions anywhere else. **74/83** on the committed Mooneye
 subset, up from 73/83.
+
+## Results: STAT read/OAM access timing lag - 3 more `acceptance/ppu/` ROMs, 77/83
+
+Picked back up the 6 `acceptance/ppu/` timing ROMs the per-M-cycle
+rewrite left open. Root-caused with hand-verified T-state
+instrumentation (mode-transition timestamps and NOP-padded
+polling-loop iteration counts, cross-checked against a by-hand trace of
+the same instruction sequence), not guessed at. 3/6 fixed.
+
+- **`intr_2_mode0_timing.gb`/`intr_2_mode3_timing.gb` (FIXED)**: the
+  real mechanism is that `gb_mcycle_tick()` (`mmu.c`) ticks the PPU and
+  then immediately performs the CPU's own memory access for that same
+  M-cycle - so a STAT register read landing on the *exact* M-cycle a
+  mode transition occurs sees the new mode immediately, where real
+  hardware only makes it externally visible from the *next* M-cycle
+  on. First tried a naive fix (delaying every mode-transition check
+  uniformly via `dots > threshold` instead of `>=`) - this also delayed
+  the Mode 0->2 boundary the ROM's own HALT-based synchronization
+  relies on, so the *relative* timing between sync point and measured
+  event never changed and it still failed. The real fix needed to be
+  asymmetric: a new `ppu->visible_mode` (`ppu.h`), snapshotted one
+  M-cycle behind `mode`, used only by `gb_ppu_read_reg()`'s STAT case -
+  while interrupt-triggering logic keeps using `mode` directly,
+  unlagged, since that's independently already correct
+  (`stat_irq_blocking.gb`/`vblank_stat_intr-GS.gb`/`stat_lyc_onoff.gb`
+  all still pass unchanged).
+- **`intr_2_oam_ok_timing.gb` (FIXED)**: found investigating this
+  cluster, a separate and more broadly consequential gap -
+  `mmu.c` only ever blocked CPU access to OAM during active DMA;
+  pandocs' `Rendering.md` "PPU modes" table documents OAM as
+  inaccessible during Modes 2 *and* 3 too, independent of DMA. Added
+  `gb_ppu_oam_blocked()` (using the same `visible_mode` lag) and wired
+  it into `mmu.c`'s OAM read/write paths. Needed one companion fix:
+  `ppu.c`'s own *internal* OAM reads (object selection, Mode 3 length,
+  rendering) previously went through the same `gb_read_byte()` the new
+  block now applies to, which would have blocked the PPU from reading
+  its own OAM during the exact modes it needs to render sprites at
+  all - fixed by routing those through a new `read_oam_internal()`
+  that reads `cpu->memory[]` directly, the same "the PPU's own access
+  is never blocked by logic that exists to block the CPU" pattern
+  `gb_dma_tick()`'s own destination write already established.
+- **Still open**: `intr_2_mode0_timing_sprites.gb` (an exhaustive 60+
+  case stress test of `compute_mode3_length()`'s own OBJ-penalty
+  formula specifically, untouched by the fix above) and
+  `lcdon_timing-GS.gb`/`lcdon_write_timing-GS.gb` (both test a
+  documented "PPU is late by 2 T-cycles" special case on the first
+  line after LCD is enabled - no dedicated model for this exists yet).
+
+Also added `stat_line` and `visible_mode` to `savestate.c`'s PPU
+section (`SAVESTATE_VERSION` 2->3) - both are live PPU state a
+save/load round trip previously dropped silently; `stat_line` was a
+pre-existing gap from the earlier STAT-interrupt-model rework, found in
+passing.
+
+Zero regressions across the full existing suite. **77/83** on the
+committed Mooneye subset, up from 74/83.

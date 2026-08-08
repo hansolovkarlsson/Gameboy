@@ -19,6 +19,7 @@ void gb_ppu_reset(GBPpu *ppu) {
     ppu->obp0 = 0xFF;
     ppu->obp1 = 0xFF;
     ppu->mode = 2;
+    ppu->visible_mode = 2;
     ppu->mode3_dots = 172; // sane default (the real minimum) until the
                             // first Mode 2->3 transition computes a real
                             // one - see compute_mode3_length()
@@ -120,11 +121,21 @@ static int window_visible_on_line(GBPpu *ppu, int ly) {
 // pandocs' Rendering.md footnote on OBJ penalty ordering explicitly
 // matches this same leftmost-first/OAM-tiebreak order, so both need to
 // agree on it exactly, not just happen to produce similar results.
+// Reads OAM directly from cpu->memory[], not through gb_read_byte() -
+// this is the PPU's own internal access (object selection, Mode 3
+// length computation, rendering), which real hardware's OAM DMA and
+// Mode 2/3 CPU-bus-conflict logic never blocks (that logic exists
+// specifically to stop the *CPU* from also reaching OAM while the PPU
+// itself is using that bus - see gb_ppu_oam_blocked(), ppu.h/mmu.c).
+static uint8_t read_oam_internal(struct GBCpu *cpu, uint16_t addr) {
+    return cpu->memory[addr];
+}
+
 static int select_objects_for_scanline(struct GBCpu *cpu, int ly, int obj_height, int selected[10]) {
     int selected_count = 0;
     for (int i = 0; i < 40 && selected_count < 10; i++) {
         uint16_t oam_addr = (uint16_t)(0xFE00 + i * 4);
-        uint8_t obj_y = gb_read_byte(cpu, oam_addr);
+        uint8_t obj_y = read_oam_internal(cpu, oam_addr);
         int obj_top = obj_y - 16;
         if (ly >= obj_top && ly < obj_top + obj_height) {
             selected[selected_count++] = i;
@@ -133,10 +144,10 @@ static int select_objects_for_scanline(struct GBCpu *cpu, int ly, int obj_height
 
     for (int a = 1; a < selected_count; a++) {
         int key = selected[a];
-        uint8_t key_x = gb_read_byte(cpu, (uint16_t)(0xFE00 + key * 4 + 1));
+        uint8_t key_x = read_oam_internal(cpu, (uint16_t)(0xFE00 + key * 4 + 1));
         int b = a - 1;
         while (b >= 0) {
-            uint8_t b_x = gb_read_byte(cpu, (uint16_t)(0xFE00 + selected[b] * 4 + 1));
+            uint8_t b_x = read_oam_internal(cpu, (uint16_t)(0xFE00 + selected[b] * 4 + 1));
             if (b_x <= key_x) break;
             selected[b + 1] = selected[b];
             b--;
@@ -177,7 +188,7 @@ static int compute_mode3_length(GBPpu *ppu, struct GBCpu *cpu) {
 
     for (int s = 0; s < selected_count; s++) {
         uint16_t oam_addr = (uint16_t)(0xFE00 + selected[s] * 4);
-        uint8_t obj_x = gb_read_byte(cpu, (uint16_t)(oam_addr + 1));
+        uint8_t obj_x = read_oam_internal(cpu, (uint16_t)(oam_addr + 1));
 
         if (obj_x == 0) {
             // Exception: completely off the left edge always costs 11
@@ -301,10 +312,10 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
     for (int s = 0; s < selected_count; s++) {
         int i = selected[s];
         uint16_t oam_addr = (uint16_t)(0xFE00 + i * 4);
-        uint8_t obj_y = gb_read_byte(cpu, oam_addr);
-        uint8_t obj_x = gb_read_byte(cpu, (uint16_t)(oam_addr + 1));
-        uint8_t tile_id = gb_read_byte(cpu, (uint16_t)(oam_addr + 2));
-        uint8_t attr = gb_read_byte(cpu, (uint16_t)(oam_addr + 3));
+        uint8_t obj_y = read_oam_internal(cpu, oam_addr);
+        uint8_t obj_x = read_oam_internal(cpu, (uint16_t)(oam_addr + 1));
+        uint8_t tile_id = read_oam_internal(cpu, (uint16_t)(oam_addr + 2));
+        uint8_t attr = read_oam_internal(cpu, (uint16_t)(oam_addr + 3));
 
         int obj_top = obj_y - 16;
         int obj_left = obj_x - 8;
@@ -344,6 +355,25 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
 
 void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
     if (!(ppu->lcdc & 0x80)) return; // LCD off: PPU fully idle, per pandocs' LCDC.md
+
+    // Snapshot the mode STAT reads *before* this call's own transition
+    // check below can change it - gb_mcycle_tick() (mmu.c) runs this,
+    // then immediately performs the CPU's own memory access for that
+    // same M-cycle, so a register read landing on the *exact* M-cycle a
+    // mode transition occurs would otherwise already observe the *new*
+    // mode. Real hardware doesn't make a transition externally visible
+    // that fast - only from the *next* M-cycle on - while the internal
+    // `mode` interrupts key off of (via update_stat_line() and the
+    // VBlank-quirk check below) *does* need to change immediately, at
+    // the real transition instant, since those are independently
+    // already verified correct (stat_irq_blocking.gb, vblank_stat_intr-
+    // GS.gb, stat_lyc_onoff.gb). Found via Mooneye's own
+    // acceptance/ppu/intr_2_mode0_timing.gb (test_roms/mooneye/): its
+    // two NOP-padded polling loops (46 vs 45 NOPs) are built to land
+    // exactly on vs. one M-cycle before a Mode 3->0 boundary; without
+    // this lag both resolved to the same iteration count instead of the
+    // ROM's own asserted one-iteration difference.
+    ppu->visible_mode = ppu->mode;
 
     ppu->dots += cycles;
 
@@ -418,6 +448,10 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
     }
 }
 
+int gb_ppu_oam_blocked(const GBPpu *ppu) {
+    return (ppu->lcdc & 0x80) && (ppu->visible_mode == 2 || ppu->visible_mode == 3);
+}
+
 uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr) {
     switch (addr) {
         case 0xFF40: return ppu->lcdc;
@@ -427,8 +461,10 @@ uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr) {
             // disabled." Bit 7 is unused and always reads as 1
             // (confirmed against Mooneye's real-hardware-verified
             // unused_hwio-GS.gb, test_roms/mooneye/) regardless of
-            // what was last written to it.
-            uint8_t mode = (ppu->lcdc & 0x80) ? (uint8_t)ppu->mode : 0;
+            // what was last written to it. Uses visible_mode, not mode
+            // directly - see gb_ppu_step()'s own comment on why a
+            // same-instant register read needs that one-M-cycle lag.
+            uint8_t mode = (ppu->lcdc & 0x80) ? (uint8_t)ppu->visible_mode : 0;
             return (uint8_t)((ppu->stat & 0xFC) | mode | 0x80);
         }
         case 0xFF42: return ppu->scy;
@@ -462,6 +498,7 @@ void gb_ppu_write_reg(GBPpu *ppu, struct GBCpu *cpu, uint16_t addr, uint8_t val)
                 // whatever it last was while the LCD is off, not reset
                 // to 0.
                 ppu->mode = 0;
+                ppu->visible_mode = 0;
                 ppu->dots = 0;
                 ppu->ly = 0;
                 ppu->mode3_dots = 172; // same reasoning as gb_ppu_reset()

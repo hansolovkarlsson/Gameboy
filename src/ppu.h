@@ -45,6 +45,11 @@ typedef struct GBPpu {
                         // see ppu.c's own update_stat_line() comment for why
                         // this needs to persist across calls, not just be
                         // recomputed fresh each time
+    int visible_mode;  // what gb_ppu_read_reg() reports as STAT's mode bits -
+                        // deliberately lags `mode` by exactly one M-cycle; see
+                        // gb_ppu_step()'s own comment for why a same-instant
+                        // register read needs this distinction from the
+                        // internal mode value interrupts key off of
     int window_line;  // internal window line counter - see Tile_Maps.md's
                        // "Window Internal Line Counter" tip: only advances
                        // on scanlines where the window was actually drawn
@@ -69,6 +74,16 @@ void gb_ppu_reset(GBPpu *ppu);
 // full interrupt *dispatch* is still Phase 4, but there's no reason for
 // the PPU side of "an interrupt became pending" to wait for that.
 void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles);
+
+// Whether the CPU's own bus access to OAM ($FE00-$FE9F) is currently
+// blocked by the PPU itself - pandocs' Rendering.md "PPU modes" table:
+// OAM is accessible only during Modes 0/1, not 2 (OAM scan - the PPU is
+// using that same bus) or 3 (drawing). Separate from, and in addition
+// to, mmu.c's own OAM DMA bus-conflict check - either one blocks access
+// on its own. Uses `mode` directly (not the STAT-read-lagged
+// visible_mode - see ppu.c's own gb_ppu_step() comment): this is real
+// bus contention, not a status register's reported value.
+int gb_ppu_oam_blocked(const GBPpu *ppu);
 
 uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr);
 // `cpu` is needed only for the DMA register (0xFF46), which triggers an

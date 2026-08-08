@@ -77,6 +77,16 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->dma_active) {
         return 0xFF;
     }
+    // A second, independent OAM bus conflict: the PPU itself uses the
+    // OAM bus during Modes 2/3, blocking the CPU's own access the same
+    // way an active DMA transfer does (see gb_ppu_oam_blocked()'s own
+    // comment, ppu.h/ppu.c, for the pandocs citation). Found via
+    // Mooneye's own acceptance/ppu/intr_2_oam_ok_timing.gb
+    // (test_roms/mooneye/), which measures exactly how long OAM stays
+    // unreadable after a Mode 2 STAT interrupt.
+    if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->ppu && gb_ppu_oam_blocked(cpu->ppu)) {
+        return 0xFF;
+    }
     return cpu->memory[addr];
 }
 
@@ -108,6 +118,11 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     // there - not the CPU's value, and not left "unchanged" either,
     // since DMA keeps copying regardless of what the CPU attempts.
     if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->dma_active) {
+        return;
+    }
+    // The PPU-mode side of the same conflict - see gb_read_byte()'s
+    // matching comment.
+    if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->ppu && gb_ppu_oam_blocked(cpu->ppu)) {
         return;
     }
     if (addr == 0xFF02 && (val & 0x81) == 0x81) {

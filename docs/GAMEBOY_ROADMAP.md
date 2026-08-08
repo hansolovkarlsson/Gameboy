@@ -1226,22 +1226,24 @@ section and `tests/run_mooneye.py`'s `EXPECTED` table for the full
 per-ROM baseline.
 
 **Next**: two known, honestly-scoped-out gaps remain across the
-committed Mooneye subset (74/83 overall as of the per-M-cycle CPU
-rewrite further below - see that entry for the full current picture,
-including one real, deliberately-accepted regression):
+committed Mooneye subset (77/83 overall - see the "STAT read/OAM
+timing lag" entry further below for the full current picture, and the
+per-M-cycle CPU rewrite entry before it for the one real,
+deliberately-accepted regression):
 
 - `timer/tima_write_reloading.gb`/`tma_write_reloading.gb`'s one
   remaining unresolved assertion each - the same underlying "obscure
   TAC-toggle spurious-tick edge case" the per-M-cycle rewrite's own
   `rapid_toggle.gb` regression traces to; see that entry for the full
   investigation.
-- 6 of the 7 `acceptance/ppu/` timing ROMs (`intr_2_*.gb` x4,
-  `lcdon_timing-GS.gb`, `lcdon_write_timing-GS.gb`) - `hblank_ly_scx_
-  timing-GS.gb`, the 7th, was fixed by the per-M-cycle rewrite; these
-  6 apparently need something more (not yet root-caused - the rewrite
-  closed the PPU's own architectural gap but didn't close these on its
-  own, unlike the timer side where exactly one ROM (`pop_timing.gb`)
-  needed only that).
+- 3 of the 7 `acceptance/ppu/` timing ROMs:
+  `intr_2_mode0_timing_sprites.gb` (an exhaustive stress test of
+  `compute_mode3_length()`'s own OBJ-penalty formula - a separate audit
+  from the STAT-read-lag fix below, not yet done), and
+  `lcdon_timing-GS.gb`/`lcdon_write_timing-GS.gb` (both test a
+  documented "PPU is late by 2 T-cycles" special case on the first line
+  after LCD is enabled, which this project has no dedicated model for
+  at all yet).
 
 **Timer M-cycle precision: attempted, reverted - a real architecture-
 size finding, not a bug fix.** The "Next" note above (in its original
@@ -1646,3 +1648,76 @@ ROMs (the 4 `intr_2_*.gb`, both `lcdon_*-GS.gb`) and `timer/
 tima_write_reloading.gb`/`tma_write_reloading.gb`'s last assertion
 remain open - not yet root-caused why the PPU/timer both being
 per-M-cycle-precise now didn't also close these, worth a future look.
+
+**STAT read/OAM access timing: a genuine one-M-cycle visibility lag,
+found and fixed - 3 more `acceptance/ppu/` ROMs, 77/83.** The "worth a
+future look" note above got exactly that: root-caused with hand-
+verified T-state instrumentation (mode-transition timestamps and
+NOP-padded polling-loop iteration counts, cross-checked against a
+by-hand trace of the exact same instruction sequence) rather than
+guessed at.
+
+`intr_2_mode0_timing.gb`'s two test iterations (46 vs. 45 NOPs) are
+built to land the ROM's own STAT poll exactly *on* vs. one M-cycle
+*before* a Mode 3->0 boundary. Tracing showed both landed on the same
+iteration count instead of differing by exactly one, as the ROM's own
+assertions (`assert_d $01; assert_e $02`) require. The mechanism:
+`gb_mcycle_tick()` (`mmu.c`) ticks the PPU and then immediately
+performs the CPU's own memory access for that same M-cycle - so a STAT
+register read landing on the *exact* M-cycle a mode transition occurs
+sees the transition immediately. Real hardware doesn't: the transition
+only becomes externally visible to a register read from the *next*
+M-cycle on. First tried delaying the transition itself (changing every
+`dots >= threshold` check in `gb_ppu_step()` to `dots > threshold`) -
+this uniformly shifted *every* mode boundary by one M-cycle, including
+the Mode 0->2 boundary the test's own HALT-based synchronization relies
+on, so the relative timing between sync point and measured event never
+actually changed and the test still failed. The real fix needed to be
+asymmetric: a new `ppu->visible_mode` (`ppu.h`), snapshotted from
+`mode` at the *start* of `gb_ppu_step()` (i.e. one M-cycle behind),
+which `gb_ppu_read_reg()`'s STAT case reads instead of `mode` directly
+- while interrupt-triggering logic (`update_stat_line()` and the
+VBlank-quirk check) keeps using `mode` itself, unlagged, since that's
+independently already correct (`stat_irq_blocking.gb`/
+`vblank_stat_intr-GS.gb`/`stat_lyc_onoff.gb` all still pass unchanged).
+Fixed both `intr_2_mode0_timing.gb` and `intr_2_mode3_timing.gb`.
+
+Investigating this cluster also surfaced a second, more broadly
+consequential gap: `mmu.c` only ever blocked CPU access to OAM during
+an active DMA transfer. pandocs' `Rendering.md` "PPU modes" table
+documents OAM as inaccessible during Modes 2 *and* 3 too - the PPU
+itself is using that bus during both, independent of DMA entirely.
+Added `gb_ppu_oam_blocked()` (`ppu.h`/`ppu.c`, using the same
+`visible_mode` lag as the STAT fix) and wired it into both of `mmu.c`'s
+OAM read/write paths - fixing `intr_2_oam_ok_timing.gb`. This needed
+one companion fix to land safely: `ppu.c`'s own *internal* OAM reads
+(object selection, `compute_mode3_length()`, `render_scanline()`)
+previously went through the same `gb_read_byte()` the new block now
+applies to, which would have made the PPU unable to read its own OAM
+during Modes 2/3 - exactly the modes it needs to, to render sprites at
+all. Redirected those to a new `read_oam_internal()` that reads
+`cpu->memory[]` directly, bypassing every CPU-facing bus-conflict check
+- the same "the PPU's own access is never blocked by logic that exists
+to block the *CPU*" pattern `gb_dma_tick()`'s own destination write
+already established.
+
+Also added `stat_line` and `visible_mode` to `savestate.c`'s PPU
+section (`SAVESTATE_VERSION` 2->3, `tests/test_savestate.c` updated) -
+both are live PPU state a save/load round trip previously dropped
+silently. `stat_line` was a pre-existing gap from the earlier
+STAT-interrupt-model rework (the "a real STAT interrupt model" entry
+above), found in passing while adding `visible_mode`, not something
+this specific investigation was chasing.
+
+The remaining 3 `acceptance/ppu/` ROMs are each a separate,
+substantial undertaking, not variations on the fix above:
+`intr_2_mode0_timing_sprites.gb` is an exhaustive 60+ case stress test
+of `compute_mode3_length()`'s own OBJ-penalty formula specifically
+(untouched by this fix); `lcdon_timing-GS.gb`/`lcdon_write_timing-
+GS.gb` both test a documented "the PPU is late by 2 T-cycles" special
+case on the very first line after LCD is enabled, which this project
+has no dedicated model for at all.
+
+Zero regressions across the full existing suite (unit tests,
+dmg-acid2/2048-gb/droneboy/tobu/savestate, RGBDS, Mooneye). **77/83**
+on the committed Mooneye subset, up from 74/83.

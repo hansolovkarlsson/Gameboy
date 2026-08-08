@@ -93,6 +93,7 @@ int main(void) {
     ppu.bgp = 0xE4; ppu.obp0 = 0xD3; ppu.obp1 = 0xC2;
     ppu.wy = 0x08; ppu.wx = 0x18;
     ppu.mode = 3; ppu.dots = 199; ppu.mode3_dots = 240; ppu.window_line = 12;
+    ppu.stat_line = 1; ppu.visible_mode = 2;
     ppu.frame_ready = 1;
     for (int y = 0; y < GB_SCREEN_HEIGHT; y++)
         for (int x = 0; x < GB_SCREEN_WIDTH; x++)
@@ -186,8 +187,9 @@ int main(void) {
                              ppu.ly == 0x50 && ppu.lyc == 0x50 && ppu.dma == 0xC0 &&
                              ppu.bgp == 0xE4 && ppu.obp0 == 0xD3 && ppu.obp1 == 0xC2 &&
                              ppu.wy == 0x08 && ppu.wx == 0x18);
-    check("PPU: mode/dots/mode3_dots/window_line/frame_ready",
+    check("PPU: mode/dots/mode3_dots/stat_line/visible_mode/window_line/frame_ready",
           ppu.mode == 3 && ppu.dots == 199 && ppu.mode3_dots == 240 &&
+          ppu.stat_line == 1 && ppu.visible_mode == 2 &&
           ppu.window_line == 12 && ppu.frame_ready == 1);
     int fb_ok = 1;
     for (int y = 0; y < GB_SCREEN_HEIGHT && fb_ok; y++)
