@@ -69,7 +69,7 @@ and compares against a real, committed per-ROM baseline - the same
 floor-not-target reasoning `tests/compare_frame.py` already uses for
 dmg-acid2, just per-ROM instead of a percentage.
 
-## Results: 24/44 on first run, 28/44 now
+## Results: Tier 1 - 24/44 on first run, 28/44 after the small fixes, 41/44 after the OAM-DMA-timing rewrite
 
 Not 20 unrelated mysteries - grounded by reading each failing test's
 real `.s` source (`gh api repos/Gekkio/mooneye-test-suite/contents/...`)
@@ -77,22 +77,26 @@ rather than guessed at, they trace to five real root causes. Four have
 since been fixed in a follow-up pass; see `docs/GAMEBOY_ROADMAP.md`'s
 own Mooneye status entries for the full story of both passes:
 
-- **14 ROMs, still open** (`call_timing`, `call_cc_timing`/
-  `call_cc_timing2`, `jp_timing`, `jp_cc_timing`, `push_timing`,
-  `pop_timing`, `ret_timing`, `ret_cc_timing`, `reti_timing`,
-  `rst_timing`, `ld_hl_sp_e_timing`, `add_sp_e_timing`) all use the
+- **13 of 14 `*_timing` ROMs (FIXED)** - `call_timing`, `call_timing2`,
+  `call_cc_timing`/`call_cc_timing2`, `jp_timing`, `jp_cc_timing`,
+  `push_timing`, `ret_timing`, `ret_cc_timing`, `reti_timing`,
+  `rst_timing`, `ld_hl_sp_e_timing`, `add_sp_e_timing`. All use the
   identical technique: start a real OAM DMA transfer, pad with `nop`s
   tuned so a specific M-cycle of the instruction under test lands
   exactly inside vs. just after the DMA window, then check whether that
-  access saw DMA-source garbage. This is a direct, precise hit on the
-  exact gap `ppu.c` already documents from Phase 3: OAM DMA is an
-  instant copy here, not a real timed 160-M-cycle transfer - correct
-  for the universal busy-wait-in-HRAM convention real code uses, wrong
-  for exactly this kind of adversarial mid-transfer access these tests
-  are built to probe. One known, already-documented cause, not
-  fourteen - but closing it for real needs interleaved per-M-cycle
-  stepping around every memory access in `cpu.c`'s opcode handlers, a
-  genuine architecture change, not attempted here.
+  access saw the transfer still in progress. This was a direct, precise
+  hit on a gap `ppu.c` used to document from Phase 3: OAM DMA was an
+  instant copy, not a real timed 160-M-cycle transfer - correct for the
+  universal busy-wait-in-HRAM convention real code uses, wrong for
+  exactly this kind of adversarial mid-transfer access these tests are
+  built to probe. Closed by a real OAM-DMA-timing rewrite - see "Results:
+  the OAM-DMA-timing rewrite - 13/14" below for the full story, including
+  the real-hardware reference model it was cross-checked against and the
+  one subtle bug (in, of all places, the instruction that *triggers* a
+  transfer) that took a second pass to find.
+- **`pop_timing.gb` (1 of the original 14, still open, but re-scoped)**:
+  turned out, on a full read of its `.s` source rather than just its
+  header comment, to not be an OAM DMA test at all - see "Results" below.
 - **`if_ie_registers`, `interrupts/ie_push` (FIXED)**: cycle-exact
   behavior when `IE` is written *during* interrupt dispatch's PC push.
   Real hardware doesn't lock in the target vector before either push
@@ -123,9 +127,109 @@ own Mooneye status entries for the full story of both passes:
   direct unit test (`tests/test_timer.c`, all 7 new checks pass) - 6 of
   these two ROMs' combined 8 assertions now pass (confirmed by
   rendering each ROM's own on-screen diagnostic via `--ppm`, up from 0
-  of 8 before). The remaining 1 assertion each still fails; plausibly
-  the same instruction-granular (not real per-M-cycle) limitation as
-  the OAM DMA cluster above, not yet root-caused further.
+  of 8 before). The remaining 1 assertion each still fails - now
+  understood (see `pop_timing.gb` above/below) to be the timer only
+  advancing once per whole instruction rather than per real M-cycle,
+  the same root cause `pop_timing.gb` has, not further root-caused at
+  the time this was written.
+
+## Results: the OAM-DMA-timing rewrite - 13/14
+
+Closing the 14-ROM cluster above needed real, per-M-cycle OAM DMA -
+this project's biggest architecture change since the PPU itself.
+Before writing anything, cross-checked the exact real-hardware model
+(not guessed at, not reverse-engineered from test padding alone) two
+ways:
+
+1. **Gekkio's own mooneye-gb** (Rust, `core/src/hardware.rs`'s
+   `OamDma`/`emulate_oam_dma`) - the reference emulator this very test
+   suite is itself verified against, and the suite's own `.s` sources
+   say plainly they're "verified using a flash cartridge with a genuine
+   MBC5 chip" for the MBC5 ROMs and equivalent real-hardware runs for
+   these - so mooneye-gb's model isn't a guess, it's the ground truth
+   this test suite encodes.
+2. **`push_timing.s`'s own padding arithmetic** - independently
+   recomputing, by hand, exactly which M-cycle its two `push de`
+   instructions' high/low-byte writes land on relative to the transfer
+   (down to the exact NOP/loop-iteration count), then checking that
+   against mooneye-gb's model - they agreed exactly, which is what gave
+   confidence to start writing code rather than fumbling with padding
+   math until tests happened to pass.
+
+The real model: writing `$FF46` doesn't start a transfer immediately -
+real hardware pipelines it through a `requested -> starting -> active`
+handoff, one stage advanced per M-cycle, so the first byte doesn't
+actually copy until 3 M-cycles after the write. Modeled as
+`GBCpu.dma_request_pending`/`dma_starting_pending`/`dma_active`/
+`dma_progress` (`cpu.h`), advanced one M-cycle at a time by
+`gb_dma_tick()` (`mmu.c`). While active, `gb_read_byte()`/
+`gb_write_byte()` (`mmu.c`) make OAM ($FE00-$FE9F) reads return `$FF`
+and drop writes entirely - not "whatever DMA happens to be
+transferring", a simpler rule than expected, but exactly what
+mooneye-gb's own `read()`/`write()` dispatch does, and exactly what
+`push_timing.gb`'s own real assertions expect.
+
+The hard part wasn't the DMA state machine itself - it was getting
+`cpu.c`'s existing "one `gb_cpu_step()` call = one flat T-state total,
+computed once at the end" model to tick `gb_dma_tick()` at the *right*
+M-cycle boundaries, not just the right total count. Scoped narrowly
+rather than rewritten wholesale: only the opcodes these specific ROMs
+probe (`CALL`/`CALL cc`/`RET`/`RET cc`/`RETI`/`RST`/`PUSH rr`/`POP rr`/
+`JP nn`/`JP cc`/`ADD SP,e8`/`LD HL,SP+e8`) now call `gb_dma_tick()`
+themselves, once per real M-cycle, interleaved with their own reads/
+writes/internal-delay cycles - each verified against that opcode's own
+M-cycle breakdown straight from the matching `*_timing.s` file's header
+comment (`M = 0: instruction decoding`, etc.), not assumed. Every other
+opcode still just gets a single lump-sum tick equal to its whole
+T-state count once its handler returns - deliberately *not*
+per-M-cycle-accurate against DMA, but nothing needs it to be: real code
+never touches OAM directly during an active transfer (the same
+busy-wait-in-HRAM convention this project's PPU code already relied on
+before this rewrite), and no ROM here probes any other opcode's own
+timing against DMA. `cpu.c`'s `is_dma_precise_op()` names the exact set
+this applies to.
+
+First full run after this landed: still 0/14 fixed, all 14 ROMs
+failing identically to before. Root-caused (not re-guessed) by tracing
+`push_timing.gb` byte-for-byte against the same padding arithmetic
+already cross-checked in step 2 above: the very instruction Mooneye's
+own `start_oam_dma` macro uses to trigger a transfer, `ldh (<DMA), a`
+(`gb_op_ldh_a8_a`), was itself one of the "every other opcode" lump-sum
+handlers - meaning the write to `$FF46` that everything else is
+measured relative to was landing 2 M-cycles too early, silently
+shifting every downstream NOP-padded test by exactly that much. Adding
+`gb_op_ldh_a8_a` to the same precise-ticking set (despite `$FF46` not
+being OAM itself, and despite this instruction's own timing not being
+what any test directly asserts on) fixed all but one ROM in a single
+pass: 13/14.
+
+The 14th, `pop_timing.gb`, doesn't move - because, on a full read of
+its `.s` source (not just its header comment, the mistake that lumped
+it in with the other 13 in the first place), it was never an OAM DMA
+test. It points `SP` at the `DIV` register (`$FF04`) and checks whether
+`POP`'s own low/high-byte reads see `DIV`'s own increment depending on
+which exact M-cycle they land on - the identical *kind* of per-M-cycle
+precision problem, but against the timer, not DMA. This emulator still
+advances the timer once per whole instruction (a lump sum in `main.c`'s
+run loop), not per real M-cycle, so `POP`'s intra-instruction reads of
+`$FF04` can't see a DIV edge that happens strictly *between* two of its
+own M-cycles. Left open, honestly re-scoped as a real, distinct gap
+(and the same root cause `tima_write_reloading`/`tma_write_reloading`'s
+own last unresolved assertion has, above) rather than folded back into
+"still needs the DMA rewrite" the way it was before this pass - that
+gap is closed now; this one wasn't in scope for it.
+
+Verified the same way every fix in this project's history has been:
+full `gameboy-test` (including a new `test_cart.c`-style direct unit
+test for `gb_dma_tick()`'s power-on-safe zero-initialization, see
+`cpu.h`'s own comment on why `dma_request_pending`/`dma_starting_pending`
+are separate present/value pairs rather than a `-1`-sentinel `int`),
+`gameboy-visual-test` (98.04%, unchanged), `gameboy-2048-test`,
+`gameboy-droneboy-test`, `gameboy-tobu-test`, `gameboy-savestate-test`
+(extended to round-trip a genuinely mid-transfer DMA state, not just
+CPU/PPU/timer/APU/cart fields that were already covered), and both
+RGBDS targets all still pass byte-for-byte identically - a real,
+additive correctness improvement with zero observed regressions.
 
 ## Results: Tier 2's mbc1/mbc5, 20/21
 

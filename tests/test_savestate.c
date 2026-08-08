@@ -73,6 +73,19 @@ int main(void) {
     cpu.sp = 0xFFFE; cpu.pc = 0x0150;
     cpu.ime = 1; cpu.ime_pending = 1; cpu.ei_delay_active = 1;
     cpu.halted = 1; cpu.stopped = 0; cpu.halt_bug = 1;
+    // Mid-transfer OAM DMA state - a real, save-worthy in-flight
+    // condition, not just intra-step scratch (see gb_savestate_save()'s
+    // own comment on why this needed adding alongside the OAM-DMA-
+    // timing rewrite). dma_request_pending deliberately left clear
+    // ("nothing pending") while dma_starting_pending is set, so the
+    // round-trip exercises both "not pending" and a genuine in-flight
+    // pipeline stage.
+    cpu.dma_request_pending = 0;
+    cpu.dma_starting_pending = 1;
+    cpu.dma_starting_value = 0x42;
+    cpu.dma_active = 1;
+    cpu.dma_source_page = 0xC0;
+    cpu.dma_progress = 77;
 
     GBPpu ppu = {0};
     ppu.lcdc = 0x91; ppu.stat = 0x85; ppu.scy = 0x11; ppu.scx = 0x22;
@@ -137,6 +150,9 @@ int main(void) {
     cpu.af = cpu.bc = cpu.de = cpu.hl = cpu.sp = cpu.pc = 0;
     cpu.ime = cpu.ime_pending = cpu.ei_delay_active = 0;
     cpu.halted = 0; cpu.stopped = 1; cpu.halt_bug = 0;
+    cpu.dma_request_pending = 1; cpu.dma_request_value = 0x99;
+    cpu.dma_starting_pending = 0; cpu.dma_starting_value = 0; cpu.dma_active = 0;
+    cpu.dma_source_page = 0; cpu.dma_progress = 0;
     memset(&ppu, 0, sizeof(ppu));
     memset(&timer, 0, sizeof(timer));
     memset(&joypad, 0, sizeof(joypad));
@@ -155,6 +171,10 @@ int main(void) {
     check("CPU: sp/pc", cpu.sp == 0xFFFE && cpu.pc == 0x0150);
     check("CPU: ime/ime_pending/ei_delay_active", cpu.ime == 1 && cpu.ime_pending == 1 && cpu.ei_delay_active == 1);
     check("CPU: halted/stopped/halt_bug", cpu.halted == 1 && cpu.stopped == 0 && cpu.halt_bug == 1);
+    check("CPU: OAM DMA state (requested/starting/active/source/progress)",
+          cpu.dma_request_pending == 0 && cpu.dma_starting_pending == 1 &&
+          cpu.dma_starting_value == 0x42 && cpu.dma_active == 1 &&
+          cpu.dma_source_page == 0xC0 && cpu.dma_progress == 77);
 
     int mem_ok = 1;
     for (size_t i = 0; i < sizeof(memory); i++) {

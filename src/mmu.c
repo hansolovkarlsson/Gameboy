@@ -62,6 +62,21 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
         // a placeholder, not a grounded model of the real quirk.
         return 0xFF;
     }
+    // OAM DMA bus conflict (pandocs' OAM_DMA_Transfer.md: "the CPU can
+    // access only HRAM" while a transfer is active) - reads of OAM
+    // itself return a flat 0xFF, not whatever DMA happens to be
+    // transferring that M-cycle. Verified against Gekkio's own
+    // mooneye-gb reference emulator (hardware.rs's read(): `if
+    // hw.oam_dma.is_active() { 0xff } else { hw.ppu.read_oam(addr) }`),
+    // and against Mooneye's own real-hardware-verified jp_timing.gb
+    // (test_roms/mooneye/), which deliberately positions the JP nn
+    // target address's high byte at OAM's very first byte to probe
+    // exactly this. Checked after cpu.c's gb_dma_tick() has already run
+    // for this M-cycle, so this sees DMA's *current* (post-tick) state,
+    // matching the reference model's own per-M-cycle ordering.
+    if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->dma_active) {
+        return 0xFF;
+    }
     return cpu->memory[addr];
 }
 
@@ -82,6 +97,19 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     if (addr >= 0xFEA0 && addr <= 0xFEFF) {
         return; // "not usable" - see the read-side comment above
     }
+    // Same OAM DMA bus conflict as gb_read_byte's read side, but for
+    // writes: the CPU's own write is simply dropped (matching the
+    // reference model's `if !hw.oam_dma.is_active() { write_oam(...) }`
+    // - no `else` branch, meaning an active-DMA write has no effect at
+    // all). Confirmed against Mooneye's push_timing.gb: it deliberately
+    // points SP into OAM and preloads DMA's own source bytes with a
+    // known marker value, so a dropped write leaves OAM holding
+    // whatever DMA's own concurrent, unaffected copy already wrote
+    // there - not the CPU's value, and not left "unchanged" either,
+    // since DMA keeps copying regardless of what the CPU attempts.
+    if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->dma_active) {
+        return;
+    }
     if (addr == 0xFF02 && (val & 0x81) == 0x81) {
         // Serial transfer start, internal clock: Blargg's test ROMs use
         // exactly this to emit one output character via SB (0xFF01)
@@ -89,4 +117,49 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
         if (gb_serial_output_hook) gb_serial_output_hook(cpu->memory[0xFF01]);
     }
     cpu->memory[addr] = val;
+}
+
+// Advances the requested->starting->active pipeline by exactly one
+// M-cycle, in the same order as Gekkio's mooneye-gb reference emulator
+// (hardware.rs's emulate_oam_dma(), called once per M-cycle from every
+// generic_mem_cycle): (1) if a transfer is already active, copy this
+// M-cycle's one byte using the *current* addr and advance it, stopping
+// once 160 bytes are done; (2) only then, if a transfer was scheduled
+// to start, actually start it (addr set, but no byte copied this same
+// M-cycle - that happens next call); (3) only then, if $FF46 was
+// written last M-cycle, advance that request into "starting". Doing
+// these in this order (not, say, starting-then-copying) is what
+// reproduces the real 2 M-cycle gap between the $FF46 write and the
+// first byte actually copying - cross-checked against Mooneye's own
+// push_timing.s padding arithmetic (test_roms/mooneye/README.md), not
+// just copied from the reference source blind.
+//
+// The copy itself bypasses both the CPU-facing conflict checks above:
+// the source read goes through the ordinary gb_read_byte() (safe,
+// since a DMA source page is always <= 0xDF, so addr never lands in
+// $FE00-$FE9F and can never recurse into this same conflict logic),
+// but the OAM write goes *directly* to cpu->memory rather than through
+// gb_write_byte() - going through it would hit the very "drop the
+// write while DMA is active" rule above and make DMA unable to write
+// its own bytes.
+void gb_dma_tick(GBCpu *cpu) {
+    if (cpu->dma_active) {
+        uint16_t src = (uint16_t)((cpu->dma_source_page << 8) + cpu->dma_progress);
+        cpu->memory[0xFE00 + cpu->dma_progress] = gb_read_byte(cpu, src);
+        cpu->dma_progress++;
+        if (cpu->dma_progress >= 160) {
+            cpu->dma_active = 0;
+        }
+    }
+    if (cpu->dma_starting_pending) {
+        cpu->dma_active = 1;
+        cpu->dma_source_page = cpu->dma_starting_value;
+        cpu->dma_progress = 0;
+        cpu->dma_starting_pending = 0;
+    }
+    if (cpu->dma_request_pending) {
+        cpu->dma_starting_pending = 1;
+        cpu->dma_starting_value = cpu->dma_request_value;
+        cpu->dma_request_pending = 0;
+    }
 }

@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define SAVESTATE_MAGIC "GBSS"
-#define SAVESTATE_VERSION 1u
+#define SAVESTATE_VERSION 2u
 
 // Explicit little-endian primitives - the same reasoning main.c's own
 // write_u32le()/write_u16le() (its WAV writer) already applies: on-disk
@@ -84,6 +84,17 @@ int gb_savestate_save(GBCpu *cpu, const char *path) {
     w8(f, cpu->ime); w8(f, cpu->ime_pending); w8(f, cpu->ei_delay_active);
     w8(f, cpu->halted); w8(f, cpu->stopped); w8(f, cpu->halt_bug);
     fwrite(cpu->memory, 1, GB_MEM_SIZE, f);
+
+    // OAM DMA - a transfer genuinely can be mid-flight at any point
+    // between gb_cpu_step() calls (unlike, say, di_cancels_ei_delay,
+    // which always resolves within the same step that set it), so a
+    // save/load round-trip needs to preserve it or resuming mid-
+    // transfer would silently drop the rest of the copy.
+    w8(f, cpu->dma_request_pending); w8(f, cpu->dma_request_value);
+    w8(f, cpu->dma_starting_pending); w8(f, cpu->dma_starting_value);
+    w8(f, cpu->dma_active);
+    w8(f, cpu->dma_source_page);
+    w32(f, (uint32_t)cpu->dma_progress);
 
     // PPU
     w8(f, ppu->lcdc); w8(f, ppu->stat); w8(f, ppu->scy); w8(f, ppu->scx);
@@ -213,6 +224,17 @@ int gb_savestate_load(GBCpu *cpu, const char *path) {
     r8(f, &cpu->ime, &err); r8(f, &cpu->ime_pending, &err); r8(f, &cpu->ei_delay_active, &err);
     r8(f, &cpu->halted, &err); r8(f, &cpu->stopped, &err); r8(f, &cpu->halt_bug, &err);
     if (!err && fread(cpu->memory, 1, GB_MEM_SIZE, f) != GB_MEM_SIZE) err = 1;
+
+    // OAM DMA - see gb_savestate_save()'s matching comment.
+    r8(f, &cpu->dma_request_pending, &err); r8(f, &cpu->dma_request_value, &err);
+    r8(f, &cpu->dma_starting_pending, &err); r8(f, &cpu->dma_starting_value, &err);
+    r8(f, &cpu->dma_active, &err);
+    r8(f, &cpu->dma_source_page, &err);
+    {
+        uint32_t progress = 0;
+        r32(f, &progress, &err);
+        cpu->dma_progress = (int)progress;
+    }
 
     // PPU
     r8(f, &ppu->lcdc, &err); r8(f, &ppu->stat, &err); r8(f, &ppu->scy, &err); r8(f, &ppu->scx, &err);

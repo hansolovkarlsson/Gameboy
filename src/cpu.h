@@ -66,6 +66,33 @@ typedef struct GBCpu {
     // Phase 1, when this field was first added but left unused).
     uint8_t halt_bug;
 
+    // OAM DMA state machine - real hardware transfers 160 bytes over 160
+    // M-cycles (1/M-cycle), not instantly, and while a transfer is
+    // active the CPU can only access HRAM ($FF80-$FFFE); any other
+    // access it makes to OAM specifically is bus-conflicted (pandocs'
+    // OAM_DMA_Transfer.md). Modeled as a 3-stage pipeline - `requested`
+    // -> `starting` -> `active` - matching Gekkio's own mooneye-gb
+    // reference emulator (core/src/hardware.rs's OamDma/emulate_oam_dma,
+    // itself verified against real hardware and against this same
+    // Mooneye test suite): writing $FF46 doesn't start the transfer
+    // immediately, it takes 2 more M-cycles (via the requested->starting
+    // ->active handoff, one stage advanced per M-cycle by gb_dma_tick())
+    // before the first byte actually copies - see gb_dma_tick() (mmu.c)
+    // for the exact per-M-cycle order this reproduces. Each pipeline
+    // stage is a separate present/value pair rather than an Option-style
+    // sentinel (e.g. -1 for "nothing pending") specifically so a
+    // zero-initialized GBCpu is already a valid "no DMA in flight" state,
+    // consistent with halted/stopped/ime/every other flag above - not
+    // dependent on every construction site remembering to call
+    // gb_cpu_reset() before the first gb_cpu_step().
+    uint8_t dma_request_pending;
+    uint8_t dma_request_value;
+    uint8_t dma_starting_pending;
+    uint8_t dma_starting_value;
+    uint8_t dma_active;
+    uint8_t dma_source_page;
+    int dma_progress; // next OAM offset (0-159) gb_dma_tick() will copy
+
     // VRAM/WRAM/OAM/I-O-registers/HRAM only as of Phase 2 - 0x0000-0x7FFF
     // (ROM) and 0xA000-0xBFFF (external cartridge RAM) are no longer part
     // of this flat array, routed through `cart` instead. See mmu.c.
@@ -95,6 +122,15 @@ typedef struct GBCpu {
 
 uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr);
 void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val);
+
+// Advances OAM DMA's state machine by exactly one M-cycle - see the
+// GBCpu struct's own dma_requested/dma_starting/dma_active/
+// dma_progress comment above. Called once per real M-cycle of CPU
+// execution (cpu.c), not once per instruction, so DMA's progress stays
+// correctly interleaved with whatever the CPU is doing that same
+// M-cycle - the entire point of this being a per-M-cycle function
+// rather than an instant bulk copy.
+void gb_dma_tick(GBCpu *cpu);
 
 // Unlike Z80OpcodeHandler (cpm/emu/src/z80.h), no separate ram parameter -
 // GBCpu carries its own memory pointer and every handler goes through

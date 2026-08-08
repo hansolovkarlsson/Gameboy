@@ -420,20 +420,22 @@ void gb_ppu_write_reg(GBPpu *ppu, struct GBCpu *cpu, uint16_t addr, uint8_t val)
         case 0xFF43: ppu->scx = val; break;
         case 0xFF44: break; // read-only
         case 0xFF45: ppu->lyc = val; break;
-        case 0xFF46: {
-            // Instant transfer rather than the real 160 M-cycle timed
-            // one (pandocs' OAM_DMA_Transfer.md) - a documented
-            // simplification: real programs busy-wait in HRAM for it
-            // to finish before touching OAM again, so an instant
-            // transfer produces the same end result for any program
-            // that follows that (universal) convention.
+        case 0xFF46:
+            // A real, timed 160 M-cycle transfer (pandocs'
+            // OAM_DMA_Transfer.md), not an instant copy - see cpu.h's
+            // GBCpu.dma_request_pending/gb_dma_tick() (mmu.c) for the
+            // actual per-M-cycle state machine this only *schedules*
+            // here. `ppu->dma` reflects the value immediately on write,
+            // for simple register readback - Mooneye's own reference
+            // model (mooneye-gb) instead only updates its equivalent
+            // field once the transfer actually starts (2 M-cycles
+            // later), a finer distinction that only matters for
+            // *reading* $FF46 back mid-request, which none of this
+            // project's committed Mooneye ROMs test.
             ppu->dma = val;
-            uint16_t src = (uint16_t)(val << 8);
-            for (int i = 0; i < 160; i++) {
-                gb_write_byte(cpu, (uint16_t)(0xFE00 + i), gb_read_byte(cpu, (uint16_t)(src + i)));
-            }
+            cpu->dma_request_pending = 1;
+            cpu->dma_request_value = val;
             break;
-        }
         case 0xFF47: ppu->bgp = val; break;
         case 0xFF48: ppu->obp0 = val; break;
         case 0xFF49: ppu->obp1 = val; break;

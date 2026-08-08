@@ -17,18 +17,9 @@ default budget is what actually bounds each run.
 Real first-run results (see test_roms/mooneye/README.md for the full
 story, including what's since been fixed): 24/44 pass initially. The 20
 that didn't weren't 20 unrelated mysteries - grounded by reading each
-failing test's real .s source rather than guessed at, and four of the
-five root causes found have since been fixed (28/44 now):
+failing test's real .s source rather than guessed at, and traced to
+five root causes, four fixed in a first follow-up pass (28/44):
 
-- 14 (every *_timing ROM using start_oam_dma + tuned nop padding to
-  land a specific M-cycle inside vs. just after the DMA window) are a
-  direct, precise hit on the exact gap ppu.c already documents from
-  Phase 3: OAM DMA is an instant copy here, not a real timed 160-M-cycle
-  transfer - correct for the universal busy-wait-in-HRAM convention
-  real code uses, wrong for exactly this kind of adversarial mid-
-  transfer access these tests are built to probe. One known cause,
-  not fourteen. Still open - needs real per-M-cycle sub-instruction
-  stepping, a genuine architecture change, not attempted yet.
 - if_ie_registers/ie_push (FIXED): cycle-exact behavior when IE is
   written *during* interrupt dispatch's PC push - real hardware decides
   the vector fresh right after the high-byte push, not before either
@@ -46,9 +37,41 @@ five root causes found have since been fixed (28/44 now):
   a direct unit test (tests/test_timer.c) - 6 of these two ROMs'
   combined 8 assertions now pass (up from 0), confirmed by rendering
   each ROM's own on-screen diagnostic. The remaining 1 assertion each
-  still fails; plausibly the same "instruction-granular, not real
-  per-M-cycle" limitation as the OAM DMA cluster above, not yet
-  root-caused further.
+  still fails - see below, since it turned out to be the same root
+  cause as the *_timing cluster.
+- 14 *_timing ROMs, all using start_oam_dma + tuned nop padding to land
+  a specific M-cycle inside vs. just after the DMA window: a direct,
+  precise hit on the exact gap ppu.c used to document from Phase 3 -
+  OAM DMA was an instant copy, not a real timed 160-M-cycle transfer.
+  13 of these 14 (add_sp_e_timing, call_timing/call_timing2/
+  call_cc_timing/call_cc_timing2, jp_timing/jp_cc_timing,
+  ld_hl_sp_e_timing, push_timing, ret_timing/ret_cc_timing/reti_timing,
+  rst_timing) are now FIXED by a real, timed per-M-cycle OAM DMA
+  rewrite (GBCpu.dma_active/dma_progress/gb_dma_tick() in cpu.h/mmu.c,
+  driven by explicit per-M-cycle ticks in cpu.c's own CALL/JP/RET/RST/
+  PUSH/POP/ADD SP,e8/LD HL,SP+e8 handlers - see cpu.c's own
+  is_dma_precise_op() comment) - see test_roms/mooneye/README.md for
+  the full story, including the real-hardware model this was cross-
+  checked against (Gekkio's own mooneye-gb reference emulator) and the
+  one subtle bug that took two passes to find (LDH (a8),A - the exact
+  instruction Mooneye's own start_oam_dma macro uses - needed the same
+  M-cycle-precise ticking as the 12 "obviously timing-sensitive"
+  opcodes, or the whole transfer's timing base point would land 2
+  M-cycles too early).
+- pop_timing.gb (14th ROM, mis-clustered with the other 13 above in the
+  original diagnosis - fully read now rather than skimmed): NOT an
+  OAM DMA test at all. It points SP directly at the DIV register
+  ($FF04) and checks whether POP's own reads see DIV's own mid-
+  instruction increment at specific M-cycle boundaries - a real,
+  distinct gap (this emulator only advances the timer once per whole
+  instruction, in a lump sum, not per M-cycle) that happens to need the
+  same *kind* of fix (per-M-cycle precision) but for the timer, not
+  DMA. Left open, honestly re-scoped rather than folded into "still
+  needs the OAM DMA architecture change" the way it was before this
+  pass - that gap is now closed, this one wasn't in scope for it.
+  (This is also why tima_write_reloading/tma_write_reloading's last
+  unresolved assertion, above, never got any closer: same underlying
+  cause.)
 
 A follow-up slice added Tier 2's emulator-only/mbc1 and
 emulator-only/mbc5 (21 ROMs, see test_roms/mooneye/README.md): 20/21
@@ -95,14 +118,14 @@ FAIL_SEQUENCE = bytes([0x42] * 6)
 # Real, current per-ROM baseline - see this file's own top comment for
 # the grounded root-cause breakdown behind every "FAIL" entry below.
 EXPECTED = {
-    "acceptance/add_sp_e_timing.gb": "FAIL",
+    "acceptance/add_sp_e_timing.gb": "PASS",
     "acceptance/bits/mem_oam.gb": "PASS",
     "acceptance/bits/reg_f.gb": "PASS",
     "acceptance/bits/unused_hwio-GS.gb": "PASS",
-    "acceptance/call_cc_timing.gb": "FAIL",
-    "acceptance/call_cc_timing2.gb": "FAIL",
-    "acceptance/call_timing.gb": "FAIL",
-    "acceptance/call_timing2.gb": "FAIL",
+    "acceptance/call_cc_timing.gb": "PASS",
+    "acceptance/call_cc_timing2.gb": "PASS",
+    "acceptance/call_timing.gb": "PASS",
+    "acceptance/call_timing2.gb": "PASS",
     "acceptance/di_timing-GS.gb": "PASS",
     "acceptance/div_timing.gb": "PASS",
     "acceptance/ei_sequence.gb": "PASS",
@@ -115,17 +138,17 @@ EXPECTED = {
     "acceptance/instr/daa.gb": "PASS",
     "acceptance/interrupts/ie_push.gb": "PASS",
     "acceptance/intr_timing.gb": "PASS",
-    "acceptance/jp_cc_timing.gb": "FAIL",
-    "acceptance/jp_timing.gb": "FAIL",
-    "acceptance/ld_hl_sp_e_timing.gb": "FAIL",
+    "acceptance/jp_cc_timing.gb": "PASS",
+    "acceptance/jp_timing.gb": "PASS",
+    "acceptance/ld_hl_sp_e_timing.gb": "PASS",
     "acceptance/pop_timing.gb": "FAIL",
-    "acceptance/push_timing.gb": "FAIL",
+    "acceptance/push_timing.gb": "PASS",
     "acceptance/rapid_di_ei.gb": "PASS",
-    "acceptance/ret_cc_timing.gb": "FAIL",
-    "acceptance/ret_timing.gb": "FAIL",
+    "acceptance/ret_cc_timing.gb": "PASS",
+    "acceptance/ret_timing.gb": "PASS",
     "acceptance/reti_intr_timing.gb": "PASS",
-    "acceptance/reti_timing.gb": "FAIL",
-    "acceptance/rst_timing.gb": "FAIL",
+    "acceptance/reti_timing.gb": "PASS",
+    "acceptance/rst_timing.gb": "PASS",
     "acceptance/timer/div_write.gb": "PASS",
     "acceptance/timer/rapid_toggle.gb": "PASS",
     "acceptance/timer/tim00.gb": "PASS",
