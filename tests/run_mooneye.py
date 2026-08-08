@@ -136,6 +136,41 @@ after two more real gaps in the OAM-DMA-timing rewrite itself.
   match whatever was written to $DE00/$DF00 beforehand). Fixed in
   gb_dma_tick() (mmu.c).
 
+The last never-fetched Tier 2 slice, acceptance/ppu/ (12 ROMs, not 11
+as earlier estimated before actually listing the tarball), was added
+next: 5/12 pass, plus a real, unplanned improvement to dmg-acid2's own
+match rate (98.04% -> 99.71%) as a side effect.
+
+- vblank_stat_intr-GS.gb/stat_lyc_onoff.gb/stat_irq_blocking.gb
+  (FIXED): ppu.c's STAT-interrupt model was rebuilt to match how real
+  hardware actually works (pandocs' Interrupt_Sources.md "INT $48"): a
+  level-triggered OR of 4 independently-enabled conditions (Mode 0/1/2,
+  LYC==LY) into one shared internal line, with an interrupt firing only
+  on that line's *rising edge* - not, as the old code did, unconditionally
+  at every mode transition whose select bit happened to be set. The
+  direct, real-hardware consequence pandocs calls "STAT blocking"
+  (stat_irq_blocking.gb's own subject) naturally falls out of this: if
+  one source already holds the line high, another source's condition
+  becoming true doesn't fire again. Also picked up two additional real
+  quirks along the way: LYC's comparison flag is "constantly updated"
+  (pandocs' STAT.md) - needed recomputing on LYC writes and LCD
+  re-enable, not just at scanline boundaries (stat_lyc_onoff.gb) - and
+  the VBlank transition also fires the Mode 2 (OAM) condition if
+  selected, confirmed against Gekkio's own mooneye-gb
+  (hardware/ppu.rs's switch_mode() VBlank arm) alongside
+  vblank_stat_intr-GS.gb's own header comment.
+- The remaining 7 (hblank_ly_scx_timing-GS.gb, the 4 intr_2_*.gb
+  ROMs, lcdon_timing-GS.gb, lcdon_write_timing-GS.gb) all measure
+  exact-cycle timing relative to mode transitions - confirmed against
+  mooneye-gb's own ppu.rs that Mode 0's STAT interrupt genuinely fires
+  one T-state *before* the real Mode 3->0 switch, with hblank_ly_scx_
+  timing-GS.gb further tying that offset to SCX%8. This project's PPU
+  only checks mode boundaries once per whole CPU instruction (a lump-
+  sum design, ppu.h's own comment), not per T-state, so this needs the
+  same category of per-dot precision rewrite the timer work
+  (docs/GAMEBOY_ROADMAP.md's "Timer M-cycle precision" entry) already
+  found to be a real architecture-size undertaking, not attempted here.
+
 EXPECTED below is this real, current baseline, the same floor-not-target
 reasoning tests/compare_frame.py already uses for dmg-acid2: a ROM
 regressing from PASS to anything else is a real regression and fails
@@ -183,6 +218,18 @@ EXPECTED = {
     "acceptance/oam_dma_start.gb": "PASS",
     "acceptance/oam_dma_timing.gb": "PASS",
     "acceptance/pop_timing.gb": "FAIL",
+    "acceptance/ppu/hblank_ly_scx_timing-GS.gb": "FAIL",
+    "acceptance/ppu/intr_1_2_timing-GS.gb": "PASS",
+    "acceptance/ppu/intr_2_0_timing.gb": "PASS",
+    "acceptance/ppu/intr_2_mode0_timing.gb": "FAIL",
+    "acceptance/ppu/intr_2_mode0_timing_sprites.gb": "FAIL",
+    "acceptance/ppu/intr_2_mode3_timing.gb": "FAIL",
+    "acceptance/ppu/intr_2_oam_ok_timing.gb": "FAIL",
+    "acceptance/ppu/lcdon_timing-GS.gb": "FAIL",
+    "acceptance/ppu/lcdon_write_timing-GS.gb": "FAIL",
+    "acceptance/ppu/stat_irq_blocking.gb": "PASS",
+    "acceptance/ppu/stat_lyc_onoff.gb": "PASS",
+    "acceptance/ppu/vblank_stat_intr-GS.gb": "PASS",
     "acceptance/push_timing.gb": "PASS",
     "acceptance/rapid_di_ei.gb": "PASS",
     "acceptance/ret_cc_timing.gb": "PASS",

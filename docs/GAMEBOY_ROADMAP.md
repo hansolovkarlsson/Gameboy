@@ -1225,10 +1225,12 @@ See `test_roms/mooneye/README.md`'s own "Results: Tier 2's mbc1/mbc5"
 section and `tests/run_mooneye.py`'s `EXPECTED` table for the full
 per-ROM baseline.
 
-**Next**: one known, honestly-scoped-out gap remains across the
-committed Mooneye subset (68/71 overall - `mbc1/multicart_rom_8Mb.gb`
-and all 6 of Tier 2's `acceptance/oam_dma*` fixed, see the entries
-further below), not blocking, not guessed at:
+**Next**: two known, honestly-scoped-out gaps remain across the
+committed Mooneye subset (73/83 overall - `mbc1/multicart_rom_8Mb.gb`,
+all 6 of Tier 2's `acceptance/oam_dma*`, and 5/12 of `acceptance/ppu/`
+fixed, see the entries further below), neither blocking, neither
+guessed at, and both now understood to be the *same* underlying
+category of gap:
 
 - `pop_timing.gb` (and the last unresolved assertion each in
   `timer/tima_write_reloading.gb`/`tma_write_reloading.gb`): needs real
@@ -1236,10 +1238,11 @@ further below), not blocking, not guessed at:
   for why this turned out to be a genuinely bigger change than the
   OAM-DMA-timing rewrite above, not a smaller version of the same
   pattern as first assumed.
-
-`acceptance/ppu/` (11 ROMs) remains the one Tier 2 slice never fetched
-at all - worth a future look, but PPU STAT/mode-interrupt timing rather
-than anything this project's OAM-DMA or MBC1M work already grounds.
+- The remaining 7 `acceptance/ppu/` ROMs (`hblank_ly_scx_timing-GS.gb`,
+  4 `intr_2_*.gb` ROMs, `lcdon_timing-GS.gb`, `lcdon_write_timing-GS.gb`):
+  need real per-*dot* (T-state) PPU precision, the same category of gap
+  as the timer's per-M-cycle one above - see the `acceptance/ppu/`
+  entry further below for why.
 
 **Timer M-cycle precision: attempted, reverted - a real architecture-
 size finding, not a bug fix.** The "Next" note above (in its original
@@ -1446,3 +1449,93 @@ masking, so the fix can't be a false generalization).
 Zero regressions across the full existing suite. All 6 ROMs added to
 `EXPECTED` as `PASS` - **68/71** on the committed Mooneye subset, up
 from 62/65.
+
+**`acceptance/ppu/`: 5/12 fixed - a real STAT interrupt model, plus a
+free dmg-acid2 improvement (98.04% -> 99.71%).** The last never-
+fetched Tier 2 slice (12 ROMs, not the 11 earlier status entries
+estimated before actually listing the tarball's contents). 2 passed
+immediately; 5 more needed a genuine rebuild of how `ppu.c` requests
+STAT interrupts; the remaining 7 turned out to need real per-dot PPU
+precision this project doesn't have yet - the same category of gap as
+the timer work above, found honestly rather than attempted blind.
+
+The old code requested a STAT interrupt unconditionally at every mode
+transition whose select bit happened to be set - close to right, but
+not what real hardware does. pandocs' `Interrupt_Sources.md` "INT $48
+- STAT interrupt" is explicit: the 4 sources (Mode 0/1/2, LYC==LY) are
+"logically ORed into a shared STAT interrupt line", and an interrupt
+fires only on that line's **rising edge**, not whenever a source's own
+condition is merely true. The documented consequence, "STAT blocking"
+(the same page, citing this exact ROM as its own example): if one
+source already holds the line high, another source's condition
+becoming true doesn't produce a new edge, so no second interrupt
+fires. Rebuilt around an explicit `ppu->stat_line` (`ppu.h`) persisted
+across calls, recomputed by `update_stat_line()` (`ppu.c`) at every
+call site that can change any of the 4 conditions - mode transitions,
+the LYC comparison flag, or the STAT register's own select bits being
+written - firing only on a genuine 0->1 transition. Fixes
+`stat_irq_blocking.gb` directly: round 1 (enabling Mode 1 select while
+already in VBlank fires an immediate edge) and round 2 (an LY==LYC
+coincidence held continuously through a Mode 3->0 transition suppresses
+Mode 0's own interrupt, since the line never dropped low in between)
+both depend on exactly this model, not achievable with the old
+per-transition-unconditional approach.
+
+Two more real, separate quirks found and fixed alongside the line
+model itself:
+
+- **LYC's comparison flag is "constantly updated" (pandocs' `STAT.md`),
+  not just at scanline boundaries** (`stat_lyc_onoff.gb`) - the old code
+  only recomputed it inside `gb_ppu_step()`'s own LY-increment paths, so
+  a mid-frame LYC write, or turning the LCD back on (which resets LY to
+  0 and should immediately re-evaluate against it, firing a real
+  interrupt if newly true), never recomputed the flag at all. Fixed by
+  calling the (now interrupt-side-effect-free) `update_lyc_flag()` from
+  both `gb_ppu_write_reg()`'s `$FF45` (LYC) and `$FF40` (LCDC, the
+  LCD-on-transition branch) handlers, each followed by
+  `update_stat_line()`. The comparison clock is deliberately left frozen
+  while the LCD is off (a LYC write there does nothing until the next
+  LCD-on transition) - also directly grounded in this same ROM's own
+  round-by-round assertions.
+- **The VBlank transition also fires the Mode 2 (OAM) STAT condition, if
+  selected** (`vblank_stat_intr-GS.gb`) - not documented on pandocs'
+  general `STAT.md` page, but explicit in both this ROM's own header
+  comment and Gekkio's mooneye-gb (`hardware/ppu.rs`'s `switch_mode()`
+  VBlank arm, which does two independent, unconditional interrupt
+  requests - one for Mode 1 if selected, one for Mode 2 if selected).
+  Modeled as a direct, unconditional check alongside (not through) the
+  general edge-triggered line, since it's a genuine glitch independent
+  of the shared line's normal mode-based tracking - real mode is about
+  to become 1, not 2, at the instant this fires.
+
+**The remaining 7** (`hblank_ly_scx_timing-GS.gb`, 4 `intr_2_*.gb`
+ROMs, `lcdon_timing-GS.gb`, `lcdon_write_timing-GS.gb`) all measure
+exact-cycle timing relative to mode transitions via NOP-padded
+loops - `hblank_ly_scx_timing-GS.gb`'s own header states the expected
+result outright: "SCX mod 8 = 0 => LY increments 51 cycles after STAT
+interrupt; 1-4 => 50; 5-7 => 49." Traced this to a real, confirmed gap
+via mooneye-gb's own `ppu.rs`: its `emulate()` function requests Mode
+0's STAT interrupt **one T-state before** the actual Mode 3->0 switch
+(`// STAT mode=0 interrupt happens one cycle before the actual mode
+switch!`, its own comment), something `ppu.h`'s existing design
+explicitly never modeled (mode boundaries are only checked once per
+whole `gb_ppu_step()` call - i.e. once per whole CPU instruction, not
+per T-state - see `ppu.h`'s own "Deliberately still *not* a full
+per-dot pixel-FIFO simulation" comment, already honest about this
+scope). Getting this right needs the PPU ticked from literally every
+T-state, not once per instruction - the same category of architecture
+gap the timer's own per-M-cycle attempt-and-revert entry above already
+found and documented, not attempted here for the same reason.
+
+A genuine, unplanned bonus from the STAT-line rebuild: `make
+gameboy-visual-test`'s dmg-acid2 match rate improved from 98.04% to
+**99.71%** (22589/23040 -> 22974/23040 pixels), on top of the interrupt
+model becoming more accurate - not a targeted fix, just a real
+consequence of STAT interrupts now firing (and blocking) correctly
+during that ROM's own real STAT-driven raster tricks.
+
+Zero regressions across the full existing suite (unit tests,
+dmg-acid2/2048-gb/droneboy/tobu/savestate, RGBDS, Mooneye). All 5 fixed
+ROMs added to `EXPECTED` as `PASS`, the 7 still-open ones as `FAIL` (a
+real, currently-accurate baseline, not a placeholder) -
+**73/83** on the committed Mooneye subset, up from 68/71.

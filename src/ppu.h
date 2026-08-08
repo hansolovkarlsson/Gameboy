@@ -40,6 +40,11 @@ typedef struct GBPpu {
     int dots;         // dot (T-cycle) counter within the current scanline
     int mode3_dots;   // this scanline's real Mode 3 length, computed once at
                        // the Mode 2->3 transition - see compute_mode3_length()
+    uint8_t stat_line; // the shared internal STAT interrupt line's last-known
+                        // level (pandocs' Interrupt_Sources.md "INT $48") -
+                        // see ppu.c's own update_stat_line() comment for why
+                        // this needs to persist across calls, not just be
+                        // recomputed fresh each time
     int window_line;  // internal window line counter - see Tile_Maps.md's
                        // "Window Internal Line Counter" tip: only advances
                        // on scanlines where the window was actually drawn

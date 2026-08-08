@@ -28,11 +28,48 @@ static void request_stat_interrupt(struct GBCpu *cpu) {
     gb_write_byte(cpu, 0xFF0F, (uint8_t)(gb_read_byte(cpu, 0xFF0F) | 0x02));
 }
 
-static void update_lyc_flag(GBPpu *ppu, struct GBCpu *cpu) {
-    int was_equal = (ppu->stat & 0x04) != 0;
-    int now_equal = (ppu->ly == ppu->lyc);
-    if (now_equal) ppu->stat |= 0x04; else ppu->stat &= (uint8_t)~0x04;
-    if (now_equal && !was_equal && (ppu->stat & 0x40)) request_stat_interrupt(cpu);
+// Just the comparison flag itself (stat bit 2) - no interrupt side
+// effect here anymore (see update_stat_line() below for why that moved
+// out). Callers that change LY or LYC call this, then update_stat_line()
+// afterward to let the interrupt line's own edge-detection see the result.
+static void update_lyc_flag(GBPpu *ppu) {
+    if (ppu->ly == ppu->lyc) ppu->stat |= 0x04; else ppu->stat &= (uint8_t)~0x04;
+}
+
+// The STAT interrupt is a level-triggered OR of up to 4 independently-
+// enabled conditions (Mode 0/1/2 and LYC==LY) - pandocs'
+// Interrupt_Sources.md "INT $48 - STAT interrupt": "the various STAT
+// interrupt sources...have their state...logically ORed into a shared
+// STAT interrupt line", and "a STAT interrupt will be triggered by a
+// rising edge (transition from low to high) on the STAT interrupt
+// line" - not by any source's condition merely being true. That same
+// page's "STAT blocking" warning is the direct consequence: if a
+// source ORs the line high while another source already holds it high,
+// there's no edge, so no interrupt.
+//
+// Modeled here as ppu->stat_line, an explicit level persisted across
+// calls (unlike the mode/LYC state it's derived from, which callers
+// already track individually) - every call site that can change any of
+// the 4 conditions (a mode transition, the LYC comparison flag via
+// update_lyc_flag() above, or the STAT register's own select bits
+// being written) calls this afterward to recompute the OR and fire on
+// a genuine rising edge only.
+//
+// Confirmed against Mooneye's own stat_irq_blocking.gb
+// (test_roms/mooneye/): enabling a select bit for a condition that's
+// already true fires an immediate edge (its round 1: enabling Mode 1
+// select while already in VBlank), but a LY==LYC coincidence held
+// continuously through a Mode 3->0 transition suppresses Mode 0's own
+// interrupt entirely, since the line never dropped low in between
+// (its round 2).
+static void update_stat_line(GBPpu *ppu, struct GBCpu *cpu) {
+    int active =
+        ((ppu->mode == 0) && (ppu->stat & 0x08)) ||
+        ((ppu->mode == 1) && (ppu->stat & 0x10)) ||
+        ((ppu->mode == 2) && (ppu->stat & 0x20)) ||
+        ((ppu->stat & 0x04) && (ppu->stat & 0x40));
+    if (active && !ppu->stat_line) request_stat_interrupt(cpu);
+    ppu->stat_line = (uint8_t)active;
 }
 
 // Reads one BG/window tile's pixel row and returns the raw 2-bit color
@@ -328,7 +365,7 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
                 ppu->dots -= ppu->mode3_dots;
                 render_scanline(ppu, cpu);
                 ppu->mode = 0;
-                if (ppu->stat & 0x08) request_stat_interrupt(cpu); // Mode 0 int select
+                update_stat_line(ppu, cpu); // Mode 0 int select, via the shared line - see its own comment
             }
             break;
 
@@ -338,15 +375,29 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
             if (ppu->dots >= 376 - ppu->mode3_dots) {
                 ppu->dots -= 376 - ppu->mode3_dots;
                 ppu->ly++;
-                update_lyc_flag(ppu, cpu);
+                update_lyc_flag(ppu);
                 if (ppu->ly == 144) {
                     ppu->mode = 1;
                     gb_write_byte(cpu, 0xFF0F, (uint8_t)(gb_read_byte(cpu, 0xFF0F) | 0x01)); // VBlank
-                    if (ppu->stat & 0x10) request_stat_interrupt(cpu); // Mode 1 int select
+                    // Real hardware quirk (Mooneye's own acceptance/ppu/
+                    // vblank_stat_intr-GS.gb, test_roms/mooneye/, and
+                    // Gekkio's mooneye-gb reference emulator,
+                    // hardware/ppu.rs's switch_mode() VBlank arm): the
+                    // Mode 2 (OAM) STAT condition also glitches true
+                    // right at this exact transition, independently of
+                    // the shared line's normal edge-detection (real
+                    // mode is about to become 1, not 2) - so this fires
+                    // as its own direct, unconditional check alongside
+                    // update_stat_line() below rather than through it.
+                    // Not documented on pandocs' general STAT.md page;
+                    // grounded entirely against this test ROM's own
+                    // header comment and mooneye-gb.
+                    if (ppu->stat & 0x20) request_stat_interrupt(cpu); // Mode 2 int select (quirk)
+                    update_stat_line(ppu, cpu); // Mode 1 int select + LYC, via the shared line
                     ppu->frame_ready = 1;
                 } else {
                     ppu->mode = 2;
-                    if (ppu->stat & 0x20) request_stat_interrupt(cpu); // Mode 2 int select
+                    update_stat_line(ppu, cpu); // Mode 2 int select, via the shared line
                 }
             }
             break;
@@ -359,9 +410,9 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
                     ppu->ly = 0;
                     ppu->window_line = 0; // new frame
                     ppu->mode = 2;
-                    if (ppu->stat & 0x20) request_stat_interrupt(cpu);
                 }
-                update_lyc_flag(ppu, cpu);
+                update_lyc_flag(ppu);
+                update_stat_line(ppu, cpu); // Mode 2 int select (on wraparound) + LYC, via the shared line
             }
             break;
     }
@@ -396,30 +447,68 @@ uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr) {
 
 void gb_ppu_write_reg(GBPpu *ppu, struct GBCpu *cpu, uint16_t addr, uint8_t val) {
     switch (addr) {
-        case 0xFF40:
-            if ((ppu->lcdc & 0x80) && !(val & 0x80)) {
+        case 0xFF40: {
+            int was_on = (ppu->lcdc & 0x80) != 0;
+            int now_on = (val & 0x80) != 0;
+            if (was_on && !now_on) {
                 // LCD turning off - pandocs' LCDC.md warns this should
                 // only happen during VBlank (real hardware can be
                 // damaged otherwise); not enforced/hard-failed here,
                 // just documented. Reset to a fresh frame's start so
-                // re-enabling later behaves predictably.
+                // re-enabling later behaves predictably. The LY==LYC
+                // comparison flag (stat bit 2) is deliberately left
+                // untouched here - Mooneye's own stat_lyc_onoff.gb
+                // (test_roms/mooneye/) shows real hardware retains
+                // whatever it last was while the LCD is off, not reset
+                // to 0.
                 ppu->mode = 0;
                 ppu->dots = 0;
                 ppu->ly = 0;
                 ppu->mode3_dots = 172; // same reasoning as gb_ppu_reset()
             }
             ppu->lcdc = val;
+            if (!was_on && now_on) {
+                // LCD turning back on restarts the LY==LYC "comparison
+                // clock" (pandocs' STAT.md: the flag is "constantly
+                // updated") - immediately re-evaluate once against the
+                // freshly-reset LY=0, firing a real interrupt if that's
+                // a newly-true comparison. Grounded against Mooneye's
+                // stat_lyc_onoff.gb, whose round 4 explicitly expects
+                // exactly this interrupt.
+                update_lyc_flag(ppu);
+                update_stat_line(ppu, cpu);
+            }
             break;
+        }
         case 0xFF41:
             // Bits 0-2 (mode, LYC==LY) stay PPU-owned regardless of
             // what the CPU writes - only the interrupt-select bits
             // (3-6) and the unused bit 7 are genuinely writable.
             ppu->stat = (uint8_t)((ppu->stat & 0x07) | (val & 0xF8));
+            // Newly enabling a select bit for a condition that's
+            // already true is itself a rising edge on the shared line
+            // (update_stat_line()'s own comment) - Mooneye's
+            // stat_irq_blocking.gb (test_roms/mooneye/) round 1 depends
+            // on exactly this: enabling Mode 1 select while already in
+            // VBlank fires an immediate interrupt.
+            if (ppu->lcdc & 0x80) update_stat_line(ppu, cpu);
             break;
         case 0xFF42: ppu->scy = val; break;
         case 0xFF43: ppu->scx = val; break;
         case 0xFF44: break; // read-only
-        case 0xFF45: ppu->lyc = val; break;
+        case 0xFF45:
+            ppu->lyc = val;
+            // The comparator is "constantly updated" (pandocs' STAT.md)
+            // only while the LCD is on - Mooneye's stat_lyc_onoff.gb
+            // (test_roms/mooneye/) shows the comparison clock is frozen
+            // while the LCD is off, so a mid-off LYC write must not
+            // retrigger it (that only happens on the next LCD-on
+            // transition, above).
+            if (ppu->lcdc & 0x80) {
+                update_lyc_flag(ppu);
+                update_stat_line(ppu, cpu);
+            }
+            break;
         case 0xFF46:
             // A real, timed 160 M-cycle transfer (pandocs'
             // OAM_DMA_Transfer.md), not an instant copy - see cpu.h's
