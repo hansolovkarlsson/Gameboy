@@ -219,6 +219,14 @@ own last unresolved assertion has, above) rather than folded back into
 "still needs the DMA rewrite" the way it was before this pass - that
 gap is closed now; this one wasn't in scope for it.
 
+A follow-up attempt applied this same "tick the precise opcodes only"
+approach to the timer directly and had to be reverted - real,
+measurable regressions in 10 previously-passing ROMs, root-caused (not
+guessed) to a genuine architectural difference between DMA and the
+timer, not a bug in the attempt itself. See
+`docs/GAMEBOY_ROADMAP.md`'s "Timer M-cycle precision: attempted,
+reverted" status entry for the full story.
+
 Verified the same way every fix in this project's history has been:
 full `gameboy-test` (including a new `test_cart.c`-style direct unit
 test for `gb_dma_tick()`'s power-on-safe zero-initialization, see

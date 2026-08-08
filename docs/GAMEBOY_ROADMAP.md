@@ -1230,11 +1230,11 @@ the committed Mooneye subset (61/65 overall) - none blocking, none
 guessed at:
 
 - `pop_timing.gb` (and the last unresolved assertion each in
-  `timer/tima_write_reloading.gb`/`tma_write_reloading.gb`): the timer
-  needs the same per-M-cycle precision treatment the OAM-DMA-timing
-  rewrite above just gave DMA - advanced once per whole instruction
-  today (`main.c`'s run loop), not per real M-cycle. A smaller, more
-  contained version of the same architecture pattern, not a new one.
+  `timer/tima_write_reloading.gb`/`tma_write_reloading.gb`): needs real
+  per-M-cycle timer precision - see the attempt-and-revert entry below
+  for why this turned out to be a genuinely bigger change than the
+  OAM-DMA-timing rewrite above, not a smaller version of the same
+  pattern as first assumed.
 - `mbc1/multicart_rom_8Mb.gb`: MBC1M's genuinely distinct addressing
   scheme, needs its own multicart-detection heuristic first.
 - `acceptance/ppu/` (11) + `acceptance/oam_dma*` (6), the two Tier 2
@@ -1243,3 +1243,65 @@ guessed at:
   particular may already pass, or come close, as a direct consequence
   of this rewrite, unverified since they were never part of the
   committed subset.
+
+**Timer M-cycle precision: attempted, reverted - a real architecture-
+size finding, not a bug fix.** The "Next" note above (in its original
+wording) predicted this would be "a smaller, more contained version"
+of the OAM-DMA-timing rewrite - wrong, and worth recording exactly why,
+since the reasoning generalizes beyond just the timer.
+
+Built the same shape of fix DMA got: a `gb_mcycle_tick()` wrapper
+ticking both DMA *and* the timer (`gb_timer_step(timer, cpu, 4)`) once
+per real M-cycle, called from the same dozen-plus already-DMA-precise
+opcode handlers (`is_mcycle_precise_op()`'s set, unchanged), with
+`main.c`'s separate `gb_timer_step()` call removed since `gb_cpu_step()`
+would now own timer advancement entirely, the same way it already owns
+DMA's. `cpu->timer` being allowed to be `NULL` (`tests/test_cpu.c`'s
+own minimal-dependency `GBCpu`, documented in its own comment) meant
+this needed a null guard `gb_dma_tick()` never did - straightforward,
+and correctly caught before it could crash that test.
+
+First full run: **10 previously-passing Mooneye ROMs regressed**
+(`halt_ime0_nointr_timing`, `halt_ime1_timing2-GS`, and 8 timer ROMs
+including `rapid_toggle`/`tim00`/`tim01`/`tim10`/`tim11`/`tima_reload`)
+- and `pop_timing.gb` itself *still* didn't pass. Root-caused (not
+reverted blind) by instrumenting a global running total of every
+T-state ever passed to `gb_timer_step()` against the sum of every
+`gb_cpu_step()` return value across a full `rapid_toggle.gb` run: they
+matched exactly (239,502,848 both sides, confirmed with a temporary
+counter) - ruling out any double-tick or missed-tick bug in the
+mechanism itself. The real cause is architectural: Gekkio's own
+mooneye-gb reference (`core/src/hardware/timer.rs`'s `tac_write_cycle`
+et al.) ticks the timer from **every** M-cycle of **every** instruction
+(via the same `generic_mem_cycle` every register access already goes
+through), not just a curated dozen - so a `TAC`/`TIMA`/`TMA` write's
+own "spurious tick" check (comparing the timer's edge state
+immediately before vs. after that exact write) always sees a `DIV`
+counter that's precisely, continuously up to date. This project's
+DMA-precision design deliberately ticks only the opcodes real ROMs
+prove need it, leaving everything else on a lump-sum lull - fine for
+DMA, whose own state (active/inactive, source, progress) doesn't
+depend on fine-grained CPU-side counter value at all, but wrong for
+the timer, whose edge-detection *is* the counter value at an exact
+instant. Applying the same "only where tests prove it's needed"
+scoping to the timer silently left the counter's value wrong (ahead or
+behind by a handful of T-states, depending on what ran in between) at
+every write to `TAC` performed by a "precise" opcode like `LDH (a8),A`
+- exactly `rapid_toggle.gb`'s and `tim*.gb`'s own common setup/helper
+routines' bread and butter, hence the wide, not narrow, regression
+footprint.
+
+Getting this right for real needs the timer ticked from literally
+every opcode, not a curated set - i.e. the same full per-M-cycle
+interleaved-stepping rewrite this project's own OAM-DMA-timing status
+entries have flagged as out of scope since Phase 3. Reverted cleanly
+(`git diff` empty against the OAM-DMA-timing rewrite commit,
+`gameboy-test` and `rapid_toggle.gb` both reconfirmed passing) rather
+than shipped half-working - the same "document honest findings even
+when a fix doesn't achieve the hoped-for result" standard this
+project's Phase 8 dmg-acid2 entry and the TIMA/TMA partial fix above
+both already hold to. `pop_timing.gb` and the timer-related last
+assertions in `tima_write_reloading.gb`/`tma_write_reloading.gb` remain
+open, still honestly attributed to the same root cause, now with a
+real, tried explanation for why the DMA rewrite's own approach doesn't
+transfer over for free.
