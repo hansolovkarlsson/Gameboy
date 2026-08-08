@@ -618,3 +618,68 @@ testcases, found three real, distinct bugs:
 
 Zero regressions across the full existing suite. **78/83** on the
 committed Mooneye subset, up from 77/83.
+
+## Results: LCD-enable line 0 quirk, LYC comparator glitch, VRAM blocking, and a read/write bus-arbitration asymmetry - `lcdon_timing-GS.gb`/`lcdon_write_timing-GS.gb` fixed, 80/83, every `acceptance/ppu/` ROM now passes
+
+Picked up the last 2 `acceptance/ppu/` ROMs: both test exactly what
+happens right after LCDC's LCD-enable bit is set, sampling
+LY/STAT/OAM-access/VRAM-access at M-cycle-precise offsets from the
+write. Reverse-engineered entirely from both ROMs' own `.s` source
+(`gh api repos/Gekkio/mooneye-test-suite/contents/acceptance/ppu/
+lcdon_timing-GS.s` and `.../lcdon_write_timing-GS.s`) and their
+expectation tables, cross-checked against a from-scratch Python model
+built up incrementally - four distinct, previously entirely unmodeled
+real mechanisms:
+
+- **Line 0 never has a real Mode 2 (FIXED)**: starts directly in
+  Mode 0 for a short, fixed 76-dot window, then goes straight to
+  Mode 3 - no data pins down *why* 76 specifically, only that both
+  ROMs' data requires it. New `ppu->lcd_starting` flag drives a
+  dedicated branch in `gb_ppu_step()`'s Mode 0 case.
+- **LYC comparator glitch (FIXED)**: the LY==LYC flag (STAT bit 2)
+  reads clear on the exact M-cycle LY is about to increment,
+  regardless of whether the new LY will match LYC - both the ROM's
+  LYC=0 and LYC=1 variants assert this, ruling out any "old" or "new"
+  comparison explanation, only a genuine forced-clear (plausibly a
+  real ripple-counter artifact). New `ppu->visible_lyc_flag`,
+  snapshotted alongside `visible_mode`.
+- **VRAM access blocking during Mode 3 (FIXED - was never implemented
+  at all)**: `mmu.c` let VRAM reads/writes through completely
+  unconditionally. New `gb_ppu_vram_blocked()`, VRAM's equivalent of
+  the existing `gb_ppu_oam_blocked()`, wired into `mmu.c` the same
+  way - with the same companion fix `read_oam_internal()` got before:
+  a new `read_vram_internal()` so `ppu.c`'s own rendering isn't
+  blocked by its own check.
+- **Asymmetric read/write bus-arbitration handoff (FIXED)**: right at
+  the Mode 2->3 boundary, OAM writes succeed one M-cycle early (OAM
+  scan has already finished with the bus); VRAM reads are instead
+  blocked one M-cycle early (the Mode 3 fetcher has already begun
+  prefetching); OAM reads and VRAM writes are unaffected. Two
+  simpler hypotheses were tried and rejected first: a single unified
+  "everything goes Mode-3-like early" rule (contradicted by OAM reads
+  staying blocked, not unblocking), and assigning the handoff to
+  VRAM's *write* side by naive analogy with OAM (contradicted by the
+  write ROM's own VRAM-write table, which shows no early transition -
+  it's VRAM *reads*). All four combinations independently confirmed
+  against both ROMs' own data. New `visible_oam_read_blocked`/
+  `visible_oam_write_blocked`/`visible_vram_read_blocked`/
+  `visible_vram_write_blocked` fields replace the single
+  `visible_oam_blocked` from the earlier pass; both blocked-check
+  functions gained an `is_write` parameter.
+
+`SAVESTATE_VERSION` bumped 4->9 across this pass as each field was
+added and versioned incrementally while iterating.
+
+**dmg-acid2's own pixel-match rate went from 99.71% to a clean
+100.00%** as a direct, unplanned side effect of the VRAM-blocking fix -
+independent confirmation this is a real correctness fix. The same fix
+shifted `test_roms/2048-gb/reference_frame.ppm` and
+`test_roms/droneboy/reference_audio.wav` (both recaptured, reconfirmed
+as valid game/audio state first - see their own `README.md`s): both
+write to VRAM during Mode 3 in normal operation, previously always
+succeeding incorrectly, now genuinely timing-sensitive.
+
+Zero regressions across the full existing suite (dmg-acid2 improved,
+not just unregressed). **80/83** on the committed Mooneye subset, up
+from 78/83 - every `acceptance/ppu/` ROM in the suite now passes; the
+only remaining gap is the timer cluster.

@@ -254,10 +254,11 @@ A second follow-up pass fixed a 4th: 78/83.
   blocked by logic that exists to block the *CPU*" pattern
   gb_dma_tick()'s own destination write already established.
 - acceptance/ppu/lcdon_timing-GS.gb, acceptance/ppu/lcdon_write_timing-
-  GS.gb (still open): both test a documented special case ("the PPU is
-  late by 2 T-cycles" on the very first line after LCD is enabled)
-  that this project has no dedicated model for at all yet, distinct
-  from every other gap this file tracks.
+  GS.gb (FIXED in a later pass - see the entry near the end of this
+  docstring): both test a documented special case ("the PPU is late by
+  2 T-cycles" on the very first line after LCD is enabled) that this
+  project had no dedicated model for at all at the time this pass was
+  written.
 
 acceptance/ppu/intr_2_mode0_timing_sprites.gb (FIXED, a separate later
 pass, 78/83): an exhaustive 105-case stress test of
@@ -314,6 +315,88 @@ trip previously dropped silently; stat_line was a pre-existing gap
 from the earlier STAT-interrupt-model rework, found in passing while
 adding visible_mode.
 
+acceptance/ppu/lcdon_timing-GS.gb and lcdon_write_timing-GS.gb (FIXED,
+a separate later pass, 80/83 - every acceptance/ppu/ ROM in this suite
+now passes): both test what happens right after LCDC's LCD-enable bit
+is set, sampling LY/STAT/OAM-access/VRAM-access at M-cycle-precise
+offsets from the write (the former via reads across 3 NOP-shifted
+passes; the latter via single timed writes per testcase, covering the
+same offsets). Reverse-engineered entirely from each ROM's own .s
+source (`gh api repos/Gekkio/mooneye-test-suite/contents/acceptance/
+ppu/lcdon_timing-GS.s` and .../lcdon_write_timing-GS.s) and expectation
+tables, cross-checked against a from-scratch Python model - found four
+distinct, previously entirely unmodeled real mechanisms:
+
+1. Line 0 immediately after LCD-enable never has a real Mode 2 (OAM
+   scan) at all - it starts directly in Mode 0 for a short, fixed
+   76-dot window (this project found no data pinning down why 76
+   specifically - real hardware's own explanation isn't on pandocs -
+   only that the ROMs' data requires it), then goes straight to
+   Mode 3. Everything after that (that Mode 3's own length, the real
+   Mode 0 that follows it, and line 1 onward) is completely ordinary.
+   New `ppu->lcd_starting` flag (ppu.h/ppu.c) drives a dedicated branch
+   in gb_ppu_step()'s Mode 0 case.
+2. The LY==LYC comparison flag (STAT bit 2) has a genuine comparator
+   glitch, not just the one-M-cycle read-visibility lag mode bits
+   already have: on the exact M-cycle LY is about to increment, the
+   flag reads clear *regardless* of whether the new LY will match
+   LYC - both this ROM's LYC=0 and LYC=1 variants assert flag-clear at
+   that same M-cycle, which no single "old" or "new" comparison value
+   can explain, only a genuine forced-clear (plausibly a real
+   ripple-counter artifact). New `ppu->visible_lyc_flag`
+   (ppu.h/ppu.c), snapshotted alongside visible_mode.
+3. VRAM access blocking during Mode 3 (Drawing) had never been
+   implemented at all - gb_read_byte()/gb_write_byte() (mmu.c) let
+   VRAM reads/writes through unconditionally, always. New
+   gb_ppu_vram_blocked() (ppu.h/ppu.c), the VRAM-equivalent of the
+   already-existing gb_ppu_oam_blocked(), wired into mmu.c the same
+   way. Needed the same companion fix read_oam_internal() got
+   earlier: ppu.c's own internal VRAM reads (tile data, tile maps,
+   object tiles) redirected to a new read_vram_internal() that bypasses
+   the new CPU-facing block, the same "the PPU's own access is never
+   blocked by logic that exists to block the CPU" pattern.
+4. OAM/VRAM bus arbitration has a real, *asymmetric* one-M-cycle early
+   handoff right at the Mode 2->3 boundary, genuinely different for
+   CPU reads vs. writes and for OAM vs. VRAM - not the same signal
+   read four ways. OAM writes succeed one M-cycle before Mode 3
+   becomes STAT-visible (OAM scan has already finished with the bus);
+   VRAM reads are blocked one M-cycle early instead (the Mode 3 pixel
+   fetcher has already begun claiming the bus to prefetch); OAM reads
+   and VRAM writes are unaffected, following the plain Mode 2/3 rule
+   with no early transition. All four combinations independently
+   confirmed against both ROMs' own data (lcdon_timing-GS.gb for
+   reads, lcdon_write_timing-GS.gb for writes) before landing on this
+   split - two earlier, simpler hypotheses (a single unified
+   "everything transitions early" rule, and initially assigning the
+   handoff to the wrong read/write direction for VRAM) were each tried
+   and rejected when they contradicted one ROM or the other. New
+   visible_oam_read_blocked/visible_oam_write_blocked/
+   visible_vram_read_blocked/visible_vram_write_blocked fields
+   (ppu.h/ppu.c) replace the single visible_oam_blocked from the
+   earlier pass; gb_ppu_oam_blocked()/gb_ppu_vram_blocked() both took
+   a new `is_write` parameter.
+
+SAVESTATE_VERSION bumped 4->9 across this pass's fields (mode3_had_obj
+was already 3->4 from the sprites fix above; lcd_starting, then
+visible_lyc_flag, then visible_oam_read_blocked/visible_oam_write_
+blocked/visible_vram_read_blocked/visible_vram_write_blocked were each
+added and versioned incrementally while iterating - see git history
+for the individual steps rather than treating this as one field dump).
+
+dmg-acid2's own pixel-match rate went from 99.71% to a clean 100.00%
+as a direct, unplanned side effect of the VRAM-blocking fix (item 3
+above) - concrete independent confirmation this is a real correctness
+fix, not just newly-passing Mooneye ROMs. It also shifted test_roms/
+2048-gb/reference_frame.ppm and test_roms/droneboy/reference_audio.wav
+(both recaptured, reconfirmed as valid game/audio state before
+recapturing, same reasoning as the per-M-cycle rewrite's own earlier
+2048-gb recapture): both ROMs write to VRAM during Mode 3 in normal
+operation, previously always succeeding incorrectly - now genuinely
+timing-sensitive, which cascades into a different DIV-based RNG draw
+(2048-gb) and a shifted audio trace (droneboy) from that point on, the
+same deterministic-but-timing-shifted pattern as before, not
+corruption.
+
 EXPECTED below is this real, current baseline, the same floor-not-target
 reasoning tests/compare_frame.py already uses for dmg-acid2: a ROM
 regressing from PASS to anything else is a real regression and fails
@@ -368,8 +451,8 @@ EXPECTED = {
     "acceptance/ppu/intr_2_mode0_timing_sprites.gb": "PASS",
     "acceptance/ppu/intr_2_mode3_timing.gb": "PASS",
     "acceptance/ppu/intr_2_oam_ok_timing.gb": "PASS",
-    "acceptance/ppu/lcdon_timing-GS.gb": "FAIL",
-    "acceptance/ppu/lcdon_write_timing-GS.gb": "FAIL",
+    "acceptance/ppu/lcdon_timing-GS.gb": "PASS",
+    "acceptance/ppu/lcdon_write_timing-GS.gb": "PASS",
     "acceptance/ppu/stat_irq_blocking.gb": "PASS",
     "acceptance/ppu/stat_lyc_onoff.gb": "PASS",
     "acceptance/ppu/vblank_stat_intr-GS.gb": "PASS",

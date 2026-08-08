@@ -53,3 +53,16 @@ differ. Recaptured rather than treated as a regression, since the
 *old* baseline was never a ground truth to begin with (unlike Mooneye's
 real-hardware-verified assertions or dmg-acid2's reference image) -
 just a snapshot of this emulator's own prior, less precise output.
+
+**Recaptured a second time** (implementing VRAM access blocking during
+Mode 3, previously missing entirely - see `docs/GAMEBOY_ROADMAP.md`'s
+"LCD-enable line 0 quirk" entry): this game writes to VRAM during
+Mode 3 in normal operation, previously always succeeding incorrectly;
+now genuinely timing-sensitive, which shifted the same `LDH A,(DIV)`
+RNG read's timing and, cascading through the same 180 scripted frames,
+the tile-spawn positions again - reconfirmed the same way as both
+times before: still one merge (two `2`s into a single `4`), still
+score `00004`, only board positions differ. dmg-acid2's own pixel-match
+rate going from 99.71% to a clean 100.00% in the same pass is
+independent, external confirmation this was a real correctness fix,
+not a regression being rationalized away.

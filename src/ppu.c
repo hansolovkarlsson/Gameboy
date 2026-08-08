@@ -20,6 +20,11 @@ void gb_ppu_reset(GBPpu *ppu) {
     ppu->obp1 = 0xFF;
     ppu->mode = 2;
     ppu->visible_mode = 2;
+    ppu->visible_lyc_flag = (uint8_t)(ppu->stat & 0x04);
+    ppu->visible_oam_read_blocked = 1;
+    ppu->visible_oam_write_blocked = 1;
+    ppu->visible_vram_read_blocked = 0; // Mode 2 doesn't block VRAM, only OAM
+    ppu->visible_vram_write_blocked = 0;
     ppu->mode3_dots = 172; // sane default (the real minimum) until the
                             // first Mode 2->3 transition computes a real
                             // one - see compute_mode3_length()
@@ -73,6 +78,17 @@ static void update_stat_line(GBPpu *ppu, struct GBCpu *cpu) {
     ppu->stat_line = (uint8_t)active;
 }
 
+// The PPU's own internal VRAM access (tile-data/tile-map reads while
+// rendering) - reads cpu->memory[] directly, bypassing
+// gb_ppu_vram_blocked() (mmu.c/ppu.h) the same way read_oam_internal()
+// bypasses gb_ppu_oam_blocked(): that check exists to stop the *CPU*
+// from reaching VRAM during Mode 3, not the PPU itself, which
+// obviously still needs to read VRAM throughout Mode 3 to render at
+// all.
+static uint8_t read_vram_internal(struct GBCpu *cpu, uint16_t addr) {
+    return cpu->memory[addr];
+}
+
 // Reads one BG/window tile's pixel row and returns the raw 2-bit color
 // index (0-3) at column `px` (0-7, already accounting for X flip - BG/
 // window tiles are never flipped, only objects are). Shared by the BG
@@ -87,8 +103,8 @@ static uint8_t read_tile_pixel(struct GBCpu *cpu, uint8_t lcdc, uint8_t tile_id,
     } else {
         tile_addr = (uint16_t)(0x9000 + (int8_t)tile_id * 16); // "$8800 method": signed, base $9000
     }
-    uint8_t lo_byte = gb_read_byte(cpu, (uint16_t)(tile_addr + py * 2));
-    uint8_t hi_byte = gb_read_byte(cpu, (uint16_t)(tile_addr + py * 2 + 1));
+    uint8_t lo_byte = read_vram_internal(cpu, (uint16_t)(tile_addr + py * 2));
+    uint8_t hi_byte = read_vram_internal(cpu, (uint16_t)(tile_addr + py * 2 + 1));
     int bit = 7 - px;
     uint8_t lo = (lo_byte >> bit) & 1;
     uint8_t hi = (hi_byte >> bit) & 1;
@@ -306,7 +322,7 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
         }
 
         uint16_t map_addr = (uint16_t)(tile_map_base + tile_row * 32 + tile_col);
-        uint8_t tile_id = gb_read_byte(cpu, map_addr);
+        uint8_t tile_id = read_vram_internal(cpu, map_addr);
         uint8_t color_idx = read_tile_pixel(cpu, ppu->lcdc, tile_id, px, py);
 
         bg_color_idx[x] = color_idx;
@@ -352,8 +368,8 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
         // (pandocs' Tile_Data.md) - read directly rather than going
         // through read_tile_pixel(), which honors LCDC.4 for BG/window.
         uint16_t tile_addr = (uint16_t)(0x8000 + tile_id * 16 + row * 2);
-        uint8_t lo_byte = gb_read_byte(cpu, tile_addr);
-        uint8_t hi_byte = gb_read_byte(cpu, (uint16_t)(tile_addr + 1));
+        uint8_t lo_byte = read_vram_internal(cpu, tile_addr);
+        uint8_t hi_byte = read_vram_internal(cpu, (uint16_t)(tile_addr + 1));
 
         for (int col = 0; col < 8; col++) {
             int x = obj_left + col;
@@ -394,6 +410,79 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
     // this lag both resolved to the same iteration count instead of the
     // ROM's own asserted one-iteration difference.
     ppu->visible_mode = ppu->mode;
+    // The LY==LYC comparison flag (STAT bit 2) gets the same one-M-cycle
+    // read lag as the mode bits (see ppu.h's own comment on
+    // visible_lyc_flag) - but with one more real wrinkle on top: a
+    // genuine comparator glitch, not just a read-visibility lag. On the
+    // exact M-cycle LY is about to increment, the flag reads as clear
+    // *regardless of whether the new LY will match LYC* - not "the old
+    // pre-increment comparison" (which a plain snapshot-before-mutation
+    // lag, like visible_mode's, would give), and not yet "the new post-
+    // increment comparison" either. It only settles into the real,
+    // correct comparison starting the M-cycle *after* that. Very
+    // plausibly a real ripple-counter artifact (LY's low bits are
+    // briefly in an invalid transitional state to any comparator
+    // watching them combinationally) rather than anything deliberately
+    // designed, but Mooneye's own lcdon_timing-GS.gb (test_roms/
+    // mooneye/) - whose STAT-with-two-different-LYC-values tables both
+    // assert flag-clear at the exact M-cycle LY increments from 0 to 1,
+    // regardless of LYC being 0 (where the naive lagged comparison
+    // would say "match, flag set") or 1 (where the naive *unlagged*
+    // comparison would also say "match, flag set") - leaves no
+    // reading of the mechanism that isn't a genuine forced-clear.
+    // Applied to every LY increment in this function (Mode 0->1/2 and
+    // VBlank's own line-by-line increment, including the 153->0
+    // wraparound), not just this one line0-after-LCD-enable case that
+    // happened to be where it was found - no data yet says it's
+    // narrower than "every LY increment", and Mode 0/1's transition
+    // conditions checked here mirror the real ones lower down exactly.
+    int ly_about_to_change =
+        (!ppu->lcd_starting && ppu->mode == 0 && ppu->dots + cycles >= 376 - ppu->mode3_dots) ||
+        (ppu->mode == 1 && ppu->dots + cycles >= 456);
+    ppu->visible_lyc_flag = ly_about_to_change ? 0 : (uint8_t)(ppu->stat & 0x04);
+    // Bus arbitration (OAM/VRAM access) has two independent real
+    // quirks, genuinely different for CPU reads vs. writes *and* for
+    // OAM vs. VRAM - not the same signal reused four ways. Neither is
+    // shared with visible_mode (STAT's own mode bits read correctly
+    // the whole way through both, confirmed against the same ROMs' own
+    // STAT table sampled at the identical M-cycles):
+    //
+    // OAM reads see the same LY-increment glitch as visible_lyc_flag
+    // above (blocked on the exact M-cycle LY is about to increment,
+    // even though the mode bits themselves still correctly read 0
+    // right then) and are otherwise unaffected by the Mode 2->3
+    // boundary below.
+    //
+    // OAM writes instead see an early one-M-cycle *unblock* right
+    // before Mode 3 becomes STAT-visible: OAM scan has already
+    // finished with the bus by then, freeing it for a CPU write a
+    // M-cycle before the mode value and STAT bits themselves switch
+    // over - even though a CPU *read* at that same M-cycle is still
+    // contested as if OAM scan's own reads were still using the bus
+    // (plain Mode 2 behavior, unaffected).
+    //
+    // VRAM has the mirror image: reads see an early one-M-cycle
+    // *block* at that same boundary (the Mode 3 pixel fetcher has
+    // already begun claiming the bus to prefetch, contesting a CPU
+    // read there a M-cycle before Mode 3 itself is STAT-visible),
+    // while VRAM *writes* are unaffected and follow the plain Mode 3
+    // rule with no early transition at all.
+    //
+    // Found via Mooneye's own lcdon_timing-GS.gb (reads) disagreeing
+    // with lcdon_write_timing-GS.gb (writes) (test_roms/mooneye/) at
+    // these exact same M-cycles - not coincidentally-adjacent bugs,
+    // but a real, mirrored read/write/OAM/VRAM split, all four
+    // combinations independently confirmed against both ROMs' own
+    // data. Strict > (not >=) in mode2_bus_handoff: dots stays >= this
+    // threshold for two consecutive M-cycles once reached (it only
+    // resets when the real transition actually fires, one M-cycle
+    // later than first crossing it), but the real handoff is exactly
+    // one M-cycle wide - >= would wrongly widen it to two.
+    int mode2_bus_handoff = (ppu->mode == 2 && ppu->dots + cycles > 76);
+    ppu->visible_oam_read_blocked = ly_about_to_change || (ppu->mode == 2 || ppu->mode == 3);
+    ppu->visible_oam_write_blocked = (ppu->mode == 2 || ppu->mode == 3) && !mode2_bus_handoff;
+    ppu->visible_vram_read_blocked = (ppu->mode == 3) || mode2_bus_handoff;
+    ppu->visible_vram_write_blocked = (ppu->mode == 3);
 
     ppu->dots += cycles;
 
@@ -461,6 +550,44 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
         case 0: // HBlank: the rest of the scanline - pandocs' own table:
                 // Mode 0's duration is 376 - Mode 3's (80 + 376 = 456 total,
                 // matching Mode 2's fixed 80 dots above).
+            if (ppu->lcd_starting) {
+                // Real hardware quirk, distinct from every other Mode 0:
+                // line 0 immediately after LCD-enable never has a real
+                // Mode 2 (OAM scan) at all. STAT reports mode 0 from the
+                // moment the LCD-enable write lands, for a short, fixed
+                // 76-dot window, then goes *directly* to Mode 3 - no LY
+                // increment, no Mode 2 STAT interrupt, nothing else
+                // Mode 2 would normally do. Everything from here on
+                // (this Mode 3's own length via compute_mode3_length(),
+                // the real Mode 0 that follows it, and line 1 onward) is
+                // completely ordinary - confirmed by reverse-engineering
+                // Mooneye's own lcdon_timing-GS.gb (test_roms/mooneye/):
+                // its LY/STAT-with-two-LYC-settings/OAM-access/VRAM-
+                // access tables, sampled at M-cycle-precise offsets from
+                // the LCDC write across 3 NOP-shifted passes, show
+                // mode 0->3 for line 0 bracketed to a single M-cycle
+                // (consistent with any threshold in 73-76 dots - this
+                // ROM's own M-cycle-granularity sampling can't
+                // distinguish within that range, so 76 was chosen as the
+                // cleanest boundary), and mode 3's and the real Mode 0's
+                // own durations for line 0 exactly matching their normal
+                // 172/204-dot values once this initial window is over -
+                // not a shortened variant of either. 76 dots is 4 dots
+                // (1 M-cycle) short of Mode 2's normal 80 - this project
+                // found no data pinning down *why* by exactly that
+                // amount (real hardware's own explanation is undocumented
+                // on pandocs), only that the ROM's data requires it.
+                if (ppu->dots >= 76) {
+                    ppu->dots -= 76;
+                    ppu->lcd_starting = 0;
+                    ppu->mode = 3;
+                    // No update_stat_line() call here, matching the
+                    // normal Mode 2->3 transition just above: Mode 3 has
+                    // no STAT interrupt select bit of its own to fire.
+                    ppu->mode3_dots = compute_mode3_length(ppu, cpu);
+                }
+                break;
+            }
             if (ppu->dots >= 376 - ppu->mode3_dots) {
                 ppu->dots -= 376 - ppu->mode3_dots;
                 ppu->ly++;
@@ -507,8 +634,12 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
     }
 }
 
-int gb_ppu_oam_blocked(const GBPpu *ppu) {
-    return (ppu->lcdc & 0x80) && (ppu->visible_mode == 2 || ppu->visible_mode == 3);
+int gb_ppu_oam_blocked(const GBPpu *ppu, int is_write) {
+    return (ppu->lcdc & 0x80) && (is_write ? ppu->visible_oam_write_blocked : ppu->visible_oam_read_blocked);
+}
+
+int gb_ppu_vram_blocked(const GBPpu *ppu, int is_write) {
+    return (ppu->lcdc & 0x80) && (is_write ? ppu->visible_vram_write_blocked : ppu->visible_vram_read_blocked);
 }
 
 uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr) {
@@ -523,8 +654,17 @@ uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr) {
             // what was last written to it. Uses visible_mode, not mode
             // directly - see gb_ppu_step()'s own comment on why a
             // same-instant register read needs that one-M-cycle lag.
+            // Bit 2 (LY==LYC) gets the identical lag via
+            // visible_lyc_flag - but only while the LCD is actually on;
+            // gb_ppu_step() (where that snapshot happens) returns
+            // immediately without updating it while the LCD is off, so
+            // falling back to the live ppu->stat bit here keeps that
+            // case exactly as before (Mooneye's own stat_lyc_onoff.gb,
+            // test_roms/mooneye/, already covers LCD-off LYC behavior
+            // and must not regress).
             uint8_t mode = (ppu->lcdc & 0x80) ? (uint8_t)ppu->visible_mode : 0;
-            return (uint8_t)((ppu->stat & 0xFC) | mode | 0x80);
+            uint8_t lyc_flag = (ppu->lcdc & 0x80) ? ppu->visible_lyc_flag : (uint8_t)(ppu->stat & 0x04);
+            return (uint8_t)((ppu->stat & 0xF8) | lyc_flag | mode | 0x80);
         }
         case 0xFF42: return ppu->scy;
         case 0xFF43: return ppu->scx;
@@ -558,10 +698,15 @@ void gb_ppu_write_reg(GBPpu *ppu, struct GBCpu *cpu, uint16_t addr, uint8_t val)
                 // to 0.
                 ppu->mode = 0;
                 ppu->visible_mode = 0;
+                ppu->visible_oam_read_blocked = 0; // Mode 0/1 never block OAM
+                ppu->visible_oam_write_blocked = 0;
+                ppu->visible_vram_read_blocked = 0; // ...or VRAM
+                ppu->visible_vram_write_blocked = 0;
                 ppu->dots = 0;
                 ppu->ly = 0;
                 ppu->mode3_dots = 172; // same reasoning as gb_ppu_reset()
                 ppu->mode3_had_obj = 0;
+                ppu->lcd_starting = 0;
             }
             ppu->lcdc = val;
             if (!was_on && now_on) {
@@ -574,6 +719,9 @@ void gb_ppu_write_reg(GBPpu *ppu, struct GBCpu *cpu, uint16_t addr, uint8_t val)
                 // exactly this interrupt.
                 update_lyc_flag(ppu);
                 update_stat_line(ppu, cpu);
+                // See gb_ppu_step()'s Mode-0 case for the real quirk this
+                // flag drives: line 0 never has a real Mode 2 at all.
+                ppu->lcd_starting = 1;
             }
             break;
         }

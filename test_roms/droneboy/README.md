@@ -43,3 +43,16 @@ is a 2-second `--wav` capture (comfortably inside the audio window
 described above), confirmed byte-for-byte deterministic across repeated
 runs, diffed with a plain `cmp` - same reasoning as `2048-gb`'s own
 frame-based regression test, just for audio instead of video.
+
+**Reference recaptured once** (implementing VRAM access blocking during
+Mode 3, previously missing entirely - see `docs/GAMEBOY_ROADMAP.md`'s
+"LCD-enable line 0 quirk" entry, and `test_roms/2048-gb/README.md`'s own
+matching recapture note): this ROM writes to VRAM during Mode 3 in
+normal operation, previously always succeeding incorrectly; now
+genuinely timing-sensitive, which shifted this ROM's own audio-generation
+timing from partway through the 2-second capture on. Reconfirmed as
+still real, non-silent audio (non-zero samples across a sensible
+amplitude range, same file length) before recapturing, not corruption -
+dmg-acid2's own pixel-match rate going from 99.71% to a clean 100.00%
+in the same pass is independent, external confirmation this was a real
+correctness fix.

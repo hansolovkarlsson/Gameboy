@@ -84,7 +84,16 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     // Mooneye's own acceptance/ppu/intr_2_oam_ok_timing.gb
     // (test_roms/mooneye/), which measures exactly how long OAM stays
     // unreadable after a Mode 2 STAT interrupt.
-    if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->ppu && gb_ppu_oam_blocked(cpu->ppu)) {
+    if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->ppu && gb_ppu_oam_blocked(cpu->ppu, 0)) {
+        return 0xFF;
+    }
+    // VRAM ($8000-$9FFF) bus conflict: the PPU itself uses that bus
+    // during Mode 3 (Drawing) only - unlike OAM, Mode 2 (OAM scan)
+    // doesn't touch VRAM at all, so it stays readable then. See
+    // gb_ppu_vram_blocked()'s own comment (ppu.h/ppu.c) for the
+    // Mooneye ROM (lcdon_timing-GS.gb) that found this had never been
+    // implemented at all.
+    if (addr >= 0x8000 && addr <= 0x9FFF && cpu->ppu && gb_ppu_vram_blocked(cpu->ppu, 0)) {
         return 0xFF;
     }
     return cpu->memory[addr];
@@ -122,7 +131,12 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     }
     // The PPU-mode side of the same conflict - see gb_read_byte()'s
     // matching comment.
-    if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->ppu && gb_ppu_oam_blocked(cpu->ppu)) {
+    if (addr >= 0xFE00 && addr <= 0xFE9F && cpu->ppu && gb_ppu_oam_blocked(cpu->ppu, 1)) {
+        return;
+    }
+    // VRAM bus conflict, write side - see gb_read_byte()'s matching
+    // comment.
+    if (addr >= 0x8000 && addr <= 0x9FFF && cpu->ppu && gb_ppu_vram_blocked(cpu->ppu, 1)) {
         return;
     }
     if (addr == 0xFF02 && (val & 0x81) == 0x81) {

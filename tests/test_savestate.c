@@ -94,7 +94,10 @@ int main(void) {
     ppu.wy = 0x08; ppu.wx = 0x18;
     ppu.mode = 3; ppu.dots = 199; ppu.mode3_dots = 240; ppu.window_line = 12;
     ppu.mode3_had_obj = 1;
-    ppu.stat_line = 1; ppu.visible_mode = 2;
+    ppu.lcd_starting = 1;
+    ppu.stat_line = 1; ppu.visible_mode = 2; ppu.visible_lyc_flag = 0x04;
+    ppu.visible_oam_read_blocked = 1; ppu.visible_oam_write_blocked = 0;
+    ppu.visible_vram_read_blocked = 1; ppu.visible_vram_write_blocked = 0;
     ppu.frame_ready = 1;
     for (int y = 0; y < GB_SCREEN_HEIGHT; y++)
         for (int x = 0; x < GB_SCREEN_WIDTH; x++)
@@ -188,9 +191,12 @@ int main(void) {
                              ppu.ly == 0x50 && ppu.lyc == 0x50 && ppu.dma == 0xC0 &&
                              ppu.bgp == 0xE4 && ppu.obp0 == 0xD3 && ppu.obp1 == 0xC2 &&
                              ppu.wy == 0x08 && ppu.wx == 0x18);
-    check("PPU: mode/dots/mode3_dots/mode3_had_obj/stat_line/visible_mode/window_line/frame_ready",
+    check("PPU: mode/dots/mode3_dots/mode3_had_obj/lcd_starting/stat_line/visible_mode/visible_lyc_flag/visible_oam_read_write_blocked/visible_vram_read_write_blocked/window_line/frame_ready",
           ppu.mode == 3 && ppu.dots == 199 && ppu.mode3_dots == 240 && ppu.mode3_had_obj == 1 &&
-          ppu.stat_line == 1 && ppu.visible_mode == 2 &&
+          ppu.lcd_starting == 1 &&
+          ppu.stat_line == 1 && ppu.visible_mode == 2 && ppu.visible_lyc_flag == 0x04 &&
+          ppu.visible_oam_read_blocked == 1 && ppu.visible_oam_write_blocked == 0 &&
+          ppu.visible_vram_read_blocked == 1 && ppu.visible_vram_write_blocked == 0 &&
           ppu.window_line == 12 && ppu.frame_ready == 1);
     int fb_ok = 1;
     for (int y = 0; y < GB_SCREEN_HEIGHT && fb_ok; y++)
