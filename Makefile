@@ -132,32 +132,24 @@ RGBDS_MBC3_RTC_ROM := $(BIN_DIR)/rgbds-mbc3-rtc.gb
 # dmg-acid2.
 MOONEYE_DIR := test_roms/mooneye
 
-# The real GTK4+Cairo+CoreAudio front end (gtk/src/main.c) - opt-in, the
-# only build target with an external dependency beyond a bare C
-# compiler, and links the core directly instead of spawning a separate
-# process (see gtk/src/main.c's own top comment for why the sibling
-# Z80/CP-M repo's cpm/gtk's spawn-and-hand-a-pty-to-VTE approach doesn't
-# transfer here). Built from the core sources directly rather than
-# $(OBJS), since that includes src/main.c's own competing main(). Only
-# `gtk4` is needed (not a VTE package) - gtk4's own pkg-config Requires
-# already pulls in Cairo's include path, and this front end never uses
-# VTE at all.
+# The real SDL2 front end (sdl/src/main.c) - opt-in, the only build
+# target with an external dependency beyond a bare C compiler, and
+# links the core directly instead of spawning a separate process (see
+# sdl/src/main.c's own top comment for why - same reasoning the GTK4
+# front end this replaced already established). Built from the core
+# sources directly rather than $(OBJS), since that includes
+# src/main.c's own competing main(). Only `sdl2` is needed.
 CORE_SRCS := $(filter-out $(SRC_DIR)/main.c,$(SRCS))
 CORE_OBJS := $(CORE_SRCS:.c=.o)
-GTK_SRC_DIR := gtk/src
-GTK_SRCS := $(wildcard $(GTK_SRC_DIR)/*.c)
-GTK_OBJS := $(GTK_SRCS:.c=.o)
-GTK_TARGET := $(BIN_DIR)/gameboy-gtk
-GTK_PKGS := gtk4
-GTK_CFLAGS := $(shell pkg-config --cflags $(GTK_PKGS) 2>/dev/null) -I$(SRC_DIR)
-GTK_LIBS := $(shell pkg-config --libs $(GTK_PKGS) 2>/dev/null)
-# -framework AudioToolbox: live audio via CoreAudio's AudioQueue (see
-# gtk/src/main.c's own comment for why CoreAudio specifically, not a
-# portable library) - a macOS system framework, no brew/pkg-config
-# dependency needed.
-GTK_LIBS += -framework AudioToolbox
+SDL_SRC_DIR := sdl/src
+SDL_SRCS := $(wildcard $(SDL_SRC_DIR)/*.c)
+SDL_OBJS := $(SDL_SRCS:.c=.o)
+SDL_TARGET := $(BIN_DIR)/gameboy-sdl
+SDL_PKGS := sdl2
+SDL_CFLAGS := $(shell pkg-config --cflags $(SDL_PKGS) 2>/dev/null) -I$(SRC_DIR)
+SDL_LIBS := $(shell pkg-config --libs $(SDL_PKGS) 2>/dev/null)
 
-.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-savestate-test gameboy-mooneye-test gameboy-gtk clean
+.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
 
 all: gameboy
 
@@ -212,13 +204,13 @@ gameboy-rgbds-mbc3-test: $(TARGET) | $(BIN_DIR)
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
 
-gameboy-gtk: $(GTK_TARGET)
+gameboy-sdl: $(SDL_TARGET)
 
 $(TARGET): $(OBJS) | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ $(OBJS)
 
-$(GTK_TARGET): $(GTK_OBJS) $(CORE_OBJS) | $(BIN_DIR)
-	$(CC) $(CFLAGS) -o $@ $(GTK_OBJS) $(CORE_OBJS) $(GTK_LIBS)
+$(SDL_TARGET): $(SDL_OBJS) $(CORE_OBJS) | $(BIN_DIR)
+	$(CC) $(CFLAGS) -o $@ $(SDL_OBJS) $(CORE_OBJS) $(SDL_LIBS)
 
 $(TEST_TARGET): tests/test_cart.c $(SRC_DIR)/cart.c | $(BIN_DIR)
 	$(CC) $(CFLAGS) -o $@ tests/test_cart.c $(SRC_DIR)/cart.c
@@ -238,11 +230,11 @@ $(TEST_SAVESTATE_TARGET): tests/test_savestate.c $(SRC_DIR)/savestate.c $(SRC_DI
 $(BIN_DIR):
 	mkdir -p $(BIN_DIR)
 
-$(GTK_SRC_DIR)/%.o: $(GTK_SRC_DIR)/%.c
-	$(CC) $(CFLAGS) $(GTK_CFLAGS) -c $< -o $@
+$(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
+	$(CC) $(CFLAGS) $(SDL_CFLAGS) -c $< -o $@
 
 %.o: %.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(GTK_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(GTK_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM)

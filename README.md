@@ -43,15 +43,12 @@ they're treated differently.
   mostly no longer exist or have released it. Keep your own dumps here
   locally; they'll never leave your machine via this repo.
 
-- `gtk/` - the real GTK4+Cairo+CoreAudio front end (`make gameboy-gtk`,
-  opt-in - the only build target with an external dependency beyond a
-  bare C compiler), a live playable window (video, keyboard input,
-  sound, and save states) rather than the `--ppm`/`--wav`/`--input`
-  bring-up driver `src/main.c` still provides for testing.
-  Architecturally different from the sibling Z80/CP-M repo's own
-  `cpm/gtk/`: it links the core directly instead of spawning a process
-  and driving a terminal widget, since Game Boy output is a pixel
-  framebuffer, not text - see `gtk/src/main.c`'s own top comment and
-  `docs/GAMEBOY_ROADMAP.md`'s Phase 7 status for the full reasoning,
-  current key bindings, and what's still unscoped (Game Boy Color
-  support).
+- `sdl/` - the real SDL2 front end (`make gameboy-sdl`, opt-in - the
+  only build target with an external dependency beyond a bare C
+  compiler), a live playable window (video, keyboard input, sound, and
+  save states) rather than the `--ppm`/`--wav`/`--input` bring-up
+  driver `src/main.c` still provides for testing. Replaced an earlier
+  GTK4+Cairo+CoreAudio front end - see `sdl/src/main.c`'s own top
+  comment and `docs/GAMEBOY_ROADMAP.md`'s Phase 7 status for the full
+  reasoning, current key bindings, and what's still unscoped (Game Boy
+  Color support).

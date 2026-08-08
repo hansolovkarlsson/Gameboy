@@ -10,14 +10,14 @@
 // banking registers, RTC, and battery RAM) to/from a single file.
 // Reached entirely through `cpu` (which already carries cart/ppu/timer/
 // joypad/apu pointers - see cpu.h), so no extra parameters are needed
-// beyond the path, mirroring how main.c/gtk/src/main.c already wire
+// beyond the path, mirroring how main.c/sdl/src/main.c already wire
 // those pointers together.
 //
 // Deliberately does NOT save/restore GBApu's sample_buffer/cap/len -
 // that's a driver-owned output buffer (main.c's --wav capture, or the
-// GTK front end's CoreAudio queue), not emulated hardware state; the
-// caller is expected to already have a live buffer wired up via its own
-// gb_apu_reset() call before gb_savestate_load() runs.
+// SDL front end's queued-audio buffer), not emulated hardware state;
+// the caller is expected to already have a live buffer wired up via
+// its own gb_apu_reset() call before gb_savestate_load() runs.
 //
 // Every multi-byte field is written/read explicitly little-endian byte
 // by byte (see savestate.c's own w8/w16/w32/r8/r16/r32 helpers), not a

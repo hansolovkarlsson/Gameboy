@@ -58,6 +58,6 @@ elapsed time, so this ROM tests write/latch/read fidelity, not "does
 time actually pass".
 
 Both example ROMs are opt-in, same external-dependency reasoning as
-`make gameboy-gtk`: never part of plain `make`/`make gameboy-test`, so
+`make gameboy-sdl`: never part of plain `make`/`make gameboy-test`, so
 the default build stays free of the RGBDS dependency for anyone who
 doesn't have it installed.

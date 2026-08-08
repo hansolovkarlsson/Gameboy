@@ -1305,3 +1305,39 @@ assertions in `tima_write_reloading.gb`/`tma_write_reloading.gb` remain
 open, still honestly attributed to the same root cause, now with a
 real, tried explanation for why the DMA rewrite's own approach doesn't
 transfer over for free.
+
+**Front end: GTK4 replaced with SDL2 (`sdl/`), full parity.** The
+Phase 7 front end above was built on GTK4+Cairo+CoreAudio, the
+sibling Z80/CP-M repo's own toolkit choice carried over without
+re-examining whether it fit this project's actual output shape (a raw
+pixel framebuffer, not text or widgets). Replaced outright rather than
+kept alongside: SDL2's `SDL_Renderer`/`SDL_Texture` API is built around
+blitting pixel buffers directly (what `draw_frame()` already did by
+hand into a Cairo image surface each frame), and `SDL_QueueAudio()`
+gives the same "push samples, the device plays them" model the old
+CoreAudio `AudioQueue` code used - but portably, dropping the
+macOS-only AudioToolbox dependency the GTK version needed for no
+benefit this project actually used (nothing here relies on
+Cocoa-specific behavior beyond what SDL2's own Cocoa backend already
+handles internally). GTK's own advantage - native menus/dialogs - was
+never used by this front end (ROM path is a CLI argument, save state
+path is derived, not picked via a file dialog), so there was no real
+capability lost.
+
+`gtk/` removed entirely; `sdl/src/main.c` is a straight rewrite with
+the same shape: `GB_SCREEN_WIDTH`x`GB_SCREEN_HEIGHT` framebuffer drawn
+nearest-neighbor-scaled by `SCALE` (4x), the same arrows/Z/X/Enter/
+Right-Shift/F5/F9 key bindings, the same "<rom>.state" save-state path
+convention, and the same one-tick-per-frame main loop shape (previously
+GLib's `g_timeout_add(16, ...)`, now a plain `SDL_PollEvent`/
+`step_frame()`/`draw_frame()`/`SDL_Delay()` loop with the same 16ms -
+~59.7Hz real DMG rate rounded to GLib's own millisecond-timer
+granularity, unchanged - approximation). Build target renamed
+`make gameboy-gtk` -> `make gameboy-sdl` (`brew install sdl2`, found
+already present via `pkg-config` in this environment rather than
+needing a fresh install). No core (`src/`) changes at all - this was a
+front-end-only swap, verified via the full existing test suite (unit
+tests, dmg-acid2/2048-gb/droneboy/tobu/savestate, RGBDS, Mooneye) all
+still passing unmodified, plus a manual smoke test of the new binary
+itself (window opens, keys move the D-pad/press A/B/Start/Select,
+audio plays, F5/F9 round-trips a save state).

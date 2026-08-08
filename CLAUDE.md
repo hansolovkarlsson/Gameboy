@@ -40,7 +40,7 @@ make gameboy-tobu-test      # Tobu Tobu Girl: byte-exact frame regression
 make gameboy-savestate-test # real-ROM save/load round-trip, byte-exact
 make gameboy-rgbds-test        # opt-in, needs `brew install rgbds`
 make gameboy-rgbds-mbc3-test   # opt-in, needs `brew install rgbds`
-make gameboy-gtk        # opt-in, needs GTK4 (`brew install gtk4`) - the real
+make gameboy-sdl        # opt-in, needs SDL2 (`brew install sdl2`) - the real
                          # playable front end: video, keyboard input, live
                          # audio, and save states (F5/F9)
 make clean               # remove object files and all built binaries
@@ -53,8 +53,8 @@ bin/gameboy test_roms/dmg-acid2/dmg-acid2.gb --ppm out.ppm --frames 2
 ```
 
 See `bin/gameboy --help` for the full flag set (`--ppm`/`--wav`/
-`--input`/`--load-state`/`--save-state`), and `gtk/src/main.c`'s own
-top comment for the GTK front end's key bindings.
+`--input`/`--load-state`/`--save-state`), and `sdl/src/main.c`'s own
+top comment for the SDL front end's key bindings.
 
 Correctness is verified two ways, both grounded rather than
 self-referential: **real ROMs** (`test_roms/` - open-source homebrew
