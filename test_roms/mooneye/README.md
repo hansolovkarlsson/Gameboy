@@ -564,3 +564,57 @@ passing.
 
 Zero regressions across the full existing suite. **77/83** on the
 committed Mooneye subset, up from 74/83.
+
+## Results: OBJ-penalty formula and Mode 3->0 rounding - `intr_2_mode0_timing_sprites.gb` fixed, 78/83
+
+Picked up the largest of the 3 `acceptance/ppu/` ROMs the pass above
+left open: an exhaustive 105-case stress test of
+`compute_mode3_length()`'s OBJ-penalty formula (1-10 OBJs, X positions
+across the full 0-255 range including off both screen edges, several
+two-group split configurations) and how that value feeds the Mode 3->0
+transition.
+
+Its full `.s` source was fetched (`gh api repos/Gekkio/
+mooneye-test-suite/contents/acceptance/ppu/
+intr_2_mode0_timing_sprites.s`) and hand-decoded into every testcase's
+OBJ configuration and expected extra-cycle count. A from-scratch Python
+reimplementation of `compute_mode3_length()`, run against all 105
+testcases, found three real, distinct bugs:
+
+- **X==0 OBJs skipped tile-dedup entirely (FIXED)**: the exception
+  ("OAM X==0 always costs 11 dots flat") was implemented as an early
+  `continue`, so *every* X==0 OBJ added a full 11 dots regardless of
+  whether an earlier OBJ (X==0 or not) already "considered" that same
+  off-screen tile. Real hardware still runs X==0 OBJs through the
+  normal dedup: `n` OBJs all at X==0 cost `11 + 6*(n-1)` dots, not
+  `11*n` - confirmed by the ROM's own 2-through-10-OBJs-at-X==0
+  testcases. Fixed by letting X==0 OBJs join the normal per-tile dedup
+  loop, replacing only the *wait* component with a fixed 5 (not the
+  unconditional flat 6-dot fetch) when the tile is new -  5+6=11
+  matches the documented single-OBJ total exactly.
+- **OBJs entirely off the right edge weren't skipped (FIXED)**: an OBJ
+  with OAM X>=168 (leftmost screen column already >=160) was still
+  charged a full penalty despite never being reached by the pixel
+  fetcher this scanline - the ROM's own obj_x=168/169 testcases are
+  the only ones in the suite asserting *zero* OBJ penalty despite
+  objects being selected for the line (selection only checks Y).
+  Fixed by skipping such OBJs entirely.
+- **Mode 3->0 needs a rounded-down threshold when an OBJ was fetched
+  (FIXED)**: the real rule isn't the same `ceil(mode3_dots/4)` plain
+  `>=` check an OBJ-free scanline uses - it's 1 M-cycle earlier,
+  against `mode3_dots` rounded *down* to the nearest M-cycle
+  (`mode3_dots & ~3`), still with plain `>=`. `ppu->dots` keeps
+  carrying the *unrounded* `mode3_dots` into Mode 0 afterward so the
+  456-dot scanline budget is unaffected. Two wrong hypotheses (a flat
+  "-1 M-cycle always" rule, and a naive "`>` instead of `>=`" - the
+  wrong *direction*, making an exact-multiple `mode3_dots` transition
+  *later* not earlier) both regressed the same 4 already-passing
+  non-sprite `acceptance/ppu/` ROMs before this was found; needed
+  direct T-state-level tracing of a real dispatch-to-poll instruction
+  sequence to disambiguate from an offline model alone. New
+  `ppu->mode3_had_obj` field (`ppu.h`/`ppu.c`, `savestate.c`,
+  `SAVESTATE_VERSION` 3->4) gates the rounding to exactly the
+  scanlines that need it.
+
+Zero regressions across the full existing suite. **78/83** on the
+committed Mooneye subset, up from 77/83.

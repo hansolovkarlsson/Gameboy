@@ -173,15 +173,19 @@ static int compute_mode3_length(GBPpu *ppu, struct GBCpu *cpu) {
     int window_visible_this_line = window_visible_on_line(ppu, ly);
     if (window_visible_this_line) dots += 6; // flat penalty: fetcher reset/setup for the window
 
+    ppu->mode3_had_obj = 0;
     if (!(ppu->lcdc & 0x02)) return dots; // objects disabled - no OBJ penalties at all
 
     int obj_height = (ppu->lcdc & 0x04) ? 16 : 8;
     int selected[10];
     int selected_count = select_objects_for_scanline(cpu, ly, obj_height, selected);
+    ppu->mode3_had_obj = selected_count > 0; // see gb_ppu_step()'s own comment on why this
+                                              // matters for how Mode 3->0 becomes observable
 
     // "Tiles already considered by a previous OBJ" - at most
-    // selected_count entries are ever needed (one per object that
-    // isn't the OAM-X==0 exception).
+    // selected_count entries are ever needed (one per object,
+    // including OAM-X==0 ones - see the loop's own comment on why
+    // those still participate in this dedup).
     int considered_is_window[10];
     int considered_col[10];
     int considered_count = 0;
@@ -190,19 +194,22 @@ static int compute_mode3_length(GBPpu *ppu, struct GBCpu *cpu) {
         uint16_t oam_addr = (uint16_t)(0xFE00 + selected[s] * 4);
         uint8_t obj_x = read_oam_internal(cpu, (uint16_t)(oam_addr + 1));
 
-        if (obj_x == 0) {
-            // Exception: completely off the left edge always costs 11
-            // dots flat, regardless of SCX or tile-sharing with any
-            // other object.
-            dots += 11;
-            continue;
-        }
-
         // "The Pixel": the OBJ's own leftmost screen column. obj_x is
-        // 1-255 here (0 handled above), so this can be as low as -7
-        // for an object mostly off-screen to the left - still a real,
-        // valid column for tile-lookup purposes below.
+        // 0-255, so this can be as low as -8 (obj_x==0, "The Pixel"
+        // exception below) or as low as -7 for an object mostly
+        // off-screen to the left - still a real, valid column for
+        // tile-lookup purposes below.
         int pixel = (int)obj_x - 8;
+
+        // An OBJ entirely off the right edge of the screen (its
+        // leftmost column already at or past column 160) is never
+        // reached by the pixel fetcher during this scanline's Mode 3
+        // at all - not even its flat 6-dot fetch cost. Found via
+        // Mooneye's own intr_2_mode0_timing_sprites.gb
+        // (test_roms/mooneye/): its obj_x=168/169 testcases (pixel
+        // 160/161) are the only ones in the suite asserting zero OBJ
+        // penalty despite objects being selected for the line.
+        if (pixel >= GB_SCREEN_WIDTH) continue;
 
         int use_window = window_visible_this_line && (pixel + 7 >= ppu->wx);
         int col, pixel_in_tile;
@@ -214,7 +221,7 @@ static int compute_mode3_length(GBPpu *ppu, struct GBCpu *cpu) {
             pixel_in_tile = wx_pixel % 8;
         } else {
             // +256 before masking: pixel can be mildly negative (down
-            // to -7) and scx is 0-255, so this keeps the sum
+            // to -8) and scx is 0-255, so this keeps the sum
             // non-negative going into & 0xFF rather than relying on
             // two's-complement wraparound of a negative value.
             int bg_x = (pixel + ppu->scx + 256) & 0xFF;
@@ -230,8 +237,21 @@ static int compute_mode3_length(GBPpu *ppu, struct GBCpu *cpu) {
             }
         }
         if (!already_considered) {
-            int pixels_right = 7 - pixel_in_tile; // pixels of that tile strictly right of The Pixel
-            int wait = pixels_right - 2;
+            // Exception: an OBJ with OAM X position 0 always incurs a
+            // flat 5-dot wait component here (instead of the normal
+            // "pixels right of The Pixel, minus 2" count) - combined
+            // with the unconditional +6 below, this is pandocs'
+            // documented "always incurs an 11-dot penalty" for an
+            // isolated OBJ at X==0. But unlike the previous
+            // implementation (which skipped this whole tile-dedup
+            // mechanism for X==0 via an early continue), this OBJ
+            // still marks its tile as considered - a second OBJ
+            // landing on the same off-screen-left tile (X==0 or not)
+            // only pays the flat +6 below, not another 5-dot wait.
+            // Found via Mooneye's own intr_2_mode0_timing_sprites.gb:
+            // its multi-OBJ-at-X==0 testcases (2 through 10 OBJs, all
+            // X==0) assert exactly 11 + 6*(n-1) dots, not 11*n.
+            int wait = (obj_x == 0) ? 5 : (7 - pixel_in_tile - 2 /* pixels_right - 2 */);
             if (wait > 0) dots += wait;
             if (considered_count < 10) {
                 considered_is_window[considered_count] = use_window;
@@ -390,14 +410,53 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
             }
             break;
 
-        case 3: // Drawing - pandocs' Rendering.md "Mode 3 length" algorithm (see compute_mode3_length())
-            if (ppu->dots >= ppu->mode3_dots) {
+        case 3: { // Drawing - pandocs' Rendering.md "Mode 3 length" algorithm (see compute_mode3_length())
+            // Whenever this scanline actually fetched >=1 OBJ, the
+            // transition becomes observable up to 3 dots *earlier*
+            // than mode3_dots's own exact value - i.e. against a
+            // threshold rounded *down* to the nearest whole M-cycle
+            // (dots only ever accumulates in whole 4-dot steps, so
+            // this is the largest multiple of 4 not exceeding
+            // mode3_dots). ppu->dots itself still accumulates and
+            // carries into Mode 0 using the *unrounded* mode3_dots
+            // (below), so the scanline's total dot budget (456) is
+            // unaffected - Mode 0 simply absorbs however many dots
+            // Mode 3 "gave back", the same way it already absorbs
+            // mode3_dots's own fractional-of-4 remainder on an OBJ-
+            // free scanline. An OBJ-free scanline (still possibly
+            // landing on an exact multiple of 4 via SCX%8 + the
+            // window's flat 6, e.g. SCX%8==0) genuinely does NOT get
+            // this rounding - confirmed by every already-passing non-
+            // sprite acceptance/ppu/ ROM regressing when this was
+            // first tried as an unconditional early transition (both
+            // as a flat -1 M-cycle and as a naive "> instead of >="
+            // strict-boundary rule - the latter is actually the wrong
+            // *direction*: it makes an exact-multiple mode3_dots take
+            // one M-cycle *longer*, not shorter, and independently-
+            // computing Mooneye's own required M-cycle counts by hand
+            // against its intr_2_mode0_timing_sprites.gb source showed
+            // the real requirement is consistently 1 M-cycle *earlier*
+            // than plain ceil(mode3_dots/4), not later). Found via
+            // Mooneye's own intr_2_mode0_timing_sprites.gb (test_roms/
+            // mooneye/): its 105 OBJ-count/position testcases, hand-
+            // decoded from the ROM's own .s source and cross-checked
+            // against this exact rounding rule, match it in every
+            // single case; its obj_x=168/169 testcases (every OBJ
+            // selected for the line but skipped as off-screen-right,
+            // landing back on the already-multiple-of-4 flat 172)
+            // still needed the OBJ-triggered rounding path despite it
+            // being a no-op there, confirming this keys off of "was an
+            // OBJ fetched for this scanline", not "is mode3_dots
+            // non-round".
+            int mode3_boundary = ppu->mode3_had_obj ? (ppu->mode3_dots & ~3) : ppu->mode3_dots;
+            if (ppu->dots >= mode3_boundary) {
                 ppu->dots -= ppu->mode3_dots;
                 render_scanline(ppu, cpu);
                 ppu->mode = 0;
                 update_stat_line(ppu, cpu); // Mode 0 int select, via the shared line - see its own comment
             }
             break;
+        }
 
         case 0: // HBlank: the rest of the scanline - pandocs' own table:
                 // Mode 0's duration is 376 - Mode 3's (80 + 376 = 456 total,
@@ -502,6 +561,7 @@ void gb_ppu_write_reg(GBPpu *ppu, struct GBCpu *cpu, uint16_t addr, uint8_t val)
                 ppu->dots = 0;
                 ppu->ly = 0;
                 ppu->mode3_dots = 172; // same reasoning as gb_ppu_reset()
+                ppu->mode3_had_obj = 0;
             }
             ppu->lcdc = val;
             if (!was_on && now_on) {

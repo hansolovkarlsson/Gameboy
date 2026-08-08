@@ -219,6 +219,7 @@ unconditionally every T-state).
 A follow-up pass picked back up the 6 remaining acceptance/ppu/ timing
 ROMs the per-M-cycle rewrite left open (the "1 known gap" note above,
 now updated to reflect it): 3/6 fixed, 77/83 overall, up from 74/83.
+A second follow-up pass fixed a 4th: 78/83.
 
 - acceptance/ppu/intr_2_mode0_timing.gb and intr_2_mode3_timing.gb
   (FIXED): traced with hand-verified T-state instrumentation
@@ -252,15 +253,60 @@ now updated to reflect it): 3/6 fixed, 77/83 overall, up from 74/83.
   CPU-facing bus-conflict checks - the same "PPU's own access is never
   blocked by logic that exists to block the *CPU*" pattern
   gb_dma_tick()'s own destination write already established.
-- acceptance/ppu/intr_2_mode0_timing_sprites.gb,
-  acceptance/ppu/lcdon_timing-GS.gb, acceptance/ppu/lcdon_write_timing-
-  GS.gb (still open): the first is an exhaustive 60+ case stress test
-  of compute_mode3_length()'s own OBJ-penalty formula, not the mode-
-  timing mechanism just fixed above - a separate audit, not yet done.
-  The latter two both test a documented special case ("the PPU is late
-  by 2 T-cycles" on the very first line after LCD is enabled) that
-  this project has no dedicated model for at all yet, distinct from
-  every other gap this file tracks.
+- acceptance/ppu/lcdon_timing-GS.gb, acceptance/ppu/lcdon_write_timing-
+  GS.gb (still open): both test a documented special case ("the PPU is
+  late by 2 T-cycles" on the very first line after LCD is enabled)
+  that this project has no dedicated model for at all yet, distinct
+  from every other gap this file tracks.
+
+acceptance/ppu/intr_2_mode0_timing_sprites.gb (FIXED, a separate later
+pass, 78/83): an exhaustive 105-case stress test of
+compute_mode3_length()'s own OBJ-penalty formula and how it feeds the
+Mode 3->0 transition, not the mode-timing mechanism the pass above
+fixed. Its full .s source (`gh api repos/Gekkio/mooneye-test-suite/
+contents/acceptance/ppu/intr_2_mode0_timing_sprites.s`) was hand-
+decoded into every OBJ count/X-position testcase and its expected
+extra-cycle count, then cross-checked against compute_mode3_length()'s
+own output - found two real formula bugs and one genuine hardware
+rounding rule this project had never modeled:
+  1. An OBJ at OAM X==0 ("The Pixel" completely off the left edge)
+     was applying its flat 11-dot penalty unconditionally per object,
+     skipping the tile-dedup ("already considered by a previous OBJ")
+     mechanism entirely. Real hardware still runs X==0 OBJs through
+     that same dedup: multiple X==0 OBJs cost 11 + 6*(n-1) dots, not
+     11*n - the first one alone happens to total 11 (a 5-dot "wait"
+     component, from the exception, plus the ordinary always-incurred
+     6-dot flat fetch cost), but later ones sharing that same
+     off-screen-left tile only pay the flat 6.
+  2. An OBJ entirely off the *right* edge of the screen (OAM X>=168,
+     i.e. its leftmost screen column already >=160) was still costing
+     a full wait+6-dot penalty despite never actually being reached by
+     the pixel fetcher during this scanline's Mode 3 at all. Its
+     obj_x=168/169 testcases are the only ones in the suite asserting
+     a *zero* OBJ penalty despite objects being selected for the line
+     purely by Y - fixed by skipping such OBJs entirely (not even the
+     flat 6), separately from the X==0 exception above.
+  3. The real rounding rule for when a computed mode3_dots that
+     included >=1 OBJ becomes an externally-observable Mode 3->0
+     transition is *not* the same ceil(mode3_dots/4) plain `>=` check
+     an OBJ-free scanline uses. It's 1 M-cycle *earlier*: the
+     comparison threshold is mode3_dots rounded *down* to the nearest
+     whole M-cycle (`mode3_dots & ~3`), still using plain `>=` -
+     ppu->dots itself keeps carrying the *unrounded* mode3_dots into
+     Mode 0 afterward, so the scanline's total 456-dot budget is
+     unaffected; Mode 0 simply absorbs the few dots Mode 3 "gave
+     back", the same way it already absorbs an OBJ-free scanline's
+     own fractional-of-4 remainder. Two wrong hypotheses were tried
+     and rejected first: a flat "always -1 M-cycle" rule regressed 4
+     already-passing non-sprite acceptance/ppu/ ROMs (their own
+     OBJ-free mode3_dots, e.g. the flat 172 baseline, must NOT get
+     this treatment); a naive "> instead of >=" strict-boundary rule
+     is the wrong *direction* entirely (makes an exact-multiple
+     mode3_dots transition 1 M-cycle *later*, not earlier) and also
+     regressed those same 4 ROMs. New ppu->mode3_had_obj field
+     (ppu.h/ppu.c, savestate.c, SAVESTATE_VERSION 3->4) records
+     whether compute_mode3_length() actually fetched >=1 OBJ for the
+     current scanline, gating this rounding.
 
 Also added stat_line and visible_mode to savestate.c's PPU section
 (SAVESTATE_VERSION 2->3) - both were live PPU state a save/load round
@@ -319,7 +365,7 @@ EXPECTED = {
     "acceptance/ppu/intr_1_2_timing-GS.gb": "PASS",
     "acceptance/ppu/intr_2_0_timing.gb": "PASS",
     "acceptance/ppu/intr_2_mode0_timing.gb": "PASS",
-    "acceptance/ppu/intr_2_mode0_timing_sprites.gb": "FAIL",
+    "acceptance/ppu/intr_2_mode0_timing_sprites.gb": "PASS",
     "acceptance/ppu/intr_2_mode3_timing.gb": "PASS",
     "acceptance/ppu/intr_2_oam_ok_timing.gb": "PASS",
     "acceptance/ppu/lcdon_timing-GS.gb": "FAIL",

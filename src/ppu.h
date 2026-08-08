@@ -40,6 +40,9 @@ typedef struct GBPpu {
     int dots;         // dot (T-cycle) counter within the current scanline
     int mode3_dots;   // this scanline's real Mode 3 length, computed once at
                        // the Mode 2->3 transition - see compute_mode3_length()
+    int mode3_had_obj; // whether that computation actually fetched >=1 OBJ -
+                        // see gb_ppu_step()'s own comment on why the Mode
+                        // 3->0 transition needs this to pick its comparator
     uint8_t stat_line; // the shared internal STAT interrupt line's last-known
                         // level (pandocs' Interrupt_Sources.md "INT $48") -
                         // see ppu.c's own update_stat_line() comment for why

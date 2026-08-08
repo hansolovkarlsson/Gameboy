@@ -1226,24 +1226,21 @@ section and `tests/run_mooneye.py`'s `EXPECTED` table for the full
 per-ROM baseline.
 
 **Next**: two known, honestly-scoped-out gaps remain across the
-committed Mooneye subset (77/83 overall - see the "STAT read/OAM
-timing lag" entry further below for the full current picture, and the
-per-M-cycle CPU rewrite entry before it for the one real,
-deliberately-accepted regression):
+committed Mooneye subset (78/83 overall - see the "STAT read/OAM
+timing lag" entry further below, and the OBJ-penalty-formula entry
+after it, for the full current picture, and the per-M-cycle CPU
+rewrite entry before both for the one real, deliberately-accepted
+regression):
 
 - `timer/tima_write_reloading.gb`/`tma_write_reloading.gb`'s one
   remaining unresolved assertion each - the same underlying "obscure
   TAC-toggle spurious-tick edge case" the per-M-cycle rewrite's own
   `rapid_toggle.gb` regression traces to; see that entry for the full
   investigation.
-- 3 of the 7 `acceptance/ppu/` timing ROMs:
-  `intr_2_mode0_timing_sprites.gb` (an exhaustive stress test of
-  `compute_mode3_length()`'s own OBJ-penalty formula - a separate audit
-  from the STAT-read-lag fix below, not yet done), and
-  `lcdon_timing-GS.gb`/`lcdon_write_timing-GS.gb` (both test a
-  documented "PPU is late by 2 T-cycles" special case on the first line
-  after LCD is enabled, which this project has no dedicated model for
-  at all yet).
+- 2 of the 7 `acceptance/ppu/` timing ROMs, `lcdon_timing-GS.gb` and
+  `lcdon_write_timing-GS.gb`: both test a documented "PPU is late by 2
+  T-cycles" special case on the first line after LCD is enabled, which
+  this project has no dedicated model for at all yet.
 
 **Timer M-cycle precision: attempted, reverted - a real architecture-
 size finding, not a bug fix.** The "Next" note above (in its original
@@ -1721,3 +1718,80 @@ has no dedicated model for at all.
 Zero regressions across the full existing suite (unit tests,
 dmg-acid2/2048-gb/droneboy/tobu/savestate, RGBDS, Mooneye). **77/83**
 on the committed Mooneye subset, up from 74/83.
+
+**OBJ-penalty formula and Mode 3->0 rounding: two real formula bugs
+and a genuine hardware rounding rule, found and fixed -
+`intr_2_mode0_timing_sprites.gb`, 78/83.** A follow-up pass picked up
+the largest of the 3 ROMs left open above: an exhaustive 105-case
+stress test of `compute_mode3_length()`'s OBJ-penalty formula (OBJ
+count from 1 to 10, X positions spanning the full 0-255 range including
+off both screen edges, and several two-group split configurations),
+and how that value feeds the Mode 3->0 transition.
+
+Its full `.s` source (`gh api repos/Gekkio/mooneye-test-suite/contents/
+acceptance/ppu/intr_2_mode0_timing_sprites.s`) was fetched and hand-
+decoded into every testcase's exact OBJ configuration and its expected
+extra-cycle count (the ROM calibrates two NOP-padded polling loops per
+testcase against the real elapsed M-cycles from a Mode 2 STAT
+interrupt to the Mode 3->0 transition, the same general technique
+`intr_2_mode0_timing.gb` itself uses). A from-scratch Python
+reimplementation of `compute_mode3_length()`'s algorithm, run against
+all 105 testcases and compared to the ROM's own expected values,
+found three real, distinct gaps - not one:
+
+1. An OBJ at OAM X==0 ("The Pixel" completely off the left edge) was
+   applying its documented flat 11-dot penalty *unconditionally per
+   object*, via an early `continue` that skipped the tile-dedup
+   ("already considered by a previous OBJ") mechanism entirely. Real
+   hardware still runs X==0 OBJs through that same dedup: multiple
+   X==0 OBJs cost `11 + 6*(n-1)` dots, not `11*n` - confirmed by the
+   ROM's own 2-through-10-OBJs-all-at-X==0 testcases, which assert
+   exactly that formula. Fixed by letting X==0 OBJs participate in the
+   normal per-tile dedup loop, with only the *wait* component (not the
+   unconditional flat 6-dot fetch cost) replaced by a fixed 5 when the
+   tile hasn't been considered yet - 5+6=11 reproduces the documented
+   single-OBJ total exactly, while a second OBJ landing on that same
+   already-considered tile now correctly pays only the flat 6.
+2. An OBJ entirely off the *right* edge of the screen (OAM X>=168,
+   i.e. its leftmost screen column already >=160, GB_SCREEN_WIDTH)
+   was still costing a full wait+6-dot penalty despite never being
+   reached by the pixel fetcher during this scanline's Mode 3 at all -
+   the ROM's own obj_x=168/169 testcases are the only ones in the
+   suite asserting a *zero* OBJ penalty despite objects being selected
+   for the line (selection only checks Y, not X). Fixed by skipping
+   such OBJs entirely (not even the flat 6), independently of the
+   X==0 exception above.
+3. The real rounding rule for when a computed `mode3_dots` that
+   included >=1 OBJ becomes an externally-observable Mode 3->0
+   transition is *not* the same `ceil(mode3_dots/4)` plain `>=` check
+   an OBJ-free scanline uses - it's 1 M-cycle *earlier*. The
+   comparison threshold is `mode3_dots` rounded *down* to the nearest
+   whole M-cycle (`mode3_dots & ~3`), still compared with plain `>=`;
+   `ppu->dots` itself keeps carrying the *unrounded* `mode3_dots`
+   forward into Mode 0's own duration afterward, so the scanline's
+   total 456-dot budget is unaffected - Mode 0 simply absorbs however
+   many dots Mode 3 "gave back", the same way it already absorbs an
+   OBJ-free scanline's own fractional-of-4 remainder. This was the
+   hardest of the three to pin down: the Python model alone couldn't
+   distinguish this rounding rule from two wrong ones that fit the
+   ROM's own relative dataset just as well (a global constant offset
+   absorbs the difference in an offline model), so it needed direct
+   T-state-level tracing of the real dispatch-to-poll instruction
+   sequence in a running emulation to disambiguate. Two wrong
+   hypotheses were tried and rejected first this way: a flat "always
+   1 M-cycle earlier" rule, and a naive "`>` instead of `>=`" strict-
+   boundary rule (the wrong *direction* entirely - it makes an
+   exact-multiple `mode3_dots` transition 1 M-cycle *later*, not
+   earlier). Both regressed the same 4 already-passing non-sprite
+   `acceptance/ppu/` ROMs, whose own OBJ-free `mode3_dots` (e.g. the
+   flat 172-dot baseline) must keep the untouched plain `>=` behavior.
+   New `ppu->mode3_had_obj` field (`ppu.h`/`ppu.c`, plumbed through
+   `savestate.c`, `SAVESTATE_VERSION` 3->4) records whether
+   `compute_mode3_length()` actually fetched >=1 OBJ for the current
+   scanline, gating the rounding to exactly the cases that need it.
+
+Zero regressions across the full existing suite (unit tests,
+dmg-acid2/2048-gb/droneboy/tobu/savestate, RGBDS, Mooneye). **78/83**
+on the committed Mooneye subset, up from 77/83. The remaining 2
+`acceptance/ppu/` ROMs (`lcdon_timing-GS.gb`/`lcdon_write_timing-
+GS.gb`) are unrelated to this fix - see the "Next" section above.
