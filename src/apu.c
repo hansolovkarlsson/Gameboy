@@ -39,6 +39,15 @@ static int sweep_calc(GBApu *apu) {
     GBApuChannel *c = &apu->ch[0];
     int step = apu->nr10 & 0x07;
     int delta = c->sweep_shadow >> step;
+    // Latches that subtraction mode has been used at least once since
+    // the last trigger - the NR10 write handler below needs this to
+    // implement the real "clearing negate after a subtraction disables
+    // the channel" quirk (pandocs' Audio_details.md "Obscure Behavior").
+    // Every real calculation this function ever performs (the immediate
+    // trigger-time one and both of tick_sweep()'s periodic ones) goes
+    // through here, so latching it in this one shared place covers all
+    // of them.
+    if (apu->nr10 & 0x08) c->sweep_negate_since_trigger = 1;
     return (apu->nr10 & 0x08) ? (c->sweep_shadow - delta) : (c->sweep_shadow + delta);
 }
 
@@ -76,6 +85,7 @@ static void trigger_ch1(GBApu *apu) {
     if (c->sweep_timer == 0) c->sweep_timer = 8; // "a period of 0 is treated as 8"
     int step = apu->nr10 & 0x07;
     c->sweep_enabled = (((apu->nr10 >> 4) & 0x07) != 0) || (step != 0);
+    c->sweep_negate_since_trigger = 0; // a fresh trigger starts a fresh "since last trigger" window
     if (step != 0 && sweep_calc(apu) > 0x7FF) c->enabled = 0;
 }
 
@@ -482,6 +492,28 @@ void gb_apu_write(GBApu *apu, uint16_t addr, uint8_t val) {
             apu->nr50 = apu->nr51 = 0;
             for (int i = 0; i < 4; i++) apu->ch[i].enabled = 0;
         }
+        if (!was_enabled && apu->enabled) {
+            // Powering back on resets the frame sequencer's own phase
+            // to step 0, rather than resuming wherever it was frozen
+            // when powered off - confirmed by Blargg's dmg_sound
+            // 07-len sweep period sync.gb test 5 ("Powering up APU
+            // MODs next frame time with 8192"): several different
+            // power-off/power-on/delay sequences, all synchronized to
+            // the same real DIV-APU phase beforehand, are asserted to
+            // produce the *same* subsequent length-clock timing after
+            // powering back on - impossible if the frame sequencer
+            // simply resumed from an arbitrary frozen mid-cycle
+            // position, since that would depend on how many real
+            // DIV-APU edges elapsed while off. Directly corroborated by
+            // that same ROM's test 6, literally titled "Powering up APU
+            // resets 128 Hz sweep divider". div_bit4_prev is
+            // deliberately left untouched here - it already tracks the
+            // real DIV register continuously regardless of power state
+            // (gb_apu_step()'s own comment), so the next real falling
+            // edge after this reset correctly drives frame_seq_step
+            // from a known-good step 0.
+            apu->frame_seq_step = 0;
+        }
         return;
     }
 
@@ -512,7 +544,21 @@ void gb_apu_write(GBApu *apu, uint16_t addr, uint8_t val) {
     }
 
     switch (addr) {
-        case 0xFF10: apu->nr10 = val; break;
+        case 0xFF10:
+            // pandocs' Audio_details.md "Obscure Behavior": clearing the
+            // sweep direction bit (negate mode) after at least one sweep
+            // calculation has used subtraction mode since the last
+            // trigger immediately disables CH1 - real hardware's way of
+            // preventing a lower-then-raise sweep without a retrigger in
+            // between. sweep_negate_since_trigger is latched by every
+            // real calculation sweep_calc() performs (trigger-time and
+            // both of tick_sweep()'s periodic ones), and reset fresh on
+            // every trigger - see both of those for the full mechanism.
+            if ((apu->nr10 & 0x08) && !(val & 0x08) && apu->ch[0].sweep_negate_since_trigger) {
+                apu->ch[0].enabled = 0;
+            }
+            apu->nr10 = val;
+            break;
         case 0xFF11: apu->nr11 = val; apu->ch[0].length_timer = 64 - (val & 0x3F); break;
         case 0xFF12:
             apply_zombie_mode_increment(&apu->ch[0], val);

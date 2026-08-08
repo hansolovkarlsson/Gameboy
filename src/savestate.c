@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define SAVESTATE_MAGIC "GBSS"
-#define SAVESTATE_VERSION 9u
+#define SAVESTATE_VERSION 10u
 
 // Explicit little-endian primitives - the same reasoning main.c's own
 // write_u32le()/write_u16le() (its WAV writer) already applies: on-disk
@@ -148,6 +148,7 @@ int gb_savestate_save(GBCpu *cpu, const char *path) {
         w32(f, (uint32_t)c->sweep_timer);
         w8(f, (uint8_t)c->sweep_enabled);
         w32(f, (uint32_t)c->sweep_shadow);
+        w8(f, (uint8_t)c->sweep_negate_since_trigger);
     }
     w32(f, (uint32_t)apu->frame_seq_step);
     w8(f, (uint8_t)apu->div_bit4_prev);
@@ -297,6 +298,7 @@ int gb_savestate_load(GBCpu *cpu, const char *path) {
         r32(f, &u32v, &err); c->sweep_timer = (int)u32v;
         r8(f, &u8v, &err); c->sweep_enabled = u8v;
         r32(f, &u32v, &err); c->sweep_shadow = (int)u32v;
+        r8(f, &u8v, &err); c->sweep_negate_since_trigger = u8v;
     }
     r32(f, &u32v, &err); apu->frame_seq_step = (int)u32v;
     r8(f, &u8v, &err); apu->div_bit4_prev = u8v;

@@ -137,6 +137,7 @@ int main(void) {
         c->sweep_timer = 6 + i;
         c->sweep_enabled = 1;
         c->sweep_shadow = 200 + i;
+        c->sweep_negate_since_trigger = 1;
     }
     apu.frame_seq_step = 5;
     apu.div_bit4_prev = 1;
@@ -226,7 +227,8 @@ int main(void) {
             c->wave_pos != 20 + i || c->wave_sample_buffer != (uint8_t)(0x0A + i) ||
             c->lfsr != (uint16_t)(0x7FFF - i) || c->length_timer != 30 + i ||
             c->volume != 15 - i || c->envelope_timer != 5 + i || c->envelope_going != 1 ||
-            c->sweep_timer != 6 + i || c->sweep_enabled != 1 || c->sweep_shadow != 200 + i) {
+            c->sweep_timer != 6 + i || c->sweep_enabled != 1 || c->sweep_shadow != 200 + i ||
+            c->sweep_negate_since_trigger != 1) {
             ch_ok = 0;
         }
     }

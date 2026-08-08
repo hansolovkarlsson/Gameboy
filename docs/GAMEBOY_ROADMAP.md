@@ -1903,3 +1903,82 @@ dmg-acid2 - now *improved*, not just unregressed -
 remaining gap is the timer cluster (`rapid_toggle.gb`/
 `tima_write_reloading.gb`/`tma_write_reloading.gb`) - see the "Next"
 section above.
+
+**`dmg_sound` follow-up: two of the five original gaps closed - 8/12,
+up from 6/12.** With the Mooneye `acceptance/ppu/` cluster essentially
+exhausted (80/83, only the timer edge case left), picked the APU's own
+remaining known gap back up: Blargg's `dmg_sound` sub-tests (Phase 5's
+own status entry above), re-fetched fresh from `retrio/gb-test-roms`
+for this session only per this project's standing "no explicit
+license, never committed" policy (Phase 1's licensing note) - verified
+via each ROM's own on-screen `Passed`/`Failed #N` text (no reliable
+serial-protocol or fixed-memory-address signal found this time, unlike
+Mooneye's own convention, so read directly off the rendered
+framebuffer the same way `05`/`06`/`11` were already being read as of
+Phase 5's own original pass).
+
+- **`05-sweep details` (FIXED)**: pandocs' `Audio_details.md` "Obscure
+  Behavior" documents this precisely: "Clearing the sweep direction
+  bit in NR10 after at least one sweep calculation has been made using
+  the subtraction mode since the last trigger causes the channel to be
+  immediately disabled." `apu.c` had never modeled this at all. New
+  `sweep_negate_since_trigger` field (`apu.h`), latched by
+  `sweep_calc()` itself (the one shared function both the immediate
+  trigger-time calculation and `tick_sweep()`'s own periodic ones all
+  go through, so a single latch point covers every real calculation
+  path), reset fresh on every trigger, and checked in the `NR10` write
+  handler: clearing bit 3 while it's set immediately disables CH1 if
+  the flag is set.
+- **`07-len sweep period sync` (FIXED)**: test 5, "Powering up APU
+  MODs next frame time with 8192," asserts that several different
+  power-off/power-on/delay sequences - all synchronized beforehand to
+  the same real DIV-APU phase via the ROM's own `sync_apu` helper -
+  produce the *same* subsequent length-clock timing after powering
+  back on. That's only possible if powering on resets the frame
+  sequencer's own phase to a fixed point (step 0), not if it resumes
+  from wherever it was frozen when powered off - directly corroborated
+  by that same ROM's test 6, literally titled "Powering up APU resets
+  128 Hz sweep divider." `gb_apu_write()`'s `NR52` handler now resets
+  `apu->frame_seq_step = 0` on the off-to-on transition;
+  `div_bit4_prev` is deliberately left untouched, since it already
+  tracks the real `DIV` register continuously regardless of power
+  state (confirmed correct independently: this fix alone was
+  sufficient, no `div_bit4_prev` changes needed).
+- **`08-len ctr during power` (still open, but real progress)**: both
+  fixes above are necessary preconditions this test also exercises
+  (it interleaves power-off/power-on with length-counter timing across
+  all 4 channels), and the checksum failure persists past both -
+  narrowed via direct M-cycle-level trace instrumentation (the same
+  successful technique the LCD-enable-quirk investigation above used)
+  tracking every `frame_seq_step` tick, `NR52` write, channel trigger,
+  and length-expiry event around the test's own power-cycle sequence.
+  The traced values are internally plausible (e.g. CH2's post-power-on
+  length-timer value matches a hand-derivation straight from its own
+  `NR21` write, with no corruption or unexpected reset), and one
+  candidate refinement (also resetting `div_bit4_prev` at power-on) was
+  tried and found to be a no-op by construction, not a fix - it's
+  already continuously synced to real `DIV` regardless of power state,
+  so there's no staleness to correct there. Left open rather than
+  guessed further: the remaining discrepancy is real but sufficiently
+  narrow (this project's own from-scratch trace couldn't isolate it
+  further without either the ROM's missing `fill_apu_regs` helper
+  source - not found in any `retrio/gb-test-roms` file this session
+  checked, despite being referenced by three different test files - or
+  substantially more hand-simulation time than this pass budgeted).
+- **`09-wave read while on`/`10-wave trigger while on`/
+  `12-wave write while on` (still open, unchanged)**: all three
+  exercise Wave RAM's real mid-playback corruption/lock behavior,
+  deliberately not modeled - unrelated to this pass's two fixes, and
+  already flagged as out of scope in `apu.h`'s own top-of-file comment
+  since Phase 5.
+
+`SAVESTATE_VERSION` bumped 9->10 for the new `sweep_negate_since_trigger`
+field.
+
+Zero regressions across the full existing suite (unit tests, dmg-acid2,
+2048-gb, tobu, droneboy, savestate round-trip, RGBDS, Mooneye - all
+unaffected, confirmed by re-running the full sweep after these
+APU-only changes). Droneboy's own reference audio, despite being a
+heavy sweep/power-cycling user by ear, stayed byte-exact against its
+already-committed reference - it apparently never exercises either
+specific edge case these fixes target.

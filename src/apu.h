@@ -47,6 +47,11 @@ typedef struct GBApuChannel {
     int sweep_timer;
     int sweep_enabled;
     int sweep_shadow;     // the sweep's own copy of the period, independent of NR13/NR14
+    int sweep_negate_since_trigger; // whether a sweep frequency calculation
+                           // has used subtraction mode (NR10 bit 3 set)
+                           // since the last trigger - see apu.c's own
+                           // comment on the NR10 write handler for why
+                           // this matters
 } GBApuChannel;
 
 typedef struct GBApu {
