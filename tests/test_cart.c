@@ -214,6 +214,50 @@ static void test_cart_load_from_file(void) {
     remove(path);
 }
 
+// Regression test for a real bug found via test_roms/mooneye/
+// emulator-only/mbc5/ (all 8 ROMs there call straight into ROMX-bank
+// library code before ever writing the bank register): unlike
+// MBC1/MBC3, MBC5 has no read-time "bank 0 reads as bank 1" quirk at
+// $4000-7FFF (pandocs' MBC5.md is explicit that writing 0 really does
+// give bank 0), so if gb_cart_load() left the bank register itself at
+// its calloc-zeroed default, a fresh load would show bank 0's content
+// at $4000-7FFF instead of bank 1's - wrong, since Gekkio's own
+// mooneye-gb (cartridge.rs, Mbc5State::default()) initializes that
+// register to 1 on power-up, verified against a real MBC5 flash cart.
+static void test_mbc5_default_bank_is_one(void) {
+    const char *path = "/tmp/gb_test_cart_load_mbc5.gb";
+    size_t rom_size = 2 * 0x4000; // ROM size code 0x00 = 32 KiB = 2 banks, smallest valid MBC5 image
+    uint8_t *rom = calloc(1, rom_size);
+
+    rom[0x0147] = 0x19; // MBC5, no RAM
+    rom[0x0148] = 0x00; // 32 KiB / 2 banks
+    rom[0x0149] = 0x00; // no RAM
+    rom[0x4000] = 0xBB; // bank 1's first byte - distinguishes it from bank 0's (left 0x00)
+
+    uint8_t checksum = 0;
+    for (uint16_t addr = 0x0134; addr <= 0x014C; addr++) {
+        checksum = (uint8_t)(checksum - rom[addr] - 1);
+    }
+    rom[0x014D] = checksum;
+
+    FILE *f = fopen(path, "wb");
+    fwrite(rom, 1, rom_size, f);
+    fclose(f);
+    free(rom);
+
+    GBCart cart;
+    int rc = gb_cart_load(&cart, path);
+    check("gb_cart_load: succeeds on a well-formed synthetic MBC5 ROM", rc == 0);
+    if (rc == 0) {
+        check("MBC5: rom_bank_lo defaults to 1 on load, not 0", cart.rom_bank_lo == 1);
+        check("MBC5: $4000-7FFF shows bank 1's content before any register write",
+              gb_cart_read(&cart, 0x4000) == 0xBB);
+        gb_cart_free(&cart);
+    }
+
+    remove(path);
+}
+
 static void test_mbc5_rom_banking(void) {
     GBCart cart = {0};
     cart.mbc_type = GB_MBC5;
@@ -245,6 +289,7 @@ int main(void) {
     test_mbc3_rom_banking();
     test_mbc3_rtc_latch();
     test_mbc5_rom_banking();
+    test_mbc5_default_bank_is_one();
     test_cart_load_from_file();
 
     if (failures == 0) {

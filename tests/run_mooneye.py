@@ -50,6 +50,34 @@ five root causes found have since been fixed (28/44 now):
   per-M-cycle" limitation as the OAM DMA cluster above, not yet
   root-caused further.
 
+A follow-up slice added Tier 2's emulator-only/mbc1 and
+emulator-only/mbc5 (21 ROMs, see test_roms/mooneye/README.md): 20/21
+pass.
+
+- All 8 mbc5/rom_*.gb ROMs (FIXED): a real bug, not a test-harness
+  quirk - MBC5 has no read-time "bank 0 reads as bank 1" quirk at
+  $4000-7FFF (unlike MBC1/MBC3), so cart.c's gb_cart_load() left a
+  fresh MBC5 cart's ROM bank register at its calloc-zeroed 0, showing
+  bank 0's content at $4000-7FFF instead of bank 1's. Every one of
+  these 8 ROMs calls straight into ROMX-bank library code before ever
+  writing the bank register, so all 8 failed identically (crashed into
+  the $0038 RST trap almost immediately - confirmed by tracing PC).
+  Real MBC5 hardware powers up with that register at 1, not 0 -
+  verified against Gekkio's own mooneye-gb (cartridge.rs,
+  Mbc5State::default()), a real-hardware-checked reference. Fixed in
+  gb_cart_load() (cart.c); also covered by a direct unit test
+  (tests/test_cart.c's test_mbc5_default_bank_is_one()).
+- mbc1/multicart_rom_8Mb.gb (not attempted): a genuinely distinct MBC1
+  variant, not a regular large-ROM MBC1 cart - MBC1M multi-game
+  compilation carts wire bit 4 of the $2000-3FFF ROM bank register out
+  entirely (pandocs' MBC1.md "MBC1M addressing diagrams"), so the
+  bank-number formula differs from cart.c's existing MBC1 handling.
+  Needs its own multicart-detection heuristic (real emulators
+  typically check for a valid Nintendo logo at each 256 KiB boundary)
+  plus a distinct address decode, not just a register tweak - a small
+  but genuinely separate feature, left for a follow-up slice rather
+  than guessed at here.
+
 EXPECTED below is this real, current baseline, the same floor-not-target
 reasoning tests/compare_frame.py already uses for dmg-acid2: a ROM
 regressing from PASS to anything else is a real regression and fails
@@ -111,6 +139,27 @@ EXPECTED = {
     "acceptance/timer/tima_reload.gb": "PASS",
     "acceptance/timer/tima_write_reloading.gb": "FAIL",
     "acceptance/timer/tma_write_reloading.gb": "FAIL",
+    "emulator-only/mbc1/bits_bank1.gb": "PASS",
+    "emulator-only/mbc1/bits_bank2.gb": "PASS",
+    "emulator-only/mbc1/bits_mode.gb": "PASS",
+    "emulator-only/mbc1/bits_ramg.gb": "PASS",
+    "emulator-only/mbc1/multicart_rom_8Mb.gb": "FAIL",
+    "emulator-only/mbc1/ram_256kb.gb": "PASS",
+    "emulator-only/mbc1/ram_64kb.gb": "PASS",
+    "emulator-only/mbc1/rom_16Mb.gb": "PASS",
+    "emulator-only/mbc1/rom_1Mb.gb": "PASS",
+    "emulator-only/mbc1/rom_2Mb.gb": "PASS",
+    "emulator-only/mbc1/rom_4Mb.gb": "PASS",
+    "emulator-only/mbc1/rom_512kb.gb": "PASS",
+    "emulator-only/mbc1/rom_8Mb.gb": "PASS",
+    "emulator-only/mbc5/rom_16Mb.gb": "PASS",
+    "emulator-only/mbc5/rom_1Mb.gb": "PASS",
+    "emulator-only/mbc5/rom_2Mb.gb": "PASS",
+    "emulator-only/mbc5/rom_32Mb.gb": "PASS",
+    "emulator-only/mbc5/rom_4Mb.gb": "PASS",
+    "emulator-only/mbc5/rom_512kb.gb": "PASS",
+    "emulator-only/mbc5/rom_64Mb.gb": "PASS",
+    "emulator-only/mbc5/rom_8Mb.gb": "PASS",
 }
 
 

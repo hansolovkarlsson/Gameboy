@@ -1,4 +1,4 @@
-# Mooneye GB Test Suite (Tier 1)
+# Mooneye GB Test Suite (Tier 1 + Tier 2's mbc1/mbc5)
 
 Prebuilt binary ROMs fetched from
 <https://gekkio.fi/files/mooneye-test-suite/> (build
@@ -24,10 +24,11 @@ publishes to), committed the same way `dmg-acid2`/`2048-gb`/`droneboy`/
 
 Mooneye's full suite (`acceptance/`, `emulator-only/`, `manual-only/`,
 `madness/`, `misc/`, `utils/`) is far broader than what applies here.
-Committed subset ("Tier 1" - see the scoping discussion this came
-from): `acceptance/timer/` (13), `acceptance/bits/` (3),
-`acceptance/interrupts/ie_push.gb`, `acceptance/instr/daa.gb`, and 26
-top-level CPU/interrupt-timing ROMs - 44 total.
+Committed subset: Tier 1 (`acceptance/timer/` (13), `acceptance/bits/`
+(3), `acceptance/interrupts/ie_push.gb`, `acceptance/instr/daa.gb`, and
+26 top-level CPU/interrupt-timing ROMs - 44 total) plus a Tier 2 slice
+added in a follow-up pass, `emulator-only/mbc1/` and
+`emulator-only/mbc5/` (21 ROMs) - 65 total.
 
 **Deliberately excluded**:
 - `boot_regs-*`/`boot_div-*`/`boot_hwio-*`/`serial/boot_sclk_align-*` -
@@ -40,10 +41,6 @@ top-level CPU/interrupt-timing ROMs - 44 total.
 - `emulator-only/mbc2/` - MBC2 isn't implemented (`cart.c` covers
   MBC-less/MBC1/MBC3/MBC5 only, Phase 2's real scope). Revisit if MBC2
   support is ever added.
-- `emulator-only/mbc1/`, `emulator-only/mbc5/` (21 ROMs) - real value
-  (an independent, non-synthetic reference check on `cart.c`'s banking
-  beyond `tests/test_cart.c`'s own struct-level tests), left for a
-  follow-up slice rather than this one.
 - `acceptance/ppu/` (11) + `acceptance/oam_dma*` (6) - highest
   diagnostic value (sits right on the still-open dmg-acid2 pixel-FIFO
   gap and the documented "OAM DMA is instant, not timed" simplification
@@ -129,6 +126,53 @@ own Mooneye status entries for the full story of both passes:
   of 8 before). The remaining 1 assertion each still fails; plausibly
   the same instruction-granular (not real per-M-cycle) limitation as
   the OAM DMA cluster above, not yet root-caused further.
+
+## Results: Tier 2's mbc1/mbc5, 20/21
+
+A follow-up slice fetched the same prebuilt archive's
+`emulator-only/mbc1/` and `emulator-only/mbc5/` ROMs (21 total,
+`mts-20260714-0944-31510e1` - same build as Tier 1, just a different
+subdirectory of the same tarball).
+
+- **All 8 `mbc5/rom_*.gb` (FIXED)**: a real bug, not a test-harness
+  quirk. Unlike MBC1/MBC3, MBC5 has no read-time "bank 0 reads as bank
+  1" quirk at $4000-7FFF - pandocs' `MBC5.md` is explicit that "writing
+  0 will indeed give bank 0 on MBC5, unlike other MBCs" - so
+  `gb_cart_load()` (`cart.c`) leaving a fresh MBC5 cart's ROM bank
+  register at its `memset`-zeroed 0 meant `$4000-7FFF` showed bank 0's
+  content instead of bank 1's, from the moment the ROM loaded. Every
+  one of these 8 ROMs calls straight into ROMX-bank library code
+  (`memcpy`, in this case) before ever writing the bank register
+  itself, so all 8 failed identically - traced with a temporary PC-trace
+  instrument (not committed) showing execution landing on bank 0's
+  unused-space padding (`$FF` bytes) at the call target and crashing
+  into the `$0038` RST trap within ~50 instructions of boot. Real MBC5
+  hardware powers up with that register already at 1, not 0 - verified
+  against Gekkio's own reference emulator, mooneye-gb
+  (`core/src/hardware/cartridge.rs`'s `Mbc5State::default()`,
+  `romb0: 0b0000_0001`), itself checked against a real MBC5 flash
+  cartridge (this suite's own `rom_*.s` sources: "Results have been
+  verified using a flash cartridge with a genuine MBC5 chip"). Fixed
+  by setting `rom_bank_lo = 1` for `GB_MBC5` in `gb_cart_load()`
+  (`cart.c`); also covered by a new direct unit test
+  (`tests/test_cart.c`'s `test_mbc5_default_bank_is_one()`).
+- **`mbc1/multicart_rom_8Mb.gb` (not attempted)**: a genuinely distinct
+  MBC1 hardware variant, not a regular large-ROM MBC1 cart bug. MBC1M
+  multi-game compilation carts wire bit 4 of the `$2000-3FFF` ROM bank
+  register out entirely (pandocs' `MBC1.md` "MBC1M addressing
+  diagrams": "From 2000-3FFF bank register (bit 4 unused)"), so the
+  bank-number formula genuinely differs from `cart.c`'s existing MBC1
+  handling, which assumes the regular large-ROM wiring. Real detection
+  needs its own multicart heuristic (real emulators typically check for
+  a valid Nintendo logo repeated at each 256 KiB boundary) plus a
+  distinct address decode once detected - a small but genuinely
+  separate feature, not a one-line quirk fix, left for a follow-up
+  slice rather than guessed at here.
+- The other 12 `mbc1/*.gb` ROMs (`bits_bank1`/`bits_bank2`/`bits_mode`/
+  `bits_ramg`/`ram_64kb`/`ram_256kb`/`rom_512kb`/`rom_1Mb`/`rom_2Mb`/
+  `rom_4Mb`/`rom_8Mb`/`rom_16Mb`) all passed on the first run - real,
+  independent confirmation of `cart.c`'s existing MBC1 banking logic
+  beyond `tests/test_cart.c`'s own struct-level tests.
 
 See `tests/run_mooneye.py`'s own `EXPECTED` table for the per-ROM
 baseline this locks in as a regression floor.

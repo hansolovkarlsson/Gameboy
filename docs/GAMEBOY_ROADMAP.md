@@ -1093,3 +1093,65 @@ real, additive correctness improvements with zero observed regressions.
 leverage remaining item, and now the *only* one left in this committed
 Tier 1 subset - genuinely needs the architecture change already named
 above, not a small patch.
+
+**Mooneye Tier 2: `emulator-only/mbc1`/`mbc5` - 20/21, one real bug
+found and fixed.** The cheaper of the two deferred follow-up slices
+(see the Tier 1 adoption entry above) - independent, non-synthetic
+reference ROMs against `cart.c`'s existing MBC1/MBC5 banking, on top of
+`tests/test_cart.c`'s own struct-level tests. Not a clean sweep:
+
+- **All 8 `mbc5/rom_*.gb` ROMs failed identically on the first run - a
+  real bug, not a test-harness quirk.** Every one of them calls
+  straight into ROMX-bank library code (`memcpy`) before ever writing
+  the MBC5 bank-select register, relying on the register's real
+  power-on value to already show the right bank at `$4000-7FFF`.
+  Traced with a temporary, uncommitted PC-history instrument (added to
+  `main.c`, reverted after use) rather than guessed at: execution
+  landed on bank 0's unused-space padding (`$FF` bytes, not real code)
+  at the call target and crashed into the `$0038` RST trap within ~50
+  instructions of boot, every time. Root cause: `gb_cart_load()`
+  (`cart.c`) left a fresh MBC5 cart's ROM bank register at its
+  `memset`-zeroed `0`. That's silently correct-looking for MBC1/MBC3 (a
+  documented *read-time* "bank 0 reads as bank 1" quirk covers for it
+  there - see `gb_cart_read()`'s existing `if (lo == 0) lo = 1`), but
+  MBC5 has no such quirk (pandocs' `MBC5.md`: "Writing 0 will indeed
+  give bank 0 on MBC5, unlike other MBCs") - so a genuinely zeroed
+  register really did show bank 0's content at `$4000-7FFF` instead of
+  bank 1's, from the moment the ROM loaded. Confirmed the real
+  power-on value is `1`, not `0`, against Gekkio's own reference
+  emulator, mooneye-gb (`core/src/hardware/cartridge.rs`'s
+  `Mbc5State::default()`, `romb0: 0b0000_0001`) - itself checked
+  against a real MBC5 flash cartridge per this suite's own `rom_*.s`
+  sources ("Results have been verified using a flash cartridge with a
+  genuine MBC5 chip"), not just another emulator's guess. Fixed by
+  setting `rom_bank_lo = 1` for `GB_MBC5` carts in `gb_cart_load()`
+  (`cart.c`); paired with a new direct unit test
+  (`tests/test_cart.c`'s `test_mbc5_default_bank_is_one()`, loading a
+  synthetic MBC5 ROM through the real `gb_cart_load()` path rather than
+  constructing a `GBCart` struct by hand, so it actually exercises the
+  fixed code). All 8 ROMs pass after the fix; the existing full
+  regression sweep (`gameboy-test`, `gameboy-visual-test` at 98.04%
+  unchanged, `gameboy-2048-test`, `gameboy-droneboy-test`,
+  `gameboy-tobu-test`, `gameboy-savestate-test`) still passes
+  byte-for-byte identically.
+- **`mbc1/multicart_rom_8Mb.gb` - not attempted, honestly scoped out
+  rather than force-fixed.** A genuinely distinct MBC1 hardware
+  variant, not a bug in the regular large-ROM MBC1 path `cart.c`
+  already handles. MBC1M multi-game compilation carts wire bit 4 of the
+  `$2000-3FFF` ROM bank register out entirely (pandocs' `MBC1.md`'s
+  "MBC1M addressing diagrams" section: "From 2000-3FFF bank register
+  (bit 4 unused)"), so the bank-number formula genuinely differs from
+  regular MBC1's. Doing this properly needs a multicart-detection
+  heuristic first (real emulators typically check for a valid Nintendo
+  logo repeated at every 256 KiB boundary, since a multicart's header
+  otherwise looks like an ordinary MBC1 cart) plus a distinct address
+  decode once detected - a small but genuinely separate feature, not a
+  register-default tweak like the MBC5 fix above, left for its own
+  follow-up rather than guessed at here.
+- The other 12 `mbc1/*.gb` ROMs (banking-register bit tests, RAM-bank
+  tests, and ROM-size variants from 512 KiB to 16 Mb) all passed
+  unmodified.
+
+See `test_roms/mooneye/README.md`'s own "Results: Tier 2's mbc1/mbc5"
+section and `tests/run_mooneye.py`'s `EXPECTED` table for the full
+per-ROM baseline.

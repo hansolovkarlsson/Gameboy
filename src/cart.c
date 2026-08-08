@@ -149,6 +149,27 @@ int gb_cart_load(GBCart *cart, const char *path) {
     cart->has_battery = has_battery;
     cart->has_rtc = has_rtc;
 
+    // MBC1/MBC3 read bank-register 0 as bank 1 at $4000-7FFF (the
+    // documented "cannot duplicate bank 0" quirk in gb_cart_read()
+    // above), so their register can stay zeroed by this function's
+    // earlier memset. MBC5 has no such read-time quirk - pandocs'
+    // MBC5.md is explicit that "writing 0 will indeed give bank 0 on
+    // MBC5, unlike other MBCs" - so if its register really powered on
+    // at 0, $4000-7FFF would mirror bank 0 until software wrote
+    // otherwise. Real MBC5 hardware doesn't do that: Gekkio's own
+    // mooneye-gb (cartridge.rs, Mbc5State::default()) initializes
+    // romb0 to 1, not 0, matching real chip behavior verified via a
+    // flash cartridge - and Mooneye's mbc5/rom_*.gb tests (this
+    // project's own test_roms/mooneye/) call straight into ROMX-bank
+    // library code before ever writing the bank register, relying on
+    // exactly this. Confirmed by tracing this emulator: without this,
+    // execution read bank 0's padding ($FF bytes) instead of bank 1's
+    // real code at the first library call and crashed into the $0038
+    // RST trap.
+    if (mbc_type == GB_MBC5) {
+        cart->rom_bank_lo = 1;
+    }
+
     if (has_ram && ram_banks > 0) {
         cart->ram_banks = ram_banks;
         cart->ram_size = (size_t)ram_banks * 0x2000;
