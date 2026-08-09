@@ -128,19 +128,20 @@ test): run real, well-known homebrew/open-source ROMs from
 real cartridge dumps from `roms/` the user owns, fixing bugs
 found against Pan Docs/hardware test results rather than guessing.
 
-### Phase 7 (exploratory, not scoped)
+### Phase 7: A real graphical front end, save states
 
-- **Game Boy Color (CGB) support** - double-speed mode, the extra
-  VRAM/WRAM banks, color palettes. A real hardware revision with its
-  own documented differences, not guessed.
-- **Save states / battery-backed cartridge RAM persistence.**
-- **A real graphical front end.** The Game Boy's output is a pixel
-  framebuffer, not text - the `cpm/gtk/` subproject's approach (spawn the
-  real, unmodified core binary attached to a pty, let a `VteTerminal`
-  widget do the interpretation) doesn't transfer directly, since there's
-  no terminal escape-code stream to interpret. A GTK+Cairo (or SDL2)
-  window blitting a pixel buffer is the likely shape, decided when this
-  phase actually starts rather than now.
+Save states / battery-backed cartridge RAM persistence, and a real
+graphical front end (the Game Boy's output is a pixel framebuffer, not
+text, so the `cpm/gtk/` subproject's spawn-a-pty-and-let-`VteTerminal`
+interpret-it approach doesn't transfer directly). Both done - see the
+Status section's own Phase 7 entry.
+
+### Phase 9: Game Boy Color (CGB) support
+
+Cartridge CGB-flag detection, WRAM/VRAM banking, CGB tile attributes,
+and color palettes - enough for real CGB color rendering. Double-speed
+mode, HDMA/GDMA, and the infrared port deliberately deferred - see the
+Status section's own Phase 9 entry for the full scope and reasoning.
 
 ## Status
 
@@ -1982,3 +1983,126 @@ APU-only changes). Droneboy's own reference audio, despite being a
 heavy sweep/power-cycling user by ear, stayed byte-exact against its
 already-committed reference - it apparently never exercises either
 specific edge case these fixes target.
+
+**Phase 9 (Game Boy Color support): the rendering pipeline is real and
+verified pixel-exact against `cgb-acid2`, deliberately scoped to a
+first slice rather than full CGB hardware.** After finishing the
+`dmg_sound` follow-up above, moved on to CGB support per this project's
+own priority ordering (DMG stretched to its practical limit first).
+Scoped up front (see `docs/GAMEBOY_ROADMAP.md`'s own plan file at the
+time, and the Phase 9 bullet above) to cartridge detection, WRAM/VRAM
+banking, CGB tile attributes, and color palettes - the pieces needed
+for real color *rendering* - deliberately deferring double-speed mode,
+HDMA/GDMA, and the infrared port to a later pass. This was a from-
+scratch implementation: zero existing CGB scaffolding anywhere in the
+codebase beforehand (confirmed by two Explore agents surveying every
+CGB-adjacent file before writing any code).
+
+- **Mode detection and boot state**: `GBCart` gained `cgb_flag`/
+  `cgb_support` (`src/cart.c`, parsed from header byte `0x0143`,
+  pandocs' `The_Cartridge_Header.md`). `GBCpu.is_cgb` is the single
+  runtime mode switch, resolved once at startup by the new
+  `gb_resolve_cgb_mode()` (shared by both front ends via a new
+  `--mode dmg|cgb|auto` flag) rather than inferred implicitly anywhere
+  else - `auto` (default) picks CGB for either CGB-flag value, DMG
+  otherwise; forcing `--mode dmg` on a CGB-only cart is refused with an
+  error rather than attempting a best-effort render with no real-
+  hardware equivalent to validate against. `gb_cpu_reset()` gained a
+  real CGB post-boot register branch, sourced from pandocs'
+  `Power_Up_Sequence.md`'s actual "CGB" column (fetched fresh this
+  phase, not assumed to match DMG's) - `AF=0x1180`, `BC=0x0000`,
+  `DE=0xFF56`, `HL=0x000D`.
+- **WRAM banking (SVBK, `0xFF70`)**: `GBCpu` gained `wram_bank[6][0x1000]`
+  (banks 2-7; banks 0/1 stay exactly where they've always been, in
+  `cpu->memory`) and `svbk`, following the same "separate array indexed
+  by bank number, no copy-in/copy-out of a flat window" pattern
+  `cart.c`'s own MBC RAM banking already established, rather than
+  swapping bytes into the shared flat array. `mmu.c` routes
+  `0xD000-0xDFFF` (and its echo-RAM alias) to the selected bank after
+  `redirect_echo()`, implementing the real "writing 0 selects bank 1"
+  quirk at access time.
+- **VRAM banking (VBK, `0xFF4F`) and CGB tile attributes**: `GBPpu`
+  gained `vram_bank1[0x2000]` and `vbk`. `read_vram_internal()`
+  (`ppu.c`) gained a `bank` parameter threaded through
+  `read_tile_pixel()` and the object tile-data fetch - DMG call sites
+  always pass bank 0, so DMG rendering is provably unchanged.
+  `render_scanline()` gained a real `is_cgb` branch: BG/window tile
+  fetches now also read a second, attribute byte from VRAM bank 1 at
+  the same map address (pandocs' `Tile_Maps.md` "BG Map Attributes") -
+  palette number, tile-data VRAM bank, X/Y flip (applied by pre-
+  flipping `px`/`py` before the shared pixel-fetch helper, so the
+  addressing math itself doesn't need to know flip happened), and a
+  BG-to-OBJ priority bit. Object attributes gained the equivalent CGB
+  fields (VRAM bank, 8-palette select) alongside the existing DMG-
+  shared ones.
+- **Color palettes and the framebuffer**: `GBPpu` gained `bg_pram[64]`/
+  `obj_pram[64]` (pandocs' `Palettes.md`: 8 palettes × 4 colors × 2
+  bytes RGB555 each) and `bcps`/`ocps`, with the documented Mode-3 CRAM
+  read/write blocking and always-happens address auto-increment.
+  **Deliberately did not unify the DMG and CGB framebuffers into one
+  RGB representation**, despite that being the original plan: verified
+  against `tests/compare_frame.py`'s exact-byte-equality gate that no
+  5-bit-RGB555-round-trip can reproduce the DMG framebuffer's existing
+  four gray levels (255/170/85/0) exactly - 256 doesn't divide evenly
+  into 32 the way it divides into 4 - so unifying would have silently
+  drifted every existing DMG regression reference by a few gray levels,
+  a pipeline artifact rather than a real rendering change. Kept as two
+  separate arrays instead (`ppu.h`'s own comment has the full
+  reasoning): `framebuffer` (DMG, byte-for-byte unchanged) and a new
+  `cgb_framebuffer` (CGB, packed RGB555). `render_scanline()` also
+  implements CGB's real BG-to-OBJ priority rule (LCDC bit 0 as a master
+  toggle rather than a display-enable bit; the 3-flag priority table
+  from pandocs' `Tile_Maps.md`), CGB's independent-of-LCDC.0 window
+  enable, and CGB's OAM-order-only object drawing priority (DMG's
+  X-sort is skipped, not replaced, in CGB mode - `select_objects_for_
+  scanline()` gained a `sort_by_x` parameter). Both front ends
+  (`src/main.c`'s `--ppm`, `sdl/src/main.c`'s live texture) gained a
+  CGB branch producing real RGB output (`P6` color PPM / true ARGB8888)
+  alongside the unchanged DMG path.
+- **Savestate**: `SAVESTATE_VERSION` bumped 10->11 for all of the above
+  (`is_cgb`, `wram_bank`, `svbk`, `vram_bank1`, `vbk`, `bg_pram`,
+  `obj_pram`, `bcps`, `ocps`, `cgb_framebuffer`), with matching
+  `tests/test_savestate.c` round-trip coverage.
+- **Verification - `cgb-acid2`: 23040/23040 pixels match (100.00%)**,
+  a genuine full pass (unlike `dmg-acid2`'s still-open small gap) -
+  see `test_roms/cgb-acid2/README.md`. Getting there found one real
+  bug this ROM's own visual output made obvious in a way code review
+  alone hadn't: the RGB555->RGB888 conversion in both front ends had
+  red and blue swapped (read as `BBBBBGGGGGRRRRR` instead of pandocs'
+  actual `bits 0-4 red, 10-14 blue`) - the whole face rendered cyan
+  instead of yellow before the fix. Mooneye's own upstream test suite
+  was checked for CGB-specific coverage beyond what's already committed
+  and found thin: only boot-register tests (`boot_regs-cgb`,
+  `boot_div-cgb0`/`-cgbABCDE`, `boot_hwio-C`) and two `-C` variants of
+  already-covered DMG/CGB-shared tests (`misc/bits/unused_hwio-C.s`,
+  `misc/ppu/vblank_stat_intr-C.s`) exist upstream - no banking/palette/
+  attribute-specific coverage at all, and the boot-register ones are
+  already excluded by this project's standing "no real boot ROM
+  execution" policy (`test_roms/mooneye/README.md`). A real,
+  permissively-licensed CGB homebrew game for byte-exact frame
+  regression (mirroring `2048-gb`/`tobutobugirl`'s role for DMG) was
+  searched for but not committed this pass: the one clear candidate
+  found, AntonioND's `ucity`, is GPL-3.0-licensed - a real, working
+  license this project just hasn't established a policy for yet
+  (everything committed so far is MIT/zlib), not a licensing problem to
+  route around silently. Left open rather than guessed at.
+- Zero DMG regressions: the full existing suite (unit tests, Mooneye
+  80/83, `dmg-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`,
+  savestate round-trip) stayed exactly as before throughout, confirmed
+  by re-running it after every major change in this phase, not just at
+  the end.
+
+**Deferred to a later CGB phase**: double-speed mode (`KEY1`) - flagged
+high-risk, since it changes how CPU execution rate relates to the
+shared per-M-cycle tick every other subsystem depends on, in the same
+territory the timer-precision rewrite (see this document's own
+"attempted, reverted" entry) had trouble with; HDMA/GDMA
+(`0xFF51-0xFF55`); the infrared port (`RP`, `0xFF56`); a real
+GPL-license policy decision (needed before `ucity` or similar can be
+committed as a homebrew regression test).
+
+**Next**: user-directed - either a further CGB pass (double-speed mode
+being the natural next piece, or resolving the GPL-license question to
+add a real homebrew regression game), or starting on original homebrew
+game content, which the user has flagged as a later goal of this
+project alongside CGB support.

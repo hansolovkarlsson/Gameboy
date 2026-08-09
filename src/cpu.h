@@ -18,6 +18,17 @@ typedef struct GBCpu {
     uint16_t sp;
     uint16_t pc;
 
+    // Effective runtime mode, resolved once at startup (main.c/sdl's
+    // main.c, via gb_resolve_cgb_mode() in cart.c) from the cartridge's
+    // header flag and any --mode override: 1 = CGB, 0 = DMG. Read by
+    // gb_cpu_reset() (CGB post-boot register/register-default state),
+    // mmu.c (WRAM/VRAM bank routing, CGB-only register carve-outs), and
+    // ppu.c (CGB tile-attribute/palette rendering path). Never inferred
+    // implicitly from the cart inside cpu.c/ppu.c/mmu.c themselves - see
+    // cart.h's gb_resolve_cgb_mode() for the one place that decision is
+    // made.
+    uint8_t is_cgb;
+
     // Interrupt Master Enable - set/cleared by EI/DI/RETI, and by the
     // interrupt dispatch logic itself. EI's real hardware behavior
     // delays the actual enable by one instruction (see pandocs'
@@ -97,6 +108,20 @@ typedef struct GBCpu {
     // (ROM) and 0xA000-0xBFFF (external cartridge RAM) are no longer part
     // of this flat array, routed through `cart` instead. See mmu.c.
     uint8_t *memory;
+
+    // CGB WRAM banking (SVBK, 0xFF70): banks 2-7 of the switchable
+    // 0xD000-0xDFFF window - pandocs' Memory_Map.md. Bank 0
+    // (0xC000-0xCFFF) and bank 1 (0xD000-0xDFFF's DMG/CGB-bank-1
+    // default) stay exactly where they've always been, in `memory`
+    // itself - only banks 2-7 need separate storage, mirroring how
+    // cart.c's own RAM banking already keeps a separate array indexed by
+    // bank number rather than swapping bytes in and out of a flat
+    // window. svbk is the raw last-written register value (bits 0-2);
+    // mmu.c resolves it to an effective bank (0 reads back as bank 1,
+    // a real hardware quirk) at access time. Both are no-ops in DMG mode
+    // (is_cgb == 0) - see mmu.c's gb_read_byte/gb_write_byte.
+    uint8_t wram_bank[6][0x1000];
+    uint8_t svbk;
 
     // Forward-declared rather than #include "cart.h" here - cpu.h
     // shouldn't need to know GBCart's internals, only that mmu.c can

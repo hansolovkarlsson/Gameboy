@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define SAVESTATE_MAGIC "GBSS"
-#define SAVESTATE_VERSION 10u
+#define SAVESTATE_VERSION 11u
 
 // Explicit little-endian primitives - the same reasoning main.c's own
 // write_u32le()/write_u16le() (its WAV writer) already applies: on-disk
@@ -85,6 +85,13 @@ int gb_savestate_save(GBCpu *cpu, const char *path) {
     w8(f, cpu->halted); w8(f, cpu->stopped); w8(f, cpu->halt_bug);
     fwrite(cpu->memory, 1, GB_MEM_SIZE, f);
 
+    // CGB (Phase 9): mode flag, WRAM banking. No-ops (always 0) in DMG
+    // mode, still written unconditionally - simpler than a variable-
+    // length format, and cheap (banks 2-7 are 24KiB total).
+    w8(f, cpu->is_cgb);
+    fwrite(cpu->wram_bank, 1, sizeof(cpu->wram_bank), f);
+    w8(f, cpu->svbk);
+
     // OAM DMA - a transfer genuinely can be mid-flight at any point
     // between gb_cpu_step() calls (unlike, say, di_cancels_ei_delay,
     // which always resolves within the same step that set it), so a
@@ -116,6 +123,17 @@ int gb_savestate_save(GBCpu *cpu, const char *path) {
     w32(f, (uint32_t)ppu->window_line);
     w8(f, (uint8_t)ppu->frame_ready);
     fwrite(ppu->framebuffer, 1, sizeof(ppu->framebuffer), f);
+
+    // CGB (Phase 9): VRAM banking, color palette RAM, and the color
+    // framebuffer itself (cheap enough - 45KiB - and simpler than
+    // reconstructing it from PRAM/VRAM on load, which frame_ready's own
+    // "not yet grabbed" case would otherwise leave stale/wrong).
+    fwrite(ppu->cgb_framebuffer, 1, sizeof(ppu->cgb_framebuffer), f);
+    fwrite(ppu->vram_bank1, 1, sizeof(ppu->vram_bank1), f);
+    w8(f, ppu->vbk);
+    fwrite(ppu->bg_pram, 1, sizeof(ppu->bg_pram), f);
+    fwrite(ppu->obj_pram, 1, sizeof(ppu->obj_pram), f);
+    w8(f, ppu->bcps); w8(f, ppu->ocps);
 
     // Timer
     w16(f, timer->sys_counter);
@@ -235,6 +253,11 @@ int gb_savestate_load(GBCpu *cpu, const char *path) {
     r8(f, &cpu->halted, &err); r8(f, &cpu->stopped, &err); r8(f, &cpu->halt_bug, &err);
     if (!err && fread(cpu->memory, 1, GB_MEM_SIZE, f) != GB_MEM_SIZE) err = 1;
 
+    // CGB (Phase 9)
+    r8(f, &cpu->is_cgb, &err);
+    if (!err && fread(cpu->wram_bank, 1, sizeof(cpu->wram_bank), f) != sizeof(cpu->wram_bank)) err = 1;
+    r8(f, &cpu->svbk, &err);
+
     // OAM DMA - see gb_savestate_save()'s matching comment.
     r8(f, &cpu->dma_request_pending, &err); r8(f, &cpu->dma_request_value, &err);
     r8(f, &cpu->dma_starting_pending, &err); r8(f, &cpu->dma_starting_value, &err);
@@ -266,6 +289,14 @@ int gb_savestate_load(GBCpu *cpu, const char *path) {
     r32(f, &u32v, &err); ppu->window_line = (int)u32v;
     r8(f, &u8v, &err); ppu->frame_ready = u8v;
     if (!err && fread(ppu->framebuffer, 1, sizeof(ppu->framebuffer), f) != sizeof(ppu->framebuffer)) err = 1;
+
+    // CGB (Phase 9)
+    if (!err && fread(ppu->cgb_framebuffer, 1, sizeof(ppu->cgb_framebuffer), f) != sizeof(ppu->cgb_framebuffer)) err = 1;
+    if (!err && fread(ppu->vram_bank1, 1, sizeof(ppu->vram_bank1), f) != sizeof(ppu->vram_bank1)) err = 1;
+    r8(f, &ppu->vbk, &err);
+    if (!err && fread(ppu->bg_pram, 1, sizeof(ppu->bg_pram), f) != sizeof(ppu->bg_pram)) err = 1;
+    if (!err && fread(ppu->obj_pram, 1, sizeof(ppu->obj_pram), f) != sizeof(ppu->obj_pram)) err = 1;
+    r8(f, &ppu->bcps, &err); r8(f, &ppu->ocps, &err);
 
     // Timer
     r16(f, &timer->sys_counter, &err);

@@ -19,6 +19,16 @@ typedef enum {
     GB_MBC5,
 } GBMbcType;
 
+// Cartridge header byte 0x0143 (pandocs' The_Cartridge_Header.md,
+// "0143 - CGB flag"). GB_CGB_NONE covers both "byte absent/zero" and any
+// value other than the two Nintendo-defined ones below - real hardware
+// (and this emulator) treats an unrecognized byte as a plain DMG cart.
+typedef enum {
+    GB_CGB_NONE,     // plain DMG-only cart
+    GB_CGB_ENHANCED, // 0x80: CGB-enhanced, still runs on real DMG hardware
+    GB_CGB_ONLY,     // 0xC0: CGB-only, will not boot on real DMG hardware
+} GBCgbSupport;
+
 typedef struct GBCart {
     uint8_t *rom;
     size_t rom_size;
@@ -42,6 +52,11 @@ typedef struct GBCart {
     // almost always agree, but they're not the same question.
     uint8_t header_checksum_byte;
     uint8_t header_checksum_valid;
+
+    // Raw header byte 0x0143 plus the derived, Nintendo-defined
+    // classification of it - see GBCgbSupport above.
+    uint8_t cgb_flag;
+    GBCgbSupport cgb_support;
 
     // MBC1/3/5 banking state - raw register contents, not yet resolved
     // into an actual bank number (that happens at read time in cart.c,
@@ -83,5 +98,15 @@ uint8_t gb_cart_read(GBCart *cart, uint16_t addr);              // 0x0000-0x7FFF
 void gb_cart_write_ctrl(GBCart *cart, uint16_t addr, uint8_t val); // 0x0000-0x7FFF (MBC control registers - ROM itself is read-only)
 uint8_t gb_cart_read_ram(GBCart *cart, uint16_t addr);          // 0xA000-0xBFFF
 void gb_cart_write_ram(GBCart *cart, uint16_t addr, uint8_t val);
+
+// Resolves the front end's --mode dmg|cgb|auto flag against the loaded
+// cartridge's header-derived cgb_support (see gb_cart_load()) into an
+// effective runtime mode: 1 = run as CGB, 0 = run as DMG, -1 = refuse
+// (an error describing why is printed to stderr - e.g. forcing "dmg" on
+// a GB_CGB_ONLY cart, which real DMG hardware itself cannot boot).
+// "auto" (mode_arg NULL or "auto") picks CGB for GB_CGB_ENHANCED/
+// GB_CGB_ONLY carts, DMG otherwise. Shared by src/main.c and
+// sdl/src/main.c so both front ends apply the exact same rule.
+int gb_resolve_cgb_mode(const GBCart *cart, const char *mode_arg);
 
 #endif

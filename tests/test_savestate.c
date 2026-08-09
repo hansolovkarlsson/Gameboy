@@ -87,6 +87,13 @@ int main(void) {
     cpu.dma_source_page = 0xC0;
     cpu.dma_progress = 77;
 
+    // CGB (Phase 9): WRAM banking
+    cpu.is_cgb = 1;
+    cpu.svbk = 0x05;
+    for (int b = 0; b < 6; b++)
+        for (int i = 0; i < 0x1000; i++)
+            cpu.wram_bank[b][i] = (uint8_t)(b * 16 + (i & 0xFF));
+
     GBPpu ppu = {0};
     ppu.lcdc = 0x91; ppu.stat = 0x85; ppu.scy = 0x11; ppu.scx = 0x22;
     ppu.ly = 0x50; ppu.lyc = 0x50; ppu.dma = 0xC0;
@@ -102,6 +109,15 @@ int main(void) {
     for (int y = 0; y < GB_SCREEN_HEIGHT; y++)
         for (int x = 0; x < GB_SCREEN_WIDTH; x++)
             ppu.framebuffer[y][x] = (uint8_t)((x + y) & 0x03);
+
+    // CGB (Phase 9): VRAM banking, color palette RAM, color framebuffer
+    ppu.vbk = 1;
+    ppu.bcps = 0x81; ppu.ocps = 0x42;
+    for (int i = 0; i < 0x2000; i++) ppu.vram_bank1[i] = (uint8_t)(i ^ 0x5A);
+    for (int i = 0; i < 64; i++) { ppu.bg_pram[i] = (uint8_t)(i + 1); ppu.obj_pram[i] = (uint8_t)(0xC0 + i); }
+    for (int y = 0; y < GB_SCREEN_HEIGHT; y++)
+        for (int x = 0; x < GB_SCREEN_WIDTH; x++)
+            ppu.cgb_framebuffer[y][x] = (uint16_t)((x * 31 + y) & 0x7FFF);
     cpu.ppu = &ppu;
 
     GBTimer timer = {0};
@@ -159,6 +175,8 @@ int main(void) {
     cpu.dma_request_pending = 1; cpu.dma_request_value = 0x99;
     cpu.dma_starting_pending = 0; cpu.dma_starting_value = 0; cpu.dma_active = 0;
     cpu.dma_source_page = 0; cpu.dma_progress = 0;
+    cpu.is_cgb = 0; cpu.svbk = 0;
+    memset(cpu.wram_bank, 0, sizeof(cpu.wram_bank));
     memset(&ppu, 0, sizeof(ppu));
     memset(&timer, 0, sizeof(timer));
     memset(&joypad, 0, sizeof(joypad));
@@ -188,6 +206,12 @@ int main(void) {
     }
     check("CPU: memory[] restored byte-for-byte", mem_ok);
 
+    int wram_bank_ok = 1;
+    for (int b = 0; b < 6 && wram_bank_ok; b++)
+        for (int i = 0; i < 0x1000; i++)
+            if (cpu.wram_bank[b][i] != (uint8_t)(b * 16 + (i & 0xFF))) { wram_bank_ok = 0; break; }
+    check("CPU: CGB is_cgb/svbk/wram_bank restored", cpu.is_cgb == 1 && cpu.svbk == 0x05 && wram_bank_ok);
+
     check("PPU: registers", ppu.lcdc == 0x91 && ppu.stat == 0x85 && ppu.scy == 0x11 && ppu.scx == 0x22 &&
                              ppu.ly == 0x50 && ppu.lyc == 0x50 && ppu.dma == 0xC0 &&
                              ppu.bgp == 0xE4 && ppu.obp0 == 0xD3 && ppu.obp1 == 0xC2 &&
@@ -204,6 +228,19 @@ int main(void) {
         for (int x = 0; x < GB_SCREEN_WIDTH; x++)
             if (ppu.framebuffer[y][x] != (uint8_t)((x + y) & 0x03)) { fb_ok = 0; break; }
     check("PPU: framebuffer restored byte-for-byte", fb_ok);
+
+    int vram_bank1_ok = 1;
+    for (int i = 0; i < 0x2000 && vram_bank1_ok; i++)
+        if (ppu.vram_bank1[i] != (uint8_t)(i ^ 0x5A)) vram_bank1_ok = 0;
+    int pram_ok = 1;
+    for (int i = 0; i < 64 && pram_ok; i++)
+        if (ppu.bg_pram[i] != (uint8_t)(i + 1) || ppu.obj_pram[i] != (uint8_t)(0xC0 + i)) pram_ok = 0;
+    int cgb_fb_ok = 1;
+    for (int y = 0; y < GB_SCREEN_HEIGHT && cgb_fb_ok; y++)
+        for (int x = 0; x < GB_SCREEN_WIDTH; x++)
+            if (ppu.cgb_framebuffer[y][x] != (uint16_t)((x * 31 + y) & 0x7FFF)) { cgb_fb_ok = 0; break; }
+    check("PPU: CGB vbk/bcps/ocps/vram_bank1/bg_pram/obj_pram/cgb_framebuffer restored",
+          ppu.vbk == 1 && ppu.bcps == 0x81 && ppu.ocps == 0x42 && vram_bank1_ok && pram_ok && cgb_fb_ok);
 
     check("Timer", timer.sys_counter == 0xBEEF && timer.tima == 0x11 && timer.tma == 0x22 &&
                     timer.tac == 0x07 && timer.overflow_delay == 3);

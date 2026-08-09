@@ -126,6 +126,7 @@ int gb_cart_load(GBCart *cart, const char *path) {
     uint8_t cart_type = rom[0x0147];
     uint8_t rom_code = rom[0x0148];
     uint8_t ram_code = rom[0x0149];
+    uint8_t cgb_flag = rom[0x0143];
 
     int rom_banks = rom_banks_for_code(rom_code);
     if (rom_banks < 0) {
@@ -188,6 +189,11 @@ int gb_cart_load(GBCart *cart, const char *path) {
     cart->has_battery = has_battery;
     cart->has_rtc = has_rtc;
 
+    cart->cgb_flag = cgb_flag;
+    if (cgb_flag == 0x80) cart->cgb_support = GB_CGB_ENHANCED;
+    else if (cgb_flag == 0xC0) cart->cgb_support = GB_CGB_ONLY;
+    else cart->cgb_support = GB_CGB_NONE;
+
     // MBC1/MBC3 read bank-register 0 as bank 1 at $4000-7FFF (the
     // documented "cannot duplicate bank 0" quirk in gb_cart_read()
     // above), so their register can stay zeroed by this function's
@@ -237,9 +243,11 @@ int gb_cart_load(GBCart *cart, const char *path) {
                 path, checksum, rom[0x014D]);
     }
 
-    fprintf(stderr, "Loaded '%s': %d ROM bank(s), %d RAM bank(s), mbc=%s%s%s\n",
+    const char *cgb_desc = cart->cgb_support == GB_CGB_ONLY ? ", CGB-only" :
+                            cart->cgb_support == GB_CGB_ENHANCED ? ", CGB-enhanced" : "";
+    fprintf(stderr, "Loaded '%s': %d ROM bank(s), %d RAM bank(s), mbc=%s%s%s%s\n",
             path, rom_banks, ram_banks, mbc_type_name(mbc_type),
-            has_battery ? " +battery" : "", has_rtc ? " +rtc" : "");
+            has_battery ? " +battery" : "", has_rtc ? " +rtc" : "", cgb_desc);
 
     return 0;
 }
@@ -381,6 +389,28 @@ uint8_t gb_cart_read_ram(GBCart *cart, uint16_t addr) {
     bank %= cart->ram_banks;
     size_t offset = (size_t)bank * 0x2000 + (addr - 0xA000);
     return (offset < cart->ram_size) ? cart->ram[offset] : 0xFF;
+}
+
+int gb_resolve_cgb_mode(const GBCart *cart, const char *mode_arg) {
+    if (mode_arg == NULL || strcmp(mode_arg, "auto") == 0) {
+        return cart->cgb_support != GB_CGB_NONE;
+    }
+    if (strcmp(mode_arg, "cgb") == 0) {
+        return 1;
+    }
+    if (strcmp(mode_arg, "dmg") == 0) {
+        if (cart->cgb_support == GB_CGB_ONLY) {
+            fprintf(stderr,
+                    "This cartridge is CGB-only (header byte 0x0143 = 0x%02X) - "
+                    "it cannot run in DMG mode, exactly as it would refuse to boot "
+                    "on real DMG hardware\n",
+                    cart->cgb_flag);
+            return -1;
+        }
+        return 0;
+    }
+    fprintf(stderr, "Unrecognized --mode '%s' - expected dmg, cgb, or auto\n", mode_arg);
+    return -1;
 }
 
 void gb_cart_write_ram(GBCart *cart, uint16_t addr, uint8_t val) {

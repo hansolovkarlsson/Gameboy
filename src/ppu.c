@@ -79,32 +79,39 @@ static void update_stat_line(GBPpu *ppu, struct GBCpu *cpu) {
 }
 
 // The PPU's own internal VRAM access (tile-data/tile-map reads while
-// rendering) - reads cpu->memory[] directly, bypassing
+// rendering) - reads cpu->memory[]/ppu->vram_bank1[] directly, bypassing
 // gb_ppu_vram_blocked() (mmu.c/ppu.h) the same way read_oam_internal()
 // bypasses gb_ppu_oam_blocked(): that check exists to stop the *CPU*
 // from reaching VRAM during Mode 3, not the PPU itself, which
 // obviously still needs to read VRAM throughout Mode 3 to render at
-// all.
-static uint8_t read_vram_internal(struct GBCpu *cpu, uint16_t addr) {
+// all. `bank` (0 or 1) is only ever nonzero in CGB mode - every DMG
+// call site passes 0, landing on the exact same cpu->memory[] access
+// this had before VRAM banking existed.
+static uint8_t read_vram_internal(struct GBCpu *cpu, int bank, uint16_t addr) {
+    if (bank == 1) return cpu->ppu->vram_bank1[addr - 0x8000];
     return cpu->memory[addr];
 }
 
 // Reads one BG/window tile's pixel row and returns the raw 2-bit color
-// index (0-3) at column `px` (0-7, already accounting for X flip - BG/
-// window tiles are never flipped, only objects are). Shared by the BG
-// and window paths below since both read tiles identically once the
-// tile map base and pixel coordinates are worked out - see
-// docs/GAMEBOY_ROADMAP.md's Tile_Data.md citation for the addressing
-// modes and bit-packing this implements.
-static uint8_t read_tile_pixel(struct GBCpu *cpu, uint8_t lcdc, uint8_t tile_id, int px, int py) {
+// index (0-3) at column `px` (0-7). Shared by the BG and window paths
+// below since both read tiles identically once the tile map base and
+// pixel coordinates are worked out - see docs/GAMEBOY_ROADMAP.md's
+// Tile_Data.md citation for the addressing modes and bit-packing this
+// implements. `bank` selects VRAM bank 0 or 1 for the tile *data* fetch
+// (CGB only - pandocs' Tile_Maps.md "BG Map Attributes" bank bit;
+// always 0 in DMG mode). BG/window X/Y flip (CGB attribute bits, never
+// present in DMG) is applied by the caller pre-flipping px/py before
+// calling this, not handled in here - the addressing math below doesn't
+// need to know flip happened, only which row/column to fetch.
+static uint8_t read_tile_pixel(struct GBCpu *cpu, uint8_t lcdc, uint8_t tile_id, int bank, int px, int py) {
     uint16_t tile_addr;
     if (lcdc & 0x10) {
         tile_addr = (uint16_t)(0x8000 + tile_id * 16); // "$8000 method": unsigned
     } else {
         tile_addr = (uint16_t)(0x9000 + (int8_t)tile_id * 16); // "$8800 method": signed, base $9000
     }
-    uint8_t lo_byte = read_vram_internal(cpu, (uint16_t)(tile_addr + py * 2));
-    uint8_t hi_byte = read_vram_internal(cpu, (uint16_t)(tile_addr + py * 2 + 1));
+    uint8_t lo_byte = read_vram_internal(cpu, bank, (uint16_t)(tile_addr + py * 2));
+    uint8_t hi_byte = read_vram_internal(cpu, bank, (uint16_t)(tile_addr + py * 2 + 1));
     int bit = 7 - px;
     uint8_t lo = (lo_byte >> bit) & 1;
     uint8_t hi = (hi_byte >> bit) & 1;
@@ -115,6 +122,17 @@ static uint8_t apply_palette(uint8_t palette, uint8_t color_idx) {
     return (uint8_t)((palette >> (color_idx * 2)) & 0x03);
 }
 
+// CGB color palette RAM lookup (BCPS/BCPD, OCPS/OCPD - pandocs'
+// Palettes.md): `pram` is bg_pram or obj_pram, `palette_num` 0-7,
+// `color_idx` 0-3 (the same raw tile color index apply_palette() maps
+// through a DMG palette register instead). Colors are stored two bytes
+// per color, little-endian, 4 colors per palette - "2 bytes/color x 4
+// colors/palette x 8 palettes = 64 bytes" (Palettes.md's own footnote).
+static uint16_t apply_cgb_palette(const uint8_t *pram, int palette_num, uint8_t color_idx) {
+    int offset = palette_num * 8 + color_idx * 2;
+    return (uint16_t)(pram[offset] | (pram[offset + 1] << 8));
+}
+
 // Window visibility per pandocs' Tile_Maps.md: WY <= LY for the line,
 // and (checked per-pixel by callers) WX-7 <= x. WX <= 166 keeps a
 // window that's scrolled fully off the right edge from advancing the
@@ -122,9 +140,20 @@ static uint8_t apply_palette(uint8_t palette, uint8_t color_idx) {
 // penalty, for a line nothing was actually drawn on. Shared by
 // render_scanline()'s drawing pass and compute_mode3_length()'s window
 // timing penalty so both agree on exactly when the window is active.
-static int window_visible_on_line(GBPpu *ppu, int ly) {
-    int bg_win_enabled = (ppu->lcdc & 0x01) != 0;
-    int window_enabled = bg_win_enabled && (ppu->lcdc & 0x20) != 0;
+// `cpu` only to check is_cgb - pandocs' Tile_Maps.md's Window section:
+// "in Non-CGB mode [LCDC bit 5] is only functional as long as [LCDC bit
+// 0] is set" - implying CGB mode's window-enable bit works independently
+// of bit 0 (which in CGB mode means something else entirely - BG/OBJ
+// master priority, not BG/window display - see LCDC.md's own CGB-mode
+// section for LCDC.0).
+static int window_visible_on_line(struct GBCpu *cpu, GBPpu *ppu, int ly) {
+    int window_enabled;
+    if (cpu->is_cgb) {
+        window_enabled = (ppu->lcdc & 0x20) != 0;
+    } else {
+        int bg_win_enabled = (ppu->lcdc & 0x01) != 0;
+        window_enabled = bg_win_enabled && (ppu->lcdc & 0x20) != 0;
+    }
     return window_enabled && (ppu->wy <= ly) && (ppu->wx <= 166);
 }
 
@@ -147,7 +176,19 @@ static uint8_t read_oam_internal(struct GBCpu *cpu, uint16_t addr) {
     return cpu->memory[addr];
 }
 
-static int select_objects_for_scanline(struct GBCpu *cpu, int ly, int obj_height, int selected[10]) {
+// `sort_by_x`: DMG drawing/timing priority is smaller-X-first (pandocs'
+// OAM.md "Drawing priority", Non-CGB Mode) - the insertion sort below.
+// CGB drawing priority is OAM-order-only (same page, CGB Mode: "only the
+// object's location in OAM determines its priority"), which the initial
+// scan loop above already produces on its own, so the sort is simply
+// skipped - not a different algorithm, just not applying the DMG-only
+// tiebreak-by-X step at all. compute_mode3_length()'s own call always
+// passes 1 (DMG's real, ROM-verified timing order) regardless of mode -
+// no CGB test ROM has verified this project's Mode 3 timing under CGB
+// yet, so that call is deliberately left exactly as before rather than
+// guessed at; only render_scanline()'s drawing-priority call varies by
+// mode, since real CGB *drawing* order is documented and unambiguous.
+static int select_objects_for_scanline(struct GBCpu *cpu, int ly, int obj_height, int selected[10], int sort_by_x) {
     int selected_count = 0;
     for (int i = 0; i < 40 && selected_count < 10; i++) {
         uint16_t oam_addr = (uint16_t)(0xFE00 + i * 4);
@@ -158,6 +199,7 @@ static int select_objects_for_scanline(struct GBCpu *cpu, int ly, int obj_height
         }
     }
 
+    if (!sort_by_x) return selected_count;
     for (int a = 1; a < selected_count; a++) {
         int key = selected[a];
         uint8_t key_x = read_oam_internal(cpu, (uint16_t)(0xFE00 + key * 4 + 1));
@@ -186,7 +228,7 @@ static int compute_mode3_length(GBPpu *ppu, struct GBCpu *cpu) {
     int dots = 172; // 160 output dots + 12 (two tile-fetch startup, pandocs' own footnote)
     dots += ppu->scx & 7; // scroll penalty: SCX%8 dots stalled discarding that many leftmost pixels
 
-    int window_visible_this_line = window_visible_on_line(ppu, ly);
+    int window_visible_this_line = window_visible_on_line(cpu, ppu, ly);
     if (window_visible_this_line) dots += 6; // flat penalty: fetcher reset/setup for the window
 
     ppu->mode3_had_obj = 0;
@@ -194,7 +236,7 @@ static int compute_mode3_length(GBPpu *ppu, struct GBCpu *cpu) {
 
     int obj_height = (ppu->lcdc & 0x04) ? 16 : 8;
     int selected[10];
-    int selected_count = select_objects_for_scanline(cpu, ly, obj_height, selected);
+    int selected_count = select_objects_for_scanline(cpu, ly, obj_height, selected, 1);
     ppu->mode3_had_obj = selected_count > 0; // see gb_ppu_step()'s own comment on why this
                                               // matters for how Mode 3->0 becomes observable
 
@@ -284,17 +326,28 @@ static int compute_mode3_length(GBPpu *ppu, struct GBCpu *cpu) {
 
 static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
     int ly = ppu->ly;
+    int is_cgb = cpu->is_cgb;
     uint8_t bg_color_idx[GB_SCREEN_WIDTH];
+    // BG map attribute bit 7 ("BG-to-OBJ priority") per pixel - CGB
+    // only, needed by the object loop below for the real 3-way priority
+    // rule (pandocs' Tile_Maps.md "BG-to-OBJ Priority in CGB Mode").
+    // Left all-zero in DMG mode, where it's simply unused.
+    uint8_t bg_cgb_priority[GB_SCREEN_WIDTH] = {0};
 
-    int bg_win_enabled = (ppu->lcdc & 0x01) != 0;
-    int window_visible_this_line = window_visible_on_line(ppu, ly);
+    // DMG: bit 0 clear blanks BG/window entirely (white). CGB: bit 0
+    // clear instead means "objects always win" - BG/window still
+    // render normally - handled by the object-compositing loop below,
+    // not here. See LCDC.md's own CGB-mode section for LCDC.0.
+    int bg_win_enabled = is_cgb || (ppu->lcdc & 0x01) != 0;
+    int window_visible_this_line = window_visible_on_line(cpu, ppu, ly);
     int window_drawn_this_line = 0;
 
     for (int x = 0; x < GB_SCREEN_WIDTH; x++) {
         if (!bg_win_enabled) {
             // pandocs' LCDC.md: "both background and window become
             // blank (white)" - literal white, not "whatever BGP maps
-            // color 0 to".
+            // color 0 to". DMG-only path (is_cgb already forced
+            // bg_win_enabled true above).
             bg_color_idx[x] = 0;
             ppu->framebuffer[ly][x] = 0;
             continue;
@@ -322,11 +375,27 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
         }
 
         uint16_t map_addr = (uint16_t)(tile_map_base + tile_row * 32 + tile_col);
-        uint8_t tile_id = read_vram_internal(cpu, map_addr);
-        uint8_t color_idx = read_tile_pixel(cpu, ppu->lcdc, tile_id, px, py);
+        uint8_t tile_id = read_vram_internal(cpu, 0, map_addr);
+
+        int tile_bank = 0, palette_num = 0;
+        if (is_cgb) {
+            // CGB BG map attribute byte: VRAM bank 1, same address as
+            // the tile ID in bank 0 (pandocs' Tile_Maps.md).
+            uint8_t attr = read_vram_internal(cpu, 1, map_addr);
+            palette_num = attr & 0x07;
+            tile_bank = (attr & 0x08) ? 1 : 0;
+            if (attr & 0x20) px = 7 - px; // X flip
+            if (attr & 0x40) py = 7 - py; // Y flip
+            bg_cgb_priority[x] = (attr & 0x80) ? 1 : 0;
+        }
+        uint8_t color_idx = read_tile_pixel(cpu, ppu->lcdc, tile_id, tile_bank, px, py);
 
         bg_color_idx[x] = color_idx;
-        ppu->framebuffer[ly][x] = apply_palette(ppu->bgp, color_idx);
+        if (is_cgb) {
+            ppu->cgb_framebuffer[ly][x] = apply_cgb_palette(ppu->bg_pram, palette_num, color_idx);
+        } else {
+            ppu->framebuffer[ly][x] = apply_palette(ppu->bgp, color_idx);
+        }
     }
 
     if (window_drawn_this_line) ppu->window_line++;
@@ -335,7 +404,9 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
 
     int obj_height = (ppu->lcdc & 0x04) ? 16 : 8;
     int selected[10];
-    int selected_count = select_objects_for_scanline(cpu, ly, obj_height, selected);
+    // DMG: X-sorted drawing priority. CGB: OAM order only - see
+    // select_objects_for_scanline()'s own comment.
+    int selected_count = select_objects_for_scanline(cpu, ly, obj_height, selected, !is_cgb);
 
     // claimed[x]: an opaque pixel from a higher-priority object already
     // resolved this column, win or lose against BG - per pandocs'
@@ -357,8 +428,10 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
         int obj_left = obj_x - 8;
         int y_flip = (attr & 0x40) != 0;
         int x_flip = (attr & 0x20) != 0;
-        int bg_priority = (attr & 0x80) != 0;
-        uint8_t palette = (attr & 0x10) ? ppu->obp1 : ppu->obp0;
+        int obj_bg_priority = (attr & 0x80) != 0; // DMG: "OBJ behind BG colors 1-3". CGB: one of 3 priority inputs - see below.
+        int obj_tile_bank = is_cgb && (attr & 0x08) ? 1 : 0; // CGB only - pandocs' OAM.md "Bank"
+        int cgb_palette_num = attr & 0x07; // CGB only - "CGB palette"
+        uint8_t palette = (attr & 0x10) ? ppu->obp1 : ppu->obp0; // DMG only - "DMG palette"
 
         int row = ly - obj_top;
         if (y_flip) row = obj_height - 1 - row;
@@ -368,8 +441,8 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
         // (pandocs' Tile_Data.md) - read directly rather than going
         // through read_tile_pixel(), which honors LCDC.4 for BG/window.
         uint16_t tile_addr = (uint16_t)(0x8000 + tile_id * 16 + row * 2);
-        uint8_t lo_byte = read_vram_internal(cpu, tile_addr);
-        uint8_t hi_byte = read_vram_internal(cpu, (uint16_t)(tile_addr + 1));
+        uint8_t lo_byte = read_vram_internal(cpu, obj_tile_bank, tile_addr);
+        uint8_t hi_byte = read_vram_internal(cpu, obj_tile_bank, (uint16_t)(tile_addr + 1));
 
         for (int col = 0; col < 8; col++) {
             int x = obj_left + col;
@@ -382,9 +455,24 @@ static void render_scanline(GBPpu *ppu, struct GBCpu *cpu) {
             if (color_idx == 0) continue; // transparent for objects
 
             claimed[x] = 1;
-            if (bg_priority && bg_color_idx[x] != 0) continue; // BG colors 1-3 win
 
-            ppu->framebuffer[ly][x] = apply_palette(palette, color_idx);
+            if (is_cgb) {
+                // pandocs' Tile_Maps.md "BG-to-OBJ Priority in CGB
+                // Mode": BG color 0 always loses to OBJ; else LCDC.0
+                // clear always gives OBJ priority (master toggle, see
+                // bg_win_enabled's own comment above); else OBJ wins
+                // only if *both* the BG attribute and OAM attribute
+                // priority bits are clear - otherwise BG (colors 1-3)
+                // wins.
+                if (bg_color_idx[x] != 0 && (ppu->lcdc & 0x01) &&
+                    (bg_cgb_priority[x] || obj_bg_priority)) {
+                    continue;
+                }
+                ppu->cgb_framebuffer[ly][x] = apply_cgb_palette(ppu->obj_pram, cgb_palette_num, color_idx);
+            } else {
+                if (obj_bg_priority && bg_color_idx[x] != 0) continue; // BG colors 1-3 win
+                ppu->framebuffer[ly][x] = apply_palette(palette, color_idx);
+            }
         }
     }
 }
@@ -642,7 +730,44 @@ int gb_ppu_vram_blocked(const GBPpu *ppu, int is_write) {
     return (ppu->lcdc & 0x80) && (is_write ? ppu->visible_vram_write_blocked : ppu->visible_vram_read_blocked);
 }
 
-uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr) {
+// CGB CRAM read (BCPD/OCPD) - pandocs' Palettes.md: "the CRAM data
+// registers are inaccessible when the PPU is reading from CRAM, that
+// is, during Mode 3: ...reads return $FF." Checked against the plain
+// live `mode`, not the visible_*_blocked lag-corrected mechanism
+// OAM/VRAM use - no CGB test ROM has yet confirmed whether CRAM shares
+// those same sub-M-cycle edge cases, so this only implements the
+// textually-documented rule, not a guessed extension of it.
+static uint8_t read_cram(const uint8_t *pram, uint8_t cps, int mode) {
+    if (mode == 3) return 0xFF;
+    return pram[cps & 0x3F];
+}
+
+// CGB CRAM write, plus BCPS/OCPS's auto-increment side effect - pandocs'
+// Palettes.md: "the address field is automatically incremented...after
+// each write to this register, even if the write fails due to CRAM
+// being inaccessible" - so the increment happens unconditionally, only
+// the actual byte write is skipped during Mode 3.
+static void write_cram(uint8_t *pram, uint8_t *cps, uint8_t val, int mode) {
+    if (mode != 3) pram[*cps & 0x3F] = val;
+    if (*cps & 0x80) *cps = (uint8_t)((*cps & 0xC0) | ((*cps + 1) & 0x3F));
+}
+
+uint8_t gb_ppu_read_reg(GBPpu *ppu, struct GBCpu *cpu, uint16_t addr) {
+    // CGB-only registers - pandocs' Power_Up_Sequence.md footnote:
+    // "only available in CGB Mode, and will read $FF in Non-CGB Mode",
+    // same convention mmu.c's SVBK carve-out uses.
+    if (!cpu->is_cgb) {
+        if (addr == 0xFF4F || (addr >= 0xFF68 && addr <= 0xFF6B)) return 0xFF;
+    } else {
+        switch (addr) {
+            case 0xFF4F: return (uint8_t)(ppu->vbk | 0xFE); // bits 1-7 unused, always read 1
+            case 0xFF68: return ppu->bcps;
+            case 0xFF69: return read_cram(ppu->bg_pram, ppu->bcps, ppu->mode);
+            case 0xFF6A: return ppu->ocps;
+            case 0xFF6B: return read_cram(ppu->obj_pram, ppu->ocps, ppu->mode);
+            default: break;
+        }
+    }
     switch (addr) {
         case 0xFF40: return ppu->lcdc;
         case 0xFF41: {
@@ -681,6 +806,18 @@ uint8_t gb_ppu_read_reg(GBPpu *ppu, uint16_t addr) {
 }
 
 void gb_ppu_write_reg(GBPpu *ppu, struct GBCpu *cpu, uint16_t addr, uint8_t val) {
+    if (!cpu->is_cgb) {
+        if (addr == 0xFF4F || (addr >= 0xFF68 && addr <= 0xFF6B)) return; // no-op in DMG mode
+    } else {
+        switch (addr) {
+            case 0xFF4F: ppu->vbk = val & 0x01; return;
+            case 0xFF68: ppu->bcps = val; return;
+            case 0xFF69: write_cram(ppu->bg_pram, &ppu->bcps, val, ppu->mode); return;
+            case 0xFF6A: ppu->ocps = val; return;
+            case 0xFF6B: write_cram(ppu->obj_pram, &ppu->ocps, val, ppu->mode); return;
+            default: break;
+        }
+    }
     switch (addr) {
         case 0xFF40: {
             int was_on = (ppu->lcdc & 0x80) != 0;

@@ -567,6 +567,116 @@ interaction with pending-but-undispatched interrupts) belong to the
 CPU side of this story — see `docs/CPU_REFERENCE.md`'s [Interrupt
 handling](CPU_REFERENCE.md#interrupt-handling) section for that half.
 
+## CGB (Game Boy Color)
+
+Phase 9's scope: cartridge detection, WRAM/VRAM banking, CGB tile
+attributes, and color palettes — enough for real CGB color rendering.
+Double-speed mode (`KEY1`), HDMA/GDMA, and the infrared port (`RP`)
+are deliberately not implemented; their registers remain part of the
+same inert `0xFF4C-0xFF7F` stub DMG mode has always used (reads `0xFF`,
+writes dropped) even when `is_cgb` is set.
+
+### Mode detection
+
+Cartridge header byte `0x0143` (pandocs' *The Cartridge Header*):
+`0x80` = CGB-enhanced (still boots on real DMG), `0xC0` = CGB-only
+(refuses to boot on real DMG), anything else = plain DMG. This
+emulator resolves a single effective runtime mode (`GBCpu.is_cgb`) once
+at startup from that flag plus an optional `--mode dmg|cgb|auto` CLI
+override (`gb_resolve_cgb_mode()`, `src/cart.c`) — `auto` (default)
+picks CGB for either CGB flag value, DMG otherwise; forcing `dmg` on a
+CGB-only cart is refused with an error, matching real hardware. There
+is no separate "CGB running in DMG-compatibility mode" behavior
+modeled — a `0x80` cart defaults straight to full CGB rendering.
+
+CGB's real post-boot CPU register state differs from DMG's (pandocs'
+*Power-Up Sequence*, "CGB" column — not "CGB (DMG mode)", since this
+project models no compatibility-mode variant): `AF=0x1180`, `BC=0x0000`,
+`DE=0xFF56`, `HL=0x000D`, `SP=0xFFFE`, `PC=0x0100`. Unlike DMG, `F`'s
+H/C bits don't depend on the header checksum.
+
+### WRAM banking — SVBK (`0xFF70`)
+
+CGB has 8 WRAM banks of 4KiB each; bank 0 is always mapped at
+`0xC000-0xCFFF`, and one of banks 1-7 is switchable into
+`0xD000-0xDFFF` (echo RAM's `0xE000-0xFDFF` mirror follows whichever
+bank is currently selected there, same as DMG's fixed bank 1). Writing
+0 to SVBK selects bank 1, not bank 0 — a real, documented hardware
+quirk. Only available in CGB mode; reads as `0xFF` and ignores writes
+otherwise, like the rest of the CGB register block.
+
+### VRAM banking — VBK (`0xFF4F`)
+
+A single bank-select bit swaps all of `0x8000-0x9FFF` between VRAM
+bank 0 and bank 1. Bank 1 holds no tile data of its own by convention —
+it instead holds the BG map attribute bytes described below, at the
+same addresses bank 0's tile-map bytes occupy — but nothing stops a
+game from storing tile data there too (selected per-tile via the
+attribute byte's own bank bit, independent of VBK, which only affects
+the *CPU's* bus-facing 0x8000-0x9FFF window).
+
+### BG map attributes (CGB mode only)
+
+An additional 32×32 byte map lives in VRAM bank 1, one attribute byte
+per tile-map entry at the identical address bank 0's tile ID occupies:
+
+| Bit | Field |
+|---|---|
+| 7 | BG-to-OBJ priority |
+| 6 | Y flip |
+| 5 | X flip |
+| 3 | VRAM bank for this tile's data |
+| 2-0 | BG palette number (0-7) |
+
+Unlike DMG, CGB BG/window tiles can be individually flipped.
+
+### OAM attribute additions (CGB mode)
+
+Byte 3 of each OAM entry gains two CGB-only fields alongside the
+DMG-shared priority/Y-flip/X-flip bits: bit 3 selects the VRAM bank for
+that object's tile data, and bits 2-0 select one of 8 OBJ palettes
+(replacing DMG's single bit-4 OBP0/OBP1 select). Object *drawing*
+priority also changes in CGB mode: OAM index order alone determines
+priority (no X-coordinate tiebreak the way DMG uses).
+
+### Color palettes — BCPS/BCPD, OCPS/OCPD (`0xFF68-0xFF6B`)
+
+Two independent 64-byte palette RAMs (BG/window and OBJ), each 8
+palettes × 4 colors × 2 bytes, RGB555 packed little-endian (bits 0-4
+red, 5-9 green, 10-14 blue, bit 15 unused). `BCPS`/`OCPS` hold an
+auto-incrementing address register (bit 7 auto-increment enable, bits
+5-0 the byte address); `BCPD`/`OCPD` is the data port. Like VRAM/OAM,
+the data ports are inaccessible while the PPU is in Mode 3 — reads
+return `0xFF`, writes are dropped — but the address auto-increment
+still happens on every write regardless of whether the byte write
+itself succeeded. All BG colors are white (`0x7FFF`) at reset; OBJ
+colors are left zeroed (real hardware leaves them undefined).
+
+### BG-to-OBJ priority in CGB mode
+
+Three independent flags feed into per-pixel priority: LCDC bit 0 (a
+master toggle, not a display-enable bit as in DMG — clearing it always
+gives objects priority, but BG/window still render, unlike DMG's
+"blank white" behavior), the BG map attribute's own priority bit
+above, and the OAM entry's priority bit. The combined rule: BG color
+index 0 always loses to OBJ; otherwise LCDC bit 0 clear always gives
+OBJ priority; otherwise OBJ wins only if *both* the BG attribute and
+OAM attribute priority bits are clear; otherwise BG (colors 1-3) wins.
+
+The window's own enable bit (LCDC bit 5) is independent of LCDC bit 0
+in CGB mode, unlike DMG where bit 0 gates the window too.
+
+### What's deliberately out of scope
+
+Double-speed mode (`KEY1`, `0xFF4D`) is flagged high-risk for a later
+phase — it changes how CPU execution rate relates to the shared
+per-M-cycle tick every other subsystem (PPU/APU/timer/DMA) depends on,
+in the same territory a past timer-precision rewrite attempt struggled
+with (see the Status section below). HDMA/GDMA (`0xFF51-0xFF55`) and
+the infrared port (`RP`, `0xFF56`) are unimplemented; their registers
+sit in the same inert stub as any other genuinely unmapped I/O
+address.
+
 ## Implementation status
 
 The subsystems above are all real, working implementations backed by

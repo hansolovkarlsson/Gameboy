@@ -21,6 +21,30 @@ static uint16_t redirect_echo(uint16_t addr) {
     return addr;
 }
 
+// CGB WRAM banking (SVBK, 0xFF70) - see cpu.h's wram_bank/svbk comment.
+// Writing 0 selects bank 1 (not bank 0), a documented real-hardware
+// quirk (pandocs' Memory_Map.md's SVBK entry) - so the *effective* bank
+// is always 1-7, resolved here rather than stored pre-resolved, exactly
+// like cart.c's own MBC1/MBC3 "register reads as 0 -> use bank 1"
+// ROM-banking quirk resolves at read time, not write time.
+static int wram_effective_bank(const GBCpu *cpu) {
+    int bank = cpu->svbk & 0x07;
+    return bank == 0 ? 1 : bank;
+}
+
+// Returns a pointer to the banked byte at a CGB WRAM address (0xD000-
+// 0xDFFF, post echo-redirect) when a bank other than 1 is selected, or
+// NULL when the access should fall through to cpu->memory unchanged
+// (DMG mode, or bank 1 - which has always lived in `memory` itself, see
+// cpu.h). Shared by gb_read_byte/gb_write_byte so both sides resolve
+// the exact same byte.
+static uint8_t *wram_banked_ptr(GBCpu *cpu, uint16_t addr) {
+    if (!cpu->is_cgb || addr < 0xD000 || addr > 0xDFFF) return NULL;
+    int bank = wram_effective_bank(cpu);
+    if (bank == 1) return NULL;
+    return &cpu->wram_bank[bank - 2][addr - 0xD000];
+}
+
 uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     if (addr < 0x8000) return gb_cart_read(cpu->cart, addr);
     if (addr >= 0xA000 && addr < 0xC000) return gb_cart_read_ram(cpu->cart, addr);
@@ -35,7 +59,14 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     // plain flat memory instead - found via Blargg's dmg_sound
     // 01-registers.gb, whose register r/w test walks this entire span.
     if (addr >= 0xFF10 && addr <= 0xFF3F) return gb_apu_read(cpu->apu, addr);
-    if (addr >= 0xFF40 && addr <= 0xFF4B) return gb_ppu_read_reg(cpu->ppu, addr);
+    // 0xFF4F (VBK) and 0xFF68-0xFF6B (BCPS/BCPD/OCPS/OCPD) are CGB-only
+    // additions to the same PPU register block, gated on cpu->is_cgb
+    // inside gb_ppu_read_reg/gb_ppu_write_reg themselves - see ppu.h's
+    // own comment on why they're dispatched here rather than carved out
+    // as their own inert-stub exception the way SVBK (mmu.c-owned) is.
+    if ((addr >= 0xFF40 && addr <= 0xFF4B) || addr == 0xFF4F || (addr >= 0xFF68 && addr <= 0xFF6B)) {
+        return gb_ppu_read_reg(cpu->ppu, cpu, addr);
+    }
     // SC's bits 1-6 (pandocs' Serial_Data_Transfer.md: bit 7 transfer
     // enable, bit 1 CGB-only clock speed, bit 0 clock select - bits
     // 2-6 have no function at all) and IF's bits 5-7 (Interrupts.md:
@@ -46,6 +77,12 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     // (0x7E/0xE0) match.
     if (addr == 0xFF02) return (uint8_t)(cpu->memory[addr] | 0x7E);
     if (addr == 0xFF0F) return (uint8_t)(cpu->memory[addr] | 0xE0);
+    // SVBK (WRAM bank select) only exists in CGB mode - reads $FF in
+    // DMG mode like every other register in this block (pandocs'
+    // Power_Up_Sequence.md's hardware-registers table footnote: "only
+    // available in CGB Mode, will read $FF in Non-CGB Mode"). The
+    // unused upper bits (3-7) always read as 1, matching real hardware.
+    if (addr == 0xFF70) return cpu->is_cgb ? (uint8_t)(cpu->svbk | 0xF8) : 0xFF;
     // Genuinely unmapped $FFxx I/O - no backing register exists at
     // all, so these always read back as 1 in every bit (same
     // unused_hwio-GS.gb ROM; $FF15/$FF1F/$FF27-$FF29 are the
@@ -56,6 +93,10 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     }
 
     addr = redirect_echo(addr);
+    {
+        uint8_t *banked = wram_banked_ptr(cpu, addr);
+        if (banked) return *banked;
+    }
     if (addr >= 0xFEA0 && addr <= 0xFEFF) {
         // "Not usable" - real hardware's behavior here depends on PPU
         // state and hardware revision (see pandocs); this fixed 0xFF is
@@ -96,6 +137,14 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     if (addr >= 0x8000 && addr <= 0x9FFF && cpu->ppu && gb_ppu_vram_blocked(cpu->ppu, 0)) {
         return 0xFF;
     }
+    // CGB VRAM banking (VBK, 0xFF4F): bank 0 stays in cpu->memory as
+    // always; only a selected bank 1 redirects here. The blocking check
+    // just above is bank-independent (real hardware contests the bus
+    // during Mode 3 regardless of which bank is selected), so this comes
+    // after it, not instead of it.
+    if (addr >= 0x8000 && addr <= 0x9FFF && cpu->is_cgb && cpu->ppu && (cpu->ppu->vbk & 1)) {
+        return cpu->ppu->vram_bank1[addr - 0x8000];
+    }
     return cpu->memory[addr];
 }
 
@@ -105,7 +154,13 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     if (addr == 0xFF00) { gb_joypad_write(cpu->joypad, val); return; }
     if (addr >= 0xFF04 && addr <= 0xFF07) { gb_timer_write(cpu->timer, cpu, addr, val); return; }
     if (addr >= 0xFF10 && addr <= 0xFF3F) { gb_apu_write(cpu->apu, addr, val); return; }
-    if (addr >= 0xFF40 && addr <= 0xFF4B) { gb_ppu_write_reg(cpu->ppu, cpu, addr, val); return; }
+    if ((addr >= 0xFF40 && addr <= 0xFF4B) || addr == 0xFF4F || (addr >= 0xFF68 && addr <= 0xFF6B)) {
+        gb_ppu_write_reg(cpu->ppu, cpu, addr, val);
+        return;
+    }
+    // SVBK - see the matching read-side comment. Ignored entirely in
+    // DMG mode, exactly like the surrounding inert register block.
+    if (addr == 0xFF70) { if (cpu->is_cgb) cpu->svbk = val & 0x07; return; }
     // Genuinely unmapped - see the matching read-side comment above;
     // no backing register, so the write has nowhere to go.
     if (addr == 0xFF03 || (addr >= 0xFF08 && addr <= 0xFF0E) || (addr >= 0xFF4C && addr <= 0xFF7F)) {
@@ -113,6 +168,10 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     }
 
     addr = redirect_echo(addr);
+    {
+        uint8_t *banked = wram_banked_ptr(cpu, addr);
+        if (banked) { *banked = val; return; }
+    }
     if (addr >= 0xFEA0 && addr <= 0xFEFF) {
         return; // "not usable" - see the read-side comment above
     }
@@ -137,6 +196,11 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     // VRAM bus conflict, write side - see gb_read_byte()'s matching
     // comment.
     if (addr >= 0x8000 && addr <= 0x9FFF && cpu->ppu && gb_ppu_vram_blocked(cpu->ppu, 1)) {
+        return;
+    }
+    // CGB VRAM banking, write side - see gb_read_byte()'s matching comment.
+    if (addr >= 0x8000 && addr <= 0x9FFF && cpu->is_cgb && cpu->ppu && (cpu->ppu->vbk & 1)) {
+        cpu->ppu->vram_bank1[addr - 0x8000] = val;
         return;
     }
     if (addr == 0xFF02 && (val & 0x81) == 0x81) {

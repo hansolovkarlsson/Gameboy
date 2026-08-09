@@ -22,8 +22,9 @@
 //
 // Real-time video, keyboard input, live audio, and save states (F5
 // save / F9 load, src/savestate.c - see handle_key_down() below). CGB
-// support is still unimplemented anywhere in this project - see
-// docs/GAMEBOY_ROADMAP.md's Phase 7.
+// color rendering (VRAM/WRAM banking, palettes) is implemented as of
+// Phase 9 - see docs/GAMEBOY_ROADMAP.md; double-speed mode, HDMA/GDMA,
+// and infrared remain unimplemented.
 
 #include <SDL2/SDL.h>
 #include <stdio.h>
@@ -91,11 +92,33 @@ static uint8_t shade_to_gray(uint8_t shade) {
     }
 }
 
+// RGB555 channel -> 8-bit, same bit-replication expansion as src/main.c's
+// own rgb555_channel_to_rgb888() (kept as a separate copy rather than a
+// shared header - this front end already duplicates shade_to_gray()
+// above for the same "two small, independent binaries" reasoning).
+static uint8_t rgb555_channel_to_rgb888(uint8_t c5) {
+    return (uint8_t)((c5 << 3) | (c5 >> 2));
+}
+
 static void draw_frame(GameboyApp *app) {
-    for (int y = 0; y < GB_SCREEN_HEIGHT; y++) {
-        for (int x = 0; x < GB_SCREEN_WIDTH; x++) {
-            uint8_t g = shade_to_gray(app->ppu.framebuffer[y][x]);
-            app->pixel_buffer[y][x] = (uint32_t)0xFF000000 | ((uint32_t)g << 16) | ((uint32_t)g << 8) | g;
+    if (app->cpu.is_cgb) {
+        for (int y = 0; y < GB_SCREEN_HEIGHT; y++) {
+            for (int x = 0; x < GB_SCREEN_WIDTH; x++) {
+                uint16_t rgb555 = app->ppu.cgb_framebuffer[y][x];
+                // pandocs' Palettes.md: bits 0-4 red, 5-9 green, 10-14
+                // blue (bit 15 unused) - low bits are Red, not Blue.
+                uint32_t r = rgb555_channel_to_rgb888(rgb555 & 0x1F);
+                uint32_t g = rgb555_channel_to_rgb888((rgb555 >> 5) & 0x1F);
+                uint32_t b = rgb555_channel_to_rgb888((rgb555 >> 10) & 0x1F);
+                app->pixel_buffer[y][x] = (uint32_t)0xFF000000 | (r << 16) | (g << 8) | b;
+            }
+        }
+    } else {
+        for (int y = 0; y < GB_SCREEN_HEIGHT; y++) {
+            for (int x = 0; x < GB_SCREEN_WIDTH; x++) {
+                uint8_t g = shade_to_gray(app->ppu.framebuffer[y][x]);
+                app->pixel_buffer[y][x] = (uint32_t)0xFF000000 | ((uint32_t)g << 16) | ((uint32_t)g << 8) | g;
+            }
         }
     }
     SDL_UpdateTexture(app->texture, NULL, app->pixel_buffer, GB_SCREEN_WIDTH * (int)sizeof(uint32_t));
@@ -213,12 +236,16 @@ static void handle_key_down(GameboyApp *app, SDL_Keycode key, int repeat) {
 
 int main(int argc, char **argv) {
     if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
-        printf("Usage:\n  %s <rom.gb>   Run a Game Boy ROM in a real SDL2 window\n\n", argv[0]);
+        printf("Usage:\n  %s <rom.gb> [--mode dmg|cgb|auto]   Run a Game Boy ROM in a real SDL2 window\n\n", argv[0]);
         printf("Keys: arrows = D-pad, Z = B, X = A, Enter = Start, Right Shift = Select,\n"
                "      F5 = save state, F9 = load state (to/from '<rom>.state')\n");
         return argc < 2 ? EXIT_FAILURE : EXIT_SUCCESS;
     }
     char *rom_path = argv[1];
+    const char *mode_arg = "auto";
+    for (int i = 2; i < argc; i++) {
+        if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) mode_arg = argv[++i];
+    }
 
     if (SDL_Init(SDL_INIT_VIDEO | SDL_INIT_AUDIO) != 0) {
         fprintf(stderr, "SDL_Init failed: %s\n", SDL_GetError());
@@ -235,12 +262,20 @@ int main(int argc, char **argv) {
         return EXIT_FAILURE;
     }
 
+    int is_cgb = gb_resolve_cgb_mode(&app.cart, mode_arg);
+    if (is_cgb < 0) {
+        gb_cart_free(&app.cart);
+        SDL_Quit();
+        return EXIT_FAILURE;
+    }
+
     app.cpu.memory = calloc(1, GB_MEM_SIZE);
     app.cpu.cart = &app.cart;
     app.cpu.ppu = &app.ppu;
     app.cpu.timer = &app.timer;
     app.cpu.joypad = &app.joypad;
     app.cpu.apu = &app.apu;
+    app.cpu.is_cgb = (uint8_t)is_cgb;
 
     gb_ppu_reset(&app.ppu);
     gb_timer_reset(&app.timer);

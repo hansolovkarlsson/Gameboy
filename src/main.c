@@ -44,17 +44,47 @@ static uint8_t shade_to_gray(uint8_t shade) {
     }
 }
 
-static void write_ppm(const GBPpu *ppu, const char *path) {
+// RGB555 (pandocs' Palettes.md: 5 bits/channel, bit 15 unused) -> 8-bit
+// channel sample, standard bit-replication expansion (top 5 bits of the
+// 8-bit result are the source bits, the low 3 filled by the same bits'
+// high end) - the usual technique for widening an N-bit channel without
+// introducing a scale bias, and reversible enough for CGB's own genuine
+// color output; no existing byte-exact reference depends on this exact
+// mapping (unlike shade_to_gray() above, which is deliberately left
+// alone - see ppu.h's own comment on why the DMG/CGB framebuffers are
+// kept as two separate arrays rather than unified through this).
+static uint8_t rgb555_channel_to_rgb888(uint8_t c5) {
+    return (uint8_t)((c5 << 3) | (c5 >> 2));
+}
+
+static void write_ppm(const GBCpu *cpu, const GBPpu *ppu, const char *path) {
     FILE *f = fopen(path, "wb");
     if (!f) {
         fprintf(stderr, "Couldn't open '%s' for writing\n", path);
         return;
     }
-    fprintf(f, "P5\n%d %d\n255\n", GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT);
-    for (int y = 0; y < GB_SCREEN_HEIGHT; y++) {
-        for (int x = 0; x < GB_SCREEN_WIDTH; x++) {
-            uint8_t gray = shade_to_gray(ppu->framebuffer[y][x]);
-            fwrite(&gray, 1, 1, f);
+    if (cpu->is_cgb) {
+        fprintf(f, "P6\n%d %d\n255\n", GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT);
+        for (int y = 0; y < GB_SCREEN_HEIGHT; y++) {
+            for (int x = 0; x < GB_SCREEN_WIDTH; x++) {
+                uint16_t rgb555 = ppu->cgb_framebuffer[y][x];
+                // pandocs' Palettes.md: bits 0-4 red, 5-9 green, 10-14
+                // blue (bit 15 unused) - low bits are Red, not Blue.
+                uint8_t rgb888[3] = {
+                    rgb555_channel_to_rgb888(rgb555 & 0x1F),
+                    rgb555_channel_to_rgb888((rgb555 >> 5) & 0x1F),
+                    rgb555_channel_to_rgb888((rgb555 >> 10) & 0x1F),
+                };
+                fwrite(rgb888, 1, 3, f);
+            }
+        }
+    } else {
+        fprintf(f, "P5\n%d %d\n255\n", GB_SCREEN_WIDTH, GB_SCREEN_HEIGHT);
+        for (int y = 0; y < GB_SCREEN_HEIGHT; y++) {
+            for (int x = 0; x < GB_SCREEN_WIDTH; x++) {
+                uint8_t gray = shade_to_gray(ppu->framebuffer[y][x]);
+                fwrite(&gray, 1, 1, f);
+            }
         }
     }
     fclose(f);
@@ -196,8 +226,10 @@ int main(int argc, char **argv) {
                 "                                      number - lines of '<frame> <BUTTON> <down|up>',\n"
                 "                                      BUTTON one of A/B/SELECT/START/RIGHT/LEFT/UP/DOWN\n"
                 "  %s <rom.gb> --load-state <in.state>  Restore state before running (see savestate.c)\n"
-                "  %s <rom.gb> --save-state <out.state> Save state after the run budget/--frames/--wav ends\n",
-                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
+                "  %s <rom.gb> --save-state <out.state> Save state after the run budget/--frames/--wav ends\n"
+                "  %s <rom.gb> --mode dmg|cgb|auto      Force DMG or CGB emulation, or pick by the\n"
+                "                                      cartridge's own header flag (default: auto)\n",
+                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 1;
     }
 
@@ -206,6 +238,7 @@ int main(int argc, char **argv) {
     const char *input_path = NULL;
     const char *load_state_path = NULL;
     const char *save_state_path = NULL;
+    const char *mode_arg = "auto";
     int target_frames = 2;
     double wav_seconds = 5.0;
     for (int i = 2; i < argc; i++) {
@@ -223,6 +256,8 @@ int main(int argc, char **argv) {
             load_state_path = argv[++i];
         } else if (strcmp(argv[i], "--save-state") == 0 && i + 1 < argc) {
             save_state_path = argv[++i];
+        } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
+            mode_arg = argv[++i];
         }
     }
 
@@ -231,10 +266,16 @@ int main(int argc, char **argv) {
         return 1;
     }
 
+    int is_cgb = gb_resolve_cgb_mode(&cart, mode_arg);
+    if (is_cgb < 0) {
+        return 1;
+    }
+
     GBCpu cpu;
     memset(&cpu, 0, sizeof(cpu));
     cpu.memory = calloc(1, GB_MEM_SIZE); // VRAM/WRAM/OAM/I-O-regs/HRAM only - see cpu.h
     cpu.cart = &cart;
+    cpu.is_cgb = (uint8_t)is_cgb;
 
     GBPpu ppu;
     cpu.ppu = &ppu;
@@ -307,7 +348,7 @@ int main(int argc, char **argv) {
     }
 
     if (ppm_path) {
-        write_ppm(&ppu, ppm_path);
+        write_ppm(&cpu, &ppu, ppm_path);
     }
     if (wav_path) {
         write_wav(sample_buffer, apu.sample_buffer_len, WAV_SAMPLE_RATE, wav_path);

@@ -60,6 +60,14 @@ VISUAL_ROM := test_roms/dmg-acid2/dmg-acid2.gb
 VISUAL_REF := test_roms/dmg-acid2/reference-dmg.png
 VISUAL_OUT := $(BIN_DIR)/dmg-acid2-output.ppm
 
+# cgb-acid2 (test_roms/cgb-acid2/ - MIT-licensed, same author as
+# dmg-acid2) is CGB rendering's own correctness gate - see
+# test_roms/cgb-acid2/README.md. Unlike dmg-acid2 (an open, still-
+# documented gap), this one is a genuine 100% pixel-exact match.
+CGB_VISUAL_ROM := test_roms/cgb-acid2/cgb-acid2.gbc
+CGB_VISUAL_REF := test_roms/cgb-acid2/reference.png
+CGB_VISUAL_OUT := $(BIN_DIR)/cgb-acid2-output.ppm
+
 # Real-ROM save/load round-trip: run dmg-acid2 continuously to frame 2
 # as the baseline, then separately run it to frame 1, save state, and
 # in a *third*, fresh process load that state and run one more frame -
@@ -149,7 +157,7 @@ SDL_PKGS := sdl2
 SDL_CFLAGS := $(shell pkg-config --cflags $(SDL_PKGS) 2>/dev/null) -I$(SRC_DIR)
 SDL_LIBS := $(shell pkg-config --libs $(SDL_PKGS) 2>/dev/null)
 
-.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
+.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
 
 all: gameboy
 
@@ -165,6 +173,10 @@ gameboy-test: $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_
 gameboy-visual-test: $(TARGET)
 	./$(TARGET) $(VISUAL_ROM) --ppm $(VISUAL_OUT) --frames 2
 	python3 tests/compare_frame.py $(VISUAL_OUT) $(VISUAL_REF)
+
+gameboy-cgb-visual-test: $(TARGET)
+	./$(TARGET) $(CGB_VISUAL_ROM) --mode cgb --ppm $(CGB_VISUAL_OUT) --frames 2
+	python3 tests/compare_frame_cgb.py $(CGB_VISUAL_OUT) $(CGB_VISUAL_REF)
 
 gameboy-2048-test: $(TARGET)
 	./$(TARGET) $(GB2048_ROM) --input $(GB2048_SCRIPT) --ppm $(GB2048_OUT) --frames 180
@@ -237,4 +249,4 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM)

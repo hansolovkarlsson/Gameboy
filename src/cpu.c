@@ -2,6 +2,7 @@
 #include "alu.h"
 #include "cart.h"
 #include "timer.h"
+#include "ppu.h"
 #include <stddef.h>
 
 // Table-driven dispatch, same *shape* as cpm/emu/src/z80.c's
@@ -816,11 +817,23 @@ void gb_cpu_init_tables(void) {
 // testing, still get a sensible default (the far more common "nonzero
 // checksum" case).
 void gb_cpu_reset(GBCpu *cpu) {
-    uint8_t checksum_byte = cpu->cart ? cpu->cart->header_checksum_byte : 0xFF;
-    cpu->af = 0x0100 | (checksum_byte == 0 ? 0x80 : 0xB0);
-    cpu->bc = 0x0013;
-    cpu->de = 0x00D8;
-    cpu->hl = 0x014D;
+    if (cpu->is_cgb) {
+        // Real CGB post-boot register state (the "CGB" column, not "CGB
+        // (DMG mode)" - this project's is_cgb is a binary DMG/CGB switch,
+        // no separate DMG-compatibility-mode register set is modeled),
+        // pandocs' Power_Up_Sequence.md "CPU registers" table - unlike
+        // DMG, F's H/C bits don't depend on the header checksum here.
+        cpu->af = 0x1180;
+        cpu->bc = 0x0000;
+        cpu->de = 0xFF56;
+        cpu->hl = 0x000D;
+    } else {
+        uint8_t checksum_byte = cpu->cart ? cpu->cart->header_checksum_byte : 0xFF;
+        cpu->af = 0x0100 | (checksum_byte == 0 ? 0x80 : 0xB0);
+        cpu->bc = 0x0013;
+        cpu->de = 0x00D8;
+        cpu->hl = 0x014D;
+    }
     cpu->sp = 0xFFFE;
     cpu->pc = 0x0100;
     cpu->ime = 0;
@@ -835,6 +848,28 @@ void gb_cpu_reset(GBCpu *cpu) {
     cpu->dma_active = 0;
     cpu->dma_source_page = 0;
     cpu->dma_progress = 0;
+
+    if (cpu->is_cgb && cpu->ppu) {
+        // CGB-only PPU register defaults, pandocs' Power_Up_Sequence.md
+        // hardware-registers table: VBK boots to $FE (bit 0 clear, i.e.
+        // bank 0 - the unused upper bits are handled by
+        // gb_ppu_read_reg()'s own masking, not stored here). BCPS/OCPS
+        // boot cleared. Palettes.md's own note: "All background colors
+        // are initialized as white by the boot ROM" - $7FFF per color
+        // (RGB555 all-1s, bit 15 conventionally clear) - gb_ppu_reset()
+        // already zeroed bg_pram/obj_pram via its memset, which is the
+        // right default for obj_pram (Palettes.md: "the boot ROM leaves
+        // all object colors uninitialized" - deterministic zero is a
+        // reasonable, harmless stand-in for genuinely undefined state),
+        // but wrong for bg_pram, corrected here.
+        cpu->ppu->vbk = 0;
+        cpu->ppu->bcps = 0;
+        cpu->ppu->ocps = 0;
+        for (int i = 0; i < 32; i++) {
+            cpu->ppu->bg_pram[i * 2] = 0xFF;
+            cpu->ppu->bg_pram[i * 2 + 1] = 0x7F;
+        }
+    }
 }
 
 // The five interrupt vectors, indexed by IE/IF bit position - pandocs'
