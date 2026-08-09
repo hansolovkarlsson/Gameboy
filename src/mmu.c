@@ -83,6 +83,12 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     // available in CGB Mode, will read $FF in Non-CGB Mode"). The
     // unused upper bits (3-7) always read as 1, matching real hardware.
     if (addr == 0xFF70) return cpu->is_cgb ? (uint8_t)(cpu->svbk | 0xF8) : 0xFF;
+    // KEY1/SPD (double-speed mode) only exists in CGB mode, same footnote
+    // as SVBK above. Bit 7 (current speed) is read-only, bit 0 (switch
+    // armed) is read/write; bits 1-6 are unused and always read as 1 -
+    // pandocs' CGB_Registers.md "FF4D — KEY1/SPD", confirmed against
+    // gbdev/hardware.inc's B_SPD_DOUBLE=7/B_SPD_PREPARE=0 bit constants.
+    if (addr == 0xFF4D) return cpu->is_cgb ? (uint8_t)((cpu->key1 & 0x81) | 0x7E) : 0xFF;
     // Genuinely unmapped $FFxx I/O - no backing register exists at
     // all, so these always read back as 1 in every bit (same
     // unused_hwio-GS.gb ROM; $FF15/$FF1F/$FF27-$FF29 are the
@@ -161,6 +167,10 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     // SVBK - see the matching read-side comment. Ignored entirely in
     // DMG mode, exactly like the surrounding inert register block.
     if (addr == 0xFF70) { if (cpu->is_cgb) cpu->svbk = val & 0x07; return; }
+    // KEY1/SPD - see the matching read-side comment. Only bit 0 (armed) is
+    // writable; bit 7 (current speed) is set only by gb_op_stop()'s actual
+    // switch (cpu.c), never by a direct write.
+    if (addr == 0xFF4D) { if (cpu->is_cgb) cpu->key1 = (uint8_t)((cpu->key1 & 0x80) | (val & 0x01)); return; }
     // Genuinely unmapped - see the matching read-side comment above;
     // no backing register, so the write has nowhere to go.
     if (addr == 0xFF03 || (addr >= 0xFF08 && addr <= 0xFF0E) || (addr >= 0xFF4C && addr <= 0xFF7F)) {
@@ -301,9 +311,20 @@ void gb_dma_tick(GBCpu *cpu) {
 // wired up at all) still needs gb_cpu_step() to work without crashing -
 // gb_dma_tick() itself has never needed this guard since DMA state
 // lives directly on GBCpu, not behind one of these optional pointers.
+// CGB double-speed mode (KEY1, cpu.h's key1/speed_switch_pause comment):
+// the CPU, timer/DIV, and OAM DMA (gb_dma_tick() above) all genuinely
+// speed up 2x in double-speed mode, and every one of them is already
+// driven exactly 1:1 with real CPU M-cycles here with no throttling -
+// so they get the 2x speedup for free, no code change needed. The LCD
+// (PPU) and sound (APU) are documented to keep running at the *same*
+// real-time rate regardless of CPU speed (pandocs' CGB_Registers.md
+// KEY1 section), so when double speed is active they're each handed
+// half as many T-states per M-cycle - they're being called twice as
+// often in real time, so halving keeps their real-time rate constant.
 void gb_mcycle_tick(GBCpu *cpu) {
     gb_dma_tick(cpu);
     if (cpu->timer) gb_timer_step(cpu->timer, cpu, 4);
-    if (cpu->ppu) gb_ppu_step(cpu->ppu, cpu, 4);
-    if (cpu->apu) gb_apu_step(cpu->apu, cpu, 4);
+    int video_audio_cycles = (cpu->is_cgb && (cpu->key1 & 0x80)) ? 2 : 4;
+    if (cpu->ppu) gb_ppu_step(cpu->ppu, cpu, video_audio_cycles);
+    if (cpu->apu) gb_apu_step(cpu->apu, cpu, video_audio_cycles);
 }

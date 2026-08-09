@@ -571,10 +571,11 @@ handling](CPU_REFERENCE.md#interrupt-handling) section for that half.
 
 Phase 9's scope: cartridge detection, WRAM/VRAM banking, CGB tile
 attributes, and color palettes — enough for real CGB color rendering.
-Double-speed mode (`KEY1`), HDMA/GDMA, and the infrared port (`RP`)
-are deliberately not implemented; their registers remain part of the
-same inert `0xFF4C-0xFF7F` stub DMG mode has always used (reads `0xFF`,
-writes dropped) even when `is_cgb` is set.
+A follow-up pass added double-speed mode (`KEY1`, below). HDMA/GDMA and
+the infrared port (`RP`) are still deliberately not implemented; their
+registers remain part of the same inert `0xFF4C-0xFF7F` stub DMG mode
+has always used (reads `0xFF`, writes dropped) even when `is_cgb` is
+set.
 
 ### Mode detection
 
@@ -666,16 +667,58 @@ OAM attribute priority bits are clear; otherwise BG (colors 1-3) wins.
 The window's own enable bit (LCDC bit 5) is independent of LCDC bit 0
 in CGB mode, unlike DMG where bit 0 gates the window too.
 
+### Double-speed mode — KEY1/SPD (`0xFF4D`)
+
+Bit 7 (read-only) reports the current speed; bit 0 (read/write) arms a
+switch. Writing `$01` then executing `STOP` performs the actual switch
+(pandocs' *CGB Registers*, "FF4D — KEY1/SPD"): the speed bit flips, the
+armed bit auto-clears, and the CPU freezes for exactly 2050 M-cycles
+before normal execution resumes (`gb_op_stop()`/`gb_cpu_step()`'s
+`speed_switch_pause` countdown, `src/cpu.c`).
+
+What actually speeds up 2x: the CPU, the Timer/DIV registers, and OAM
+DMA transfer speed. What stays at the normal real-time rate: the PPU
+(LCD) and the APU (all sound timings/frequencies) — HDMA-to-VRAM would
+too, but it's out of scope regardless (see below). This emulator's
+timer and OAM DMA (`gb_timer_step()`, `gb_dma_tick()`) are already
+driven 1:1 with real CPU M-cycles with no throttling, so both speed up
+automatically once double speed is active — no code change needed
+there. The only place that *does* need a change is `gb_mcycle_tick()`
+(`src/mmu.c`), the single shared per-M-cycle backbone every opcode
+handler and the interrupt-dispatch path already funnel through: it
+hands `gb_ppu_step()`/`gb_apu_step()` half as many T-states per call
+while double speed is active, exactly compensating for being *called*
+twice as often in real time.
+
+**Known simplification**: the 2050 M-cycle freeze is modeled as a full
+stop of DMA/timer/PPU/APU together (no `gb_mcycle_tick()` calls at all
+during the freeze), not pandocs' PPU-mode-dependent partial freeze
+(black pixels only if `STOP` executes during Mode 0/1, normal rendering
+if Mode 3). This is a one-time, ~2ms cosmetic detail with no known test
+ROM to check either interpretation against — pandocs itself marks
+whether interrupts can occur during the freeze as an open TODO. Serial
+port timing also documented as doubling 2x is not applicable here: this
+emulator's `SB`/`SC` handling is a Blargg-style debug-output hook only,
+with no real serial-clock timing to begin with.
+
+No known real-ROM test exists for this in `test_roms/`: Mooneye's
+upstream tree has nothing double-speed/KEY1-related, and
+gambatte-core's `hwtests/` has double-speed (`_ds_`-suffixed) variants
+but only as raw `.asm` sources needing a bespoke non-rgbds build
+toolchain with unconfirmed licensing — out of scope, same reasoning
+that kept `ucity` uncommitted in Phase 9. Verified instead with direct
+unit tests (`tests/test_cpu.c`): KEY1 bit masking, the armed-vs-unarmed
+`STOP` branch, the freeze's exact drain behavior, and
+`gb_mcycle_tick()`'s resulting PPU/APU throttle — plus the full existing
+DMG/CGB regression suite staying byte-exact throughout, since
+double-speed is purely opt-in and never triggered unless a ROM
+explicitly arms KEY1 and executes `STOP`.
+
 ### What's deliberately out of scope
 
-Double-speed mode (`KEY1`, `0xFF4D`) is flagged high-risk for a later
-phase — it changes how CPU execution rate relates to the shared
-per-M-cycle tick every other subsystem (PPU/APU/timer/DMA) depends on,
-in the same territory a past timer-precision rewrite attempt struggled
-with (see the Status section below). HDMA/GDMA (`0xFF51-0xFF55`) and
-the infrared port (`RP`, `0xFF56`) are unimplemented; their registers
-sit in the same inert stub as any other genuinely unmapped I/O
-address.
+HDMA/GDMA (`0xFF51-0xFF55`) and the infrared port (`RP`, `0xFF56`) are
+unimplemented; their registers sit in the same inert stub as any other
+genuinely unmapped I/O address.
 
 ## Implementation status
 

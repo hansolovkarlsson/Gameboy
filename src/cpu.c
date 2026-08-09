@@ -346,10 +346,24 @@ static int gb_op_ei(GBCpu *cpu) { cpu->ime_pending = 1; return 4; }
 // source to ever trigger - still deferred to Phase 7's real front end,
 // since Phase 4 only adds the joypad *register*, not a way to press a
 // button from outside the emulator.
+// CGB double-speed switch (KEY1, cpu.h's key1/speed_switch_pause comment):
+// real hardware performs the actual speed change here, when STOP executes
+// with KEY1 bit 0 ("armed") set - pandocs' CGB_Registers.md. This flips
+// the current-speed bit, auto-clears the armed bit, and starts a fixed
+// 2050 M-cycle freeze (drained by gb_cpu_step()'s speed_switch_pause
+// check) before execution resumes. This is a genuinely different case
+// from the plain low-power STOP below (cpu->stopped) - that path is a
+// separate, still-unmodeled real-hardware feature (indefinite sleep until
+// a button press, docs/CPU_REFERENCE.md's documented gap), left untouched.
 static int gb_op_stop(GBCpu *cpu) {
     fetch_byte(cpu);
-    cpu->stopped = 1;
     gb_timer_reset_div(cpu->timer, cpu);
+    if (cpu->is_cgb && (cpu->key1 & 0x01)) {
+        cpu->key1 = (uint8_t)((cpu->key1 & 0x80) ^ 0x80); // flip speed bit, clear armed bit
+        cpu->speed_switch_pause = 2050;
+    } else {
+        cpu->stopped = 1;
+    }
     return 4;
 }
 
@@ -908,6 +922,20 @@ static int fetch_and_dispatch_ticked(GBCpu *cpu) {
 }
 
 int gb_cpu_step(GBCpu *cpu) {
+    // CGB double-speed switch freeze (cpu.h's speed_switch_pause comment,
+    // gb_op_stop() above): drains one M-cycle per call, ahead of every
+    // other check below - real hardware holds the CPU in this frozen
+    // state unconditionally for the full 2050 M-cycles regardless of
+    // pending interrupts or HALT. Deliberately does *not* call
+    // gb_mcycle_tick() - DMA/timer/PPU/APU are all frozen too, the
+    // simplest defensible reading of pandocs' "DIV does not tick" /
+    // "the CPU is in a strange state" (see docs/HARDWARE_REFERENCE.md's
+    // CGB section for the documented simplification this represents).
+    if (cpu->speed_switch_pause) {
+        cpu->speed_switch_pause--;
+        return 4;
+    }
+
     uint8_t pending = (uint8_t)(gb_read_byte(cpu, 0xFFFF) & gb_read_byte(cpu, 0xFF0F) & 0x1F);
 
     // Any pending, enabled interrupt wakes the CPU from HALT even when

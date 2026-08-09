@@ -2,6 +2,8 @@
 #include <string.h>
 #include "../src/cpu.h"
 #include "../src/cart.h"
+#include "../src/ppu.h"
+#include "../src/timer.h"
 
 // Direct unit test for the "HALT immediately after EI" sub-case of the
 // HALT bug - grounded against pandocs' halt.md: real hardware doesn't
@@ -140,9 +142,113 @@ static void test_dma_wram_mirror_source(void) {
           memory[0xFE00] == 0x42);
 }
 
+// Direct unit test for CGB double-speed mode (KEY1, 0xFF4D) - pandocs'
+// CGB_Registers.md. Covers the two halves that don't need a real ROM:
+// (1) gb_op_stop()'s armed-vs-unarmed branch and the resulting
+// speed_switch_pause drain in gb_cpu_step(), and (2) gb_mcycle_tick()'s
+// (mmu.c) resulting PPU/APU throttle, observed via GBPpu.dots (ppu.c's
+// own per-T-state counter, incremented once per gb_ppu_step() call
+// before any mode-transition logic - see ppu.c's gb_ppu_step()).
+static void test_key1_double_speed(void) {
+    uint8_t memory[65536] = {0};
+    uint8_t rom[0x8000] = {0};
+    GBCart cart = {0};
+    cart.rom = rom;
+    cart.rom_size = sizeof(rom);
+    cart.mbc_type = GB_MBC_NONE;
+
+    // gb_op_stop() unconditionally calls gb_timer_reset_div() (real
+    // hardware always resets the system counter on STOP, armed or not),
+    // so a real (zeroed is fine) GBTimer is needed even though this test
+    // isn't exercising timer behavior itself.
+    GBTimer timer;
+    memset(&timer, 0, sizeof(timer));
+
+    GBCpu cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    cpu.memory = memory;
+    cpu.cart = &cart;
+    cpu.timer = &timer;
+    cpu.is_cgb = 1;
+    gb_cpu_init_tables();
+    gb_cpu_reset(&cpu);
+
+    // --- KEY1 register read/write masking (mmu.c) ---
+    gb_write_byte(&cpu, 0xFF4D, 0xFF); // only bit 0 (armed) is writable
+    check("KEY1 internal: armed bit set, speed bit still 0", (cpu.key1 & 0x81) == 0x01);
+    check("KEY1 read: armed(1) | unused bits(1-6, read as 1) | speed bit(0) = 0x7F",
+          gb_read_byte(&cpu, 0xFF4D) == 0x7F);
+    gb_write_byte(&cpu, 0xFF4D, 0x00);
+    check("KEY1 write: armed bit clears", (cpu.key1 & 0x01) == 0);
+
+    // --- STOP without armed bit: pre-existing low-power path, untouched ---
+    cpu.pc = 0xC000;
+    memory[0xC000] = 0x10; // STOP
+    memory[0xC001] = 0x00; // padding byte
+    cpu.key1 = 0x00;
+    gb_cpu_step(&cpu);
+    check("STOP unarmed: key1 untouched", cpu.key1 == 0x00);
+    check("STOP unarmed: sets the pre-existing stopped flag", cpu.stopped == 1);
+    check("STOP unarmed: does not start a speed-switch pause", cpu.speed_switch_pause == 0);
+
+    // --- STOP with armed bit: real speed switch ---
+    memset(&cpu, 0, sizeof(cpu));
+    cpu.memory = memory;
+    cpu.cart = &cart;
+    cpu.timer = &timer;
+    cpu.is_cgb = 1;
+    gb_cpu_reset(&cpu);
+    cpu.pc = 0xC000;
+    cpu.key1 = 0x01; // armed, currently normal speed
+    gb_cpu_step(&cpu); // STOP
+    check("STOP armed: speed bit flips to double speed", (cpu.key1 & 0x80) == 0x80);
+    check("STOP armed: armed bit auto-clears", (cpu.key1 & 0x01) == 0);
+    check("STOP armed: starts the 2050 M-cycle freeze", cpu.speed_switch_pause == 2050);
+
+    // The freeze drains one M-cycle per gb_cpu_step() call, dispatching
+    // no opcode (pc must not move) until fully drained.
+    uint16_t pc_during_pause = cpu.pc;
+    int pc_moved_during_pause = 0;
+    for (int i = 0; i < 2049; i++) {
+        gb_cpu_step(&cpu);
+        if (cpu.pc != pc_during_pause) pc_moved_during_pause = 1;
+    }
+    check("freeze: pc never moves while draining (2049 steps)", !pc_moved_during_pause);
+    check("freeze: exactly one M-cycle left", cpu.speed_switch_pause == 1);
+    gb_cpu_step(&cpu); // drains the last M-cycle
+    check("freeze: fully drained after 2050 steps", cpu.speed_switch_pause == 0);
+    gb_cpu_step(&cpu); // first real instruction dispatch after the freeze
+    check("freeze: normal dispatch resumes once drained", cpu.pc != pc_during_pause);
+
+    // --- gb_mcycle_tick()'s resulting PPU throttle (mmu.c) ---
+    GBPpu ppu;
+    memset(&ppu, 0, sizeof(ppu));
+    ppu.lcdc = 0x80; // LCD must be on, or gb_ppu_step() early-returns entirely
+    cpu.ppu = &ppu;
+
+    cpu.is_cgb = 0;
+    cpu.key1 = 0x80; // irrelevant in DMG mode
+    ppu.dots = 0;
+    gb_mcycle_tick(&cpu);
+    check("mcycle_tick: DMG mode always advances PPU by 4 T-states", ppu.dots == 4);
+
+    cpu.is_cgb = 1;
+    cpu.key1 = 0x00; // CGB but normal speed
+    ppu.dots = 0;
+    gb_mcycle_tick(&cpu);
+    check("mcycle_tick: CGB normal speed advances PPU by 4 T-states", ppu.dots == 4);
+
+    cpu.is_cgb = 1;
+    cpu.key1 = 0x80; // CGB double speed
+    ppu.dots = 0;
+    gb_mcycle_tick(&cpu);
+    check("mcycle_tick: CGB double speed advances PPU by only 2 T-states", ppu.dots == 2);
+}
+
 int main(void) {
     test_halt_after_ei();
     test_dma_wram_mirror_source();
+    test_key1_double_speed();
 
     if (failures == 0) {
         printf("\nAll cpu.c tests passed.\n");

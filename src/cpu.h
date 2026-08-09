@@ -123,6 +123,21 @@ typedef struct GBCpu {
     uint8_t wram_bank[6][0x1000];
     uint8_t svbk;
 
+    // CGB double-speed mode (KEY1/SPD, 0xFF4D) - pandocs' CGB_Registers.md.
+    // key1 is the raw register: bit 7 = current speed (read-only, set only
+    // by the switch below), bit 0 = "switch armed" (read/write by the ROM).
+    // Real hardware performs the actual switch when a STOP instruction
+    // executes with bit 0 set - see gb_op_stop() (cpu.c) - which flips bit
+    // 7, auto-clears bit 0, and then holds the CPU in a fixed-length freeze
+    // for exactly 2050 M-cycles (pandocs) before resuming normal execution.
+    // speed_switch_pause counts down that freeze, one M-cycle per
+    // gb_cpu_step() call (mirroring how `halted` already burns cycles
+    // without dispatching an opcode); 0 means no freeze is in progress.
+    // Both are no-ops in DMG mode (is_cgb == 0), same convention as
+    // svbk/wram_bank above.
+    uint8_t key1;
+    uint16_t speed_switch_pause;
+
     // Forward-declared rather than #include "cart.h" here - cpu.h
     // shouldn't need to know GBCart's internals, only that mmu.c can
     // reach one through a GBCpu. NULL is valid (Phase 1's old flat-ROM

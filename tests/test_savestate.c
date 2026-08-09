@@ -94,6 +94,10 @@ int main(void) {
         for (int i = 0; i < 0x1000; i++)
             cpu.wram_bank[b][i] = (uint8_t)(b * 16 + (i & 0xFF));
 
+    // CGB (Phase 9): double-speed mode (KEY1/SPD)
+    cpu.key1 = 0x81;
+    cpu.speed_switch_pause = 2050;
+
     GBPpu ppu = {0};
     ppu.lcdc = 0x91; ppu.stat = 0x85; ppu.scy = 0x11; ppu.scx = 0x22;
     ppu.ly = 0x50; ppu.lyc = 0x50; ppu.dma = 0xC0;
@@ -177,6 +181,7 @@ int main(void) {
     cpu.dma_source_page = 0; cpu.dma_progress = 0;
     cpu.is_cgb = 0; cpu.svbk = 0;
     memset(cpu.wram_bank, 0, sizeof(cpu.wram_bank));
+    cpu.key1 = 0; cpu.speed_switch_pause = 0;
     memset(&ppu, 0, sizeof(ppu));
     memset(&timer, 0, sizeof(timer));
     memset(&joypad, 0, sizeof(joypad));
@@ -211,6 +216,8 @@ int main(void) {
         for (int i = 0; i < 0x1000; i++)
             if (cpu.wram_bank[b][i] != (uint8_t)(b * 16 + (i & 0xFF))) { wram_bank_ok = 0; break; }
     check("CPU: CGB is_cgb/svbk/wram_bank restored", cpu.is_cgb == 1 && cpu.svbk == 0x05 && wram_bank_ok);
+
+    check("CPU: CGB key1/speed_switch_pause restored", cpu.key1 == 0x81 && cpu.speed_switch_pause == 2050);
 
     check("PPU: registers", ppu.lcdc == 0x91 && ppu.stat == 0x85 && ppu.scy == 0x11 && ppu.scx == 0x22 &&
                              ppu.ly == 0x50 && ppu.lyc == 0x50 && ppu.dma == 0xC0 &&

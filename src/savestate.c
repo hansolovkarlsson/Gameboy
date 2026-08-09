@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define SAVESTATE_MAGIC "GBSS"
-#define SAVESTATE_VERSION 11u
+#define SAVESTATE_VERSION 12u
 
 // Explicit little-endian primitives - the same reasoning main.c's own
 // write_u32le()/write_u16le() (its WAV writer) already applies: on-disk
@@ -91,6 +91,13 @@ int gb_savestate_save(GBCpu *cpu, const char *path) {
     w8(f, cpu->is_cgb);
     fwrite(cpu->wram_bank, 1, sizeof(cpu->wram_bank), f);
     w8(f, cpu->svbk);
+
+    // CGB double-speed mode (KEY1) - a switch's 2050 M-cycle freeze can
+    // genuinely be mid-flight at save time, same reasoning as OAM DMA
+    // below, so speed_switch_pause needs to round-trip alongside key1
+    // itself, not just the resulting speed bit.
+    w8(f, cpu->key1);
+    w16(f, cpu->speed_switch_pause);
 
     // OAM DMA - a transfer genuinely can be mid-flight at any point
     // between gb_cpu_step() calls (unlike, say, di_cancels_ei_delay,
@@ -257,6 +264,10 @@ int gb_savestate_load(GBCpu *cpu, const char *path) {
     r8(f, &cpu->is_cgb, &err);
     if (!err && fread(cpu->wram_bank, 1, sizeof(cpu->wram_bank), f) != sizeof(cpu->wram_bank)) err = 1;
     r8(f, &cpu->svbk, &err);
+
+    // CGB double-speed mode (KEY1) - see gb_savestate_save()'s matching comment.
+    r8(f, &cpu->key1, &err);
+    r16(f, &cpu->speed_switch_pause, &err);
 
     // OAM DMA - see gb_savestate_save()'s matching comment.
     r8(f, &cpu->dma_request_pending, &err); r8(f, &cpu->dma_request_value, &err);

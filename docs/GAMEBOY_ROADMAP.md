@@ -139,9 +139,10 @@ Status section's own Phase 7 entry.
 ### Phase 9: Game Boy Color (CGB) support
 
 Cartridge CGB-flag detection, WRAM/VRAM banking, CGB tile attributes,
-and color palettes - enough for real CGB color rendering. Double-speed
-mode, HDMA/GDMA, and the infrared port deliberately deferred - see the
-Status section's own Phase 9 entry for the full scope and reasoning.
+color palettes, and double-speed mode (`KEY1`) - real CGB color
+rendering plus the CPU speed switch. HDMA/GDMA and the infrared port
+deliberately deferred - see the Status section's own Phase 9 entries
+for the full scope and reasoning.
 
 ## Status
 
@@ -1993,10 +1994,11 @@ Scoped up front (see `docs/GAMEBOY_ROADMAP.md`'s own plan file at the
 time, and the Phase 9 bullet above) to cartridge detection, WRAM/VRAM
 banking, CGB tile attributes, and color palettes - the pieces needed
 for real color *rendering* - deliberately deferring double-speed mode,
-HDMA/GDMA, and the infrared port to a later pass. This was a from-
-scratch implementation: zero existing CGB scaffolding anywhere in the
-codebase beforehand (confirmed by two Explore agents surveying every
-CGB-adjacent file before writing any code).
+HDMA/GDMA, and the infrared port to a later pass (double-speed mode was
+picked up in a follow-up pass - see below). This was a from-scratch
+implementation: zero existing CGB scaffolding anywhere in the codebase
+beforehand (confirmed by two Explore agents surveying every CGB-adjacent
+file before writing any code).
 
 - **Mode detection and boot state**: `GBCart` gained `cgb_flag`/
   `cgb_support` (`src/cart.c`, parsed from header byte `0x0143`,
@@ -2092,17 +2094,82 @@ CGB-adjacent file before writing any code).
   by re-running it after every major change in this phase, not just at
   the end.
 
-**Deferred to a later CGB phase**: double-speed mode (`KEY1`) - flagged
-high-risk, since it changes how CPU execution rate relates to the
-shared per-M-cycle tick every other subsystem depends on, in the same
-territory the timer-precision rewrite (see this document's own
-"attempted, reverted" entry) had trouble with; HDMA/GDMA
-(`0xFF51-0xFF55`); the infrared port (`RP`, `0xFF56`); a real
-GPL-license policy decision (needed before `ucity` or similar can be
-committed as a homebrew regression test).
+**Deferred from this pass**: HDMA/GDMA (`0xFF51-0xFF55`); the infrared
+port (`RP`, `0xFF56`); a real GPL-license policy decision (needed
+before `ucity` or similar can be committed as a homebrew regression
+test).
 
-**Next**: user-directed - either a further CGB pass (double-speed mode
-being the natural next piece, or resolving the GPL-license question to
-add a real homebrew regression game), or starting on original homebrew
-game content, which the user has flagged as a later goal of this
-project alongside CGB support.
+**Phase 9 follow-up (double-speed mode, `KEY1`/`0xFF4D`): implemented,
+and the "high-risk" flag turned out to overstate the actual blast
+radius.** The concern was real - double-speed mode changes how CPU
+execution rate relates to `gb_mcycle_tick()` (`src/mmu.c`), the single
+shared per-M-cycle backbone every opcode handler, DMA, timer, PPU, and
+APU funnels through, in the same architectural neighborhood as the
+timer-precision rewrite this document's own "attempted, reverted" entry
+describes. But because every one of those subsystems already funnels
+through that one function, the actual fix ended up small and entirely
+centralized there, not a sweep through `cpu.c`'s dozens of opcode
+handlers.
+
+Grounded in pandocs' `CGB_Registers.md` "FF4D — KEY1/SPD" (fetched
+fresh, not assumed) and `gbdev/hardware.inc`'s bit constants
+(`B_SPD_DOUBLE=7`, `B_SPD_PREPARE=0`): `GBCpu` gained `key1` (raw
+register: bit 7 current speed read-only, bit 0 "armed" read/write,
+unused bits 1-6 read as 1) and `speed_switch_pause` (M-cycles remaining
+in the post-switch freeze). `gb_op_stop()` (`cpu.c`) now branches on the
+armed bit - real hardware performs the actual switch (flip speed bit,
+auto-clear armed bit, then a fixed 2050 M-cycle freeze) when `STOP`
+executes with it set; without it, the pre-existing "generic low-power
+STOP never actually suspends execution" gap
+(`docs/CPU_REFERENCE.md`'s documented gap) is left untouched, since it's
+a genuinely different, unrelated STOP use case. `gb_cpu_step()` drains
+`speed_switch_pause` one M-cycle at a time, ahead of every other check,
+calling no `gb_mcycle_tick()` at all while draining (DMA/timer/PPU/APU
+all frozen together - the simplest defensible reading of pandocs' "DIV
+does not tick" / "the CPU is in a strange state," see the honest
+simplification note below).
+
+The one substantive behavior change is in `gb_mcycle_tick()` itself:
+`gb_dma_tick()` and `gb_timer_step()` are untouched, since both are
+already driven 1:1 with real CPU M-cycles with no throttling, so OAM
+DMA and the Timer/DIV registers speed up 2x for free (matching
+pandocs) with zero code change. `gb_ppu_step()`/`gb_apu_step()` get
+half as many T-states per call while double speed is active (2 instead
+of 4) - they're being *called* twice as often in real time, so halving
+keeps their real-time rate constant, matching pandocs' "PPU and APU
+keep operating as usual" (i.e. don't speed up).
+
+**Known, documented simplification**: the 2050 M-cycle freeze is
+modeled as a full stop of every subsystem together, not pandocs'
+PPU-mode-dependent partial freeze (black pixels only if `STOP` executes
+during Mode 0/1, normal rendering during Mode 3) - a one-time, ~2ms
+cosmetic detail with no known test ROM to check either interpretation
+against, and pandocs itself marks whether interrupts can occur during
+the freeze as an open TODO.
+
+**Verification**: no real ROM found for this - Mooneye's upstream tree
+(checked via the GitHub API, not assumed from memory) has nothing
+double-speed/KEY1-related, and gambatte-core's `hwtests/` has
+double-speed (`_ds_`-suffixed) variants but only as raw `.asm` sources
+needing a bespoke non-rgbds build toolchain with unconfirmed licensing -
+out of scope, same reasoning that kept `ucity` uncommitted above.
+Covered instead with direct unit tests (`tests/test_cpu.c`): KEY1 bit
+masking; the armed-vs-unarmed `STOP` branch; the freeze's exact 2050-
+M-cycle drain (`pc` never moves while draining, normal dispatch resumes
+once fully drained); `gb_mcycle_tick()`'s resulting PPU throttle
+(observed via `GBPpu.dots`, its own per-T-state counter: 4 in DMG mode,
+4 in CGB normal speed, 2 in CGB double speed). `SAVESTATE_VERSION`
+bumped 11->12 for `key1`/`speed_switch_pause`, with matching
+`tests/test_savestate.c` coverage. Zero regressions: the full existing
+suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%,
+`2048-gb`, `droneboy`, `tobutobugirl`, savestate round-trip) stayed
+exactly as before, plus a manual smoke check re-running the Tobu Tobu
+Girl Deluxe local demo (`roms/tobudx.gb`, gitignored) - byte-identical
+to its pre-change capture, confirming this real game's rendering is
+completely unaffected (it evidently never arms KEY1 itself, but proves
+the untouched-path guarantee end-to-end regardless).
+
+**Next**: user-directed - either HDMA/GDMA, resolving the GPL-license
+question to add a real homebrew regression game, or starting on
+original homebrew game content, which the user has flagged as a later
+goal of this project alongside CGB support.
