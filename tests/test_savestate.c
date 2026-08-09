@@ -110,6 +110,10 @@ int main(void) {
     cpu.hdma_remaining = 0x0080;
     cpu.hdma_block_bytes_left = 0x0010;
 
+    // Infrared port (RP) - a plain register, no mid-flight state; only
+    // bits 7, 6, 0 are meaningful/writable per the register's own semantics.
+    cpu.rp = 0xC1;
+
     GBPpu ppu = {0};
     ppu.lcdc = 0x91; ppu.stat = 0x85; ppu.scy = 0x11; ppu.scx = 0x22;
     ppu.ly = 0x50; ppu.lyc = 0x50; ppu.dma = 0xC0;
@@ -199,6 +203,7 @@ int main(void) {
     cpu.hdma_mode = 0; cpu.hdma_active = 0;
     cpu.hdma_src = 0; cpu.hdma_dst = 0;
     cpu.hdma_remaining = 0; cpu.hdma_block_bytes_left = 0;
+    cpu.rp = 0;
     memset(&ppu, 0, sizeof(ppu));
     memset(&timer, 0, sizeof(timer));
     memset(&joypad, 0, sizeof(joypad));
@@ -242,6 +247,8 @@ int main(void) {
           cpu.hdma_mode == 1 && cpu.hdma_active == 1 &&
           cpu.hdma_src == 0x1234 && cpu.hdma_dst == 0x8560 &&
           cpu.hdma_remaining == 0x0080 && cpu.hdma_block_bytes_left == 0x0010);
+
+    check("CPU: CGB infrared port (rp) restored", cpu.rp == 0xC1);
 
     check("PPU: registers", ppu.lcdc == 0x91 && ppu.stat == 0x85 && ppu.scy == 0x11 && ppu.scx == 0x22 &&
                              ppu.ly == 0x50 && ppu.lyc == 0x50 && ppu.dma == 0xC0 &&

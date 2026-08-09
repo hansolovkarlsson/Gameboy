@@ -139,11 +139,12 @@ Status section's own Phase 7 entry.
 ### Phase 9: Game Boy Color (CGB) support
 
 Cartridge CGB-flag detection, WRAM/VRAM banking, CGB tile attributes,
-color palettes, double-speed mode (`KEY1`), and HDMA/GDMA VRAM DMA
-transfers - real CGB color rendering plus the CPU speed switch and
-mid-frame VRAM streaming. The infrared port is deliberately deferred -
-see the Status section's own Phase 9 entries for the full scope and
-reasoning.
+color palettes, double-speed mode (`KEY1`), HDMA/GDMA VRAM DMA
+transfers, and the infrared port at register level (`RP`) - real CGB
+color rendering plus the CPU speed switch, mid-frame VRAM streaming, and
+IR register fidelity (real peer-to-peer IR communication is a separate,
+deliberately out-of-scope networking feature). See the Status section's
+own Phase 9 entries for the full scope and reasoning.
 
 ## Status
 
@@ -2252,8 +2253,56 @@ built around raster/streaming effects), not a red flag on its own, but
 worth keeping in mind that this pass's real-game validation is thinner
 than double-speed mode's.
 
-**Next**: user-directed - the infrared port, resolving the GPL-license
-question to add a real homebrew regression game, finding a real CGB
-game that visibly exercises HDMA for stronger validation, or starting on
-original homebrew game content, which the user has flagged as a later
-goal of this project alongside CGB support.
+**Phase 9 follow-up 3 (infrared port, `RP`/`0xFF56`): implemented at
+register level, deliberately not as real communication.** The last
+piece deferred from the original Phase 9 slice. Real CGB hardware uses
+this for wireless peer-to-peer communication between two physical
+units - fundamentally a networking feature (two separate devices
+exchanging data), not just a hardware register, and this project has no
+peer-to-peer/networking infrastructure at all (the existing serial port
+is a one-way Blargg-style debug-output hook only). Scoped, per explicit
+user direction, to register-level fidelity only: `RP` behaves correctly
+per pandocs so no game hangs or misbehaves poking at it, but the
+receiver never detects a signal, since no real transmitting peer exists
+in a single emulator process.
+
+Grounded in pandocs' `CGB_Registers.md` "FF56 — RP" (already fetched
+this session) and `gbdev/hardware.inc`'s bit constants (`RP_READ` =
+bits 7-6, `B_RP_DATA_IN` = bit 1, `B_RP_LED_ON` = bit 0). `GBCpu` gained
+one field, `rp` (`src/cpu.h`) - bits 7-6 (read-enable) and bit 0
+(LED on/off) are plain read/write storage with no functional effect;
+bit 1 (receiving) is read-only and forced to `1` on every read
+regardless of what's stored or the read-enable state - the direct,
+honest consequence of the register-only scope decision, not a separate
+guess. `src/mmu.c` carves `0xFF56` out of the inert stub the same way
+as every other CGB register this session (SVBK/KEY1/HDMA5). The
+smallest of the three Phase 9 follow-ups: one field, one register, no
+new state machine.
+
+Verified with direct unit tests (`tests/test_cpu.c`): read-enable/LED
+bit round-trip; bit 1 always reads `1` regardless of what's written or
+the read-enable state; unused bits (5-2) always read `1`; DMG mode
+always reads `0xFF` and ignores writes. `SAVESTATE_VERSION` bumped
+13->14 for `rp`, with matching `tests/test_savestate.c` coverage. No
+real ROM meaningfully exercises this for a single-instance emulator (any
+test would just be re-checking the same register bits a direct unit
+test already covers better). Zero regressions: the full existing suite
+(unit tests, Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%,
+`2048-gb`, `droneboy`, `tobutobugirl`, savestate round-trip) stayed
+exactly as before.
+
+**Deferred**: real peer-to-peer IR communication (would need this
+project's first networking/multi-instance link infrastructure -
+explicitly out of scope, same category as real link-cable multiplayer);
+a real GPL-license policy decision (needed before `ucity` or similar can
+be committed as a homebrew regression test).
+
+**Next**: user-directed - all three CGB register-level follow-ups from
+Phase 9 are now done (double-speed, HDMA/GDMA, infrared port). Open
+threads: resolving the GPL-license question to add a real homebrew
+regression game, finding a real CGB game that visibly exercises HDMA
+for stronger validation, building real networking/link infrastructure
+(would unlock both real IR communication and real link-cable
+multiplayer at once, since they're the same underlying gap), or starting
+on original homebrew game content, which the user has flagged as a
+later goal of this project alongside CGB support.

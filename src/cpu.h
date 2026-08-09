@@ -166,6 +166,17 @@ typedef struct GBCpu {
     uint16_t hdma_remaining;
     uint16_t hdma_block_bytes_left;
 
+    // Infrared port - RP, 0xFF56 (pandocs' CGB_Registers.md). Register-
+    // level fidelity only: bits 7-6 (read-enable) and bit 0 (LED on/off)
+    // are plain read/write storage with no functional effect (nothing
+    // ever actually transmits or receives), and bit 1 (receiving) is
+    // read-only, forced to 1 ("no signal detected") at read time
+    // (mmu.c) - the honest consequence of this emulator having no real
+    // peer-to-peer IR link, not a separate guess. See
+    // docs/HARDWARE_REFERENCE.md's RP section for the full reasoning.
+    // No-op in DMG mode (is_cgb == 0), same convention as svbk/key1.
+    uint8_t rp;
+
     // Forward-declared rather than #include "cart.h" here - cpu.h
     // shouldn't need to know GBCart's internals, only that mmu.c can
     // reach one through a GBCpu. NULL is valid (Phase 1's old flat-ROM

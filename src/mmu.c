@@ -137,6 +137,14 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
         if (cpu->hdma_remaining) return (uint8_t)((((cpu->hdma_remaining >> 4) - 1) & 0x7F) | 0x80);
         return 0xFF;
     }
+    // RP (infrared port) - register-level fidelity only (no real IR
+    // peer exists to communicate with - docs/HARDWARE_REFERENCE.md's RP
+    // section). Bits 7-6/0 reflect whatever was last written; bit 1
+    // (receiving) is forced to 1 unconditionally ("no signal detected" -
+    // the honest consequence of there being no peer, not a real read of
+    // anything); bits 5-2 are unused and read as 1, this project's usual
+    // convention for unused bits (SVBK/KEY1/IF/SC).
+    if (addr == 0xFF56) return cpu->is_cgb ? (uint8_t)((cpu->rp & 0xC1) | 0x3E) : 0xFF;
     // Genuinely unmapped $FFxx I/O - no backing register exists at
     // all, so these always read back as 1 in every bit (same
     // unused_hwio-GS.gb ROM; $FF15/$FF1F/$FF27-$FF29 are the
@@ -227,6 +235,10 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     if (addr == 0xFF54) { if (cpu->is_cgb) cpu->hdma_dst_lo = val; return; }
     // HDMA5 - see start_or_cancel_hdma()'s own comment above.
     if (addr == 0xFF55) { if (cpu->is_cgb) start_or_cancel_hdma(cpu, val); return; }
+    // RP - see the matching read-side comment. Only bits 7-6/0 are
+    // stored; bit 1 (receiving) is read-only, never affected by a write
+    // even if the game writes a 1 there.
+    if (addr == 0xFF56) { if (cpu->is_cgb) cpu->rp = (uint8_t)(val & 0xC1); return; }
     // Genuinely unmapped - see the matching read-side comment above;
     // no backing register, so the write has nowhere to go.
     if (addr == 0xFF03 || (addr >= 0xFF08 && addr <= 0xFF0E) || (addr >= 0xFF4C && addr <= 0xFF7F)) {

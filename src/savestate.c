@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define SAVESTATE_MAGIC "GBSS"
-#define SAVESTATE_VERSION 13u
+#define SAVESTATE_VERSION 14u
 
 // Explicit little-endian primitives - the same reasoning main.c's own
 // write_u32le()/write_u16le() (its WAV writer) already applies: on-disk
@@ -107,6 +107,9 @@ int gb_savestate_save(GBCpu *cpu, const char *path) {
     w8(f, cpu->hdma_mode); w8(f, cpu->hdma_active);
     w16(f, cpu->hdma_src); w16(f, cpu->hdma_dst);
     w16(f, cpu->hdma_remaining); w16(f, cpu->hdma_block_bytes_left);
+
+    // Infrared port (RP) - a plain register, no mid-flight state.
+    w8(f, cpu->rp);
 
     // OAM DMA - a transfer genuinely can be mid-flight at any point
     // between gb_cpu_step() calls (unlike, say, di_cancels_ei_delay,
@@ -284,6 +287,9 @@ int gb_savestate_load(GBCpu *cpu, const char *path) {
     r8(f, &cpu->hdma_mode, &err); r8(f, &cpu->hdma_active, &err);
     r16(f, &cpu->hdma_src, &err); r16(f, &cpu->hdma_dst, &err);
     r16(f, &cpu->hdma_remaining, &err); r16(f, &cpu->hdma_block_bytes_left, &err);
+
+    // Infrared port (RP) - see gb_savestate_save()'s matching comment.
+    r8(f, &cpu->rp, &err);
 
     // OAM DMA - see gb_savestate_save()'s matching comment.
     r8(f, &cpu->dma_request_pending, &err); r8(f, &cpu->dma_request_value, &err);

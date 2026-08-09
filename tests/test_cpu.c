@@ -372,11 +372,55 @@ static void test_hdma_gdma(void) {
           cpu.hdma_block_bytes_left == 16);
 }
 
+// Direct unit test for the infrared port (RP, 0xFF56) - pandocs'
+// CGB_Registers.md, register-level fidelity only (see
+// docs/HARDWARE_REFERENCE.md's RP section: no real IR peer exists for
+// a single emulator process to communicate with). Bits 7-6 (read
+// enable) and bit 0 (LED on/off) are plain read/write storage with no
+// functional effect; bit 1 (receiving) is read-only and always reads 1
+// ("no signal detected") regardless of what's written there or the
+// read-enable state - the direct, honest consequence of that scope
+// decision.
+static void test_infrared_port(void) {
+    uint8_t memory[65536] = {0};
+    GBCpu cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    cpu.memory = memory;
+    cpu.is_cgb = 1;
+
+    check("RP: before any write, forced-1 bits (5-2,1) set but stored bits (7-6,0) still 0",
+          gb_read_byte(&cpu, 0xFF56) == 0x3E);
+
+    gb_write_byte(&cpu, 0xFF56, 0xC3); // read-enable=11, bit1=1 (read-only, should be dropped), LED=1
+    check("RP internal: only the writable bits (7-6,0) are stored", cpu.rp == 0xC1);
+    check("RP read: read-enable + LED bits reflect the write, rest forced to 1",
+          gb_read_byte(&cpu, 0xFF56) == 0xFF);
+
+    gb_write_byte(&cpu, 0xFF56, 0x00); // read-enable=00, LED off
+    check("RP internal: read-enable/LED both clear", cpu.rp == 0x00);
+    check("RP read: bit 1 (receiving) still always reads 1 - no real IR peer ever transmits",
+          (gb_read_byte(&cpu, 0xFF56) & 0x02) == 0x02);
+    check("RP read: unused bits 5-2 always read 1", (gb_read_byte(&cpu, 0xFF56) & 0x3C) == 0x3C);
+    check("RP read: read-enable/LED bits correctly read back as 0 this time",
+          (gb_read_byte(&cpu, 0xFF56) & 0xC1) == 0x00);
+
+    gb_write_byte(&cpu, 0xFF56, 0x01); // LED on only
+    check("RP internal: LED bit alone round-trips", cpu.rp == 0x01);
+    check("RP read: bit 1 unaffected by the LED bit being set", (gb_read_byte(&cpu, 0xFF56) & 0x02) == 0x02);
+
+    cpu.is_cgb = 0;
+    cpu.rp = 0xC1;
+    check("RP: DMG mode always reads 0xFF regardless of stored state", gb_read_byte(&cpu, 0xFF56) == 0xFF);
+    gb_write_byte(&cpu, 0xFF56, 0x00);
+    check("RP: DMG mode ignores writes entirely", cpu.rp == 0xC1);
+}
+
 int main(void) {
     test_halt_after_ei();
     test_dma_wram_mirror_source();
     test_key1_double_speed();
     test_hdma_gdma();
+    test_infrared_port();
 
     if (failures == 0) {
         printf("\nAll cpu.c tests passed.\n");

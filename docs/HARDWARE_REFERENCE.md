@@ -571,11 +571,10 @@ handling](CPU_REFERENCE.md#interrupt-handling) section for that half.
 
 Phase 9's scope: cartridge detection, WRAM/VRAM banking, CGB tile
 attributes, and color palettes — enough for real CGB color rendering.
-Two follow-up passes added double-speed mode (`KEY1`, below) and
-HDMA/GDMA (below). The infrared port (`RP`) is still deliberately not
-implemented; its register remains part of the same inert `0xFF4C-0xFF7F`
-stub DMG mode has always used (reads `0xFF`, writes dropped) even when
-`is_cgb` is set.
+Three follow-up passes added double-speed mode (`KEY1`, below), HDMA/GDMA
+(below), and the infrared port at register level (`RP`, below — real
+peer-to-peer IR communication is a separate, out-of-scope networking
+feature, see that section).
 
 ### Mode detection
 
@@ -788,10 +787,36 @@ read-back encoding, and the `HALT`-gating simplification — plus the full
 existing regression suite staying byte-exact, since HDMA is purely
 opt-in (never triggered unless a ROM writes `HDMA5`).
 
-### What's deliberately out of scope
+### Infrared port — RP (`0xFF56`)
 
-The infrared port (`RP`, `0xFF56`) is unimplemented; its register sits
-in the same inert stub as any other genuinely unmapped I/O address.
+Real CGB hardware has a physical IR LED and receiver for wireless
+peer-to-peer communication between two units — pandocs' *CGB Registers*,
+"FF56 — RP". Bits 7-6 arm the receiver (read/write), bit 0 turns the LED
+on/off (read/write), bit 1 reports whether IR light is currently being
+received (read-only: `0` = signal detected, `1` = normal/none).
+Software bit-bangs its own protocol entirely by toggling/polling these
+bits — there's no packet format or framing at the hardware level.
+
+**This is deliberately implemented at register level only, not as real
+communication.** The entire point of this hardware is two physical
+devices exchanging light pulses; a single emulator process has no real
+peer to receive from. Bits 7-6 and bit 0 are plain read/write storage
+with no functional effect (`cpu->rp`, `src/mmu.c`'s `0xFF56` carve-out);
+bit 1 always reads `1` — "no signal detected" is the direct, honest
+consequence of there being no transmitting peer, not a separate guess.
+Unused bits (5-2) read as `1`, this project's usual convention. Actual
+peer-to-peer IR communication (two emulator instances, or an emulator
+and real hardware, genuinely exchanging bytes) would be a *networking*
+feature — this project has no such infrastructure at all yet (the
+existing serial port, `SB`/`SC`, is a one-way Blargg-style debug-output
+hook only) — and is out of scope here, the same category as the
+already-deferred real link-cable multiplayer.
+
+No real ROM meaningfully exercises this for a single-instance emulator;
+verified with direct unit tests (`tests/test_cpu.c`): read-enable/LED
+bit round-trip, bit 1 always `1` regardless of what's written or the
+read-enable state, unused bits always `1`, DMG mode always reads `0xFF`
+and ignores writes.
 
 ## Implementation status
 
