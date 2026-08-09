@@ -98,6 +98,18 @@ int main(void) {
     cpu.key1 = 0x81;
     cpu.speed_switch_pause = 2050;
 
+    // CGB HDMA/GDMA - an HBlank transfer genuinely can be mid-flight...
+    cpu.hdma_src_hi = 0x12;
+    cpu.hdma_src_lo = 0x34;
+    cpu.hdma_dst_hi = 0x56;
+    cpu.hdma_dst_lo = 0x78;
+    cpu.hdma_mode = 1;
+    cpu.hdma_active = 1;
+    cpu.hdma_src = 0x1234;
+    cpu.hdma_dst = 0x8560;
+    cpu.hdma_remaining = 0x0080;
+    cpu.hdma_block_bytes_left = 0x0010;
+
     GBPpu ppu = {0};
     ppu.lcdc = 0x91; ppu.stat = 0x85; ppu.scy = 0x11; ppu.scx = 0x22;
     ppu.ly = 0x50; ppu.lyc = 0x50; ppu.dma = 0xC0;
@@ -182,6 +194,11 @@ int main(void) {
     cpu.is_cgb = 0; cpu.svbk = 0;
     memset(cpu.wram_bank, 0, sizeof(cpu.wram_bank));
     cpu.key1 = 0; cpu.speed_switch_pause = 0;
+    cpu.hdma_src_hi = 0; cpu.hdma_src_lo = 0;
+    cpu.hdma_dst_hi = 0; cpu.hdma_dst_lo = 0;
+    cpu.hdma_mode = 0; cpu.hdma_active = 0;
+    cpu.hdma_src = 0; cpu.hdma_dst = 0;
+    cpu.hdma_remaining = 0; cpu.hdma_block_bytes_left = 0;
     memset(&ppu, 0, sizeof(ppu));
     memset(&timer, 0, sizeof(timer));
     memset(&joypad, 0, sizeof(joypad));
@@ -218,6 +235,13 @@ int main(void) {
     check("CPU: CGB is_cgb/svbk/wram_bank restored", cpu.is_cgb == 1 && cpu.svbk == 0x05 && wram_bank_ok);
 
     check("CPU: CGB key1/speed_switch_pause restored", cpu.key1 == 0x81 && cpu.speed_switch_pause == 2050);
+
+    check("CPU: CGB HDMA/GDMA hdma_* fields restored",
+          cpu.hdma_src_hi == 0x12 && cpu.hdma_src_lo == 0x34 &&
+          cpu.hdma_dst_hi == 0x56 && cpu.hdma_dst_lo == 0x78 &&
+          cpu.hdma_mode == 1 && cpu.hdma_active == 1 &&
+          cpu.hdma_src == 0x1234 && cpu.hdma_dst == 0x8560 &&
+          cpu.hdma_remaining == 0x0080 && cpu.hdma_block_bytes_left == 0x0010);
 
     check("PPU: registers", ppu.lcdc == 0x91 && ppu.stat == 0x85 && ppu.scy == 0x11 && ppu.scx == 0x22 &&
                              ppu.ly == 0x50 && ppu.lyc == 0x50 && ppu.dma == 0xC0 &&

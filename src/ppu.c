@@ -631,6 +631,7 @@ void gb_ppu_step(GBPpu *ppu, struct GBCpu *cpu, int cycles) {
                 render_scanline(ppu, cpu);
                 ppu->mode = 0;
                 update_stat_line(ppu, cpu); // Mode 0 int select, via the shared line - see its own comment
+                gb_hdma_hblank_trigger(cpu); // CGB HBlank DMA - see its own comment (mmu.c)
             }
             break;
         }

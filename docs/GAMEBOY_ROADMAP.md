@@ -139,10 +139,11 @@ Status section's own Phase 7 entry.
 ### Phase 9: Game Boy Color (CGB) support
 
 Cartridge CGB-flag detection, WRAM/VRAM banking, CGB tile attributes,
-color palettes, and double-speed mode (`KEY1`) - real CGB color
-rendering plus the CPU speed switch. HDMA/GDMA and the infrared port
-deliberately deferred - see the Status section's own Phase 9 entries
-for the full scope and reasoning.
+color palettes, double-speed mode (`KEY1`), and HDMA/GDMA VRAM DMA
+transfers - real CGB color rendering plus the CPU speed switch and
+mid-frame VRAM streaming. The infrared port is deliberately deferred -
+see the Status section's own Phase 9 entries for the full scope and
+reasoning.
 
 ## Status
 
@@ -2094,10 +2095,10 @@ file before writing any code).
   by re-running it after every major change in this phase, not just at
   the end.
 
-**Deferred from this pass**: HDMA/GDMA (`0xFF51-0xFF55`); the infrared
-port (`RP`, `0xFF56`); a real GPL-license policy decision (needed
-before `ucity` or similar can be committed as a homebrew regression
-test).
+**Deferred from this pass**: the infrared port (`RP`, `0xFF56`); a real
+GPL-license policy decision (needed before `ucity` or similar can be
+committed as a homebrew regression test). (HDMA/GDMA was picked up in a
+second follow-up pass - see below.)
 
 **Phase 9 follow-up (double-speed mode, `KEY1`/`0xFF4D`): implemented,
 and the "high-risk" flag turned out to overstate the actual blast
@@ -2169,7 +2170,90 @@ to its pre-change capture, confirming this real game's rendering is
 completely unaffected (it evidently never arms KEY1 itself, but proves
 the untouched-path guarantee end-to-end regardless).
 
-**Next**: user-directed - either HDMA/GDMA, resolving the GPL-license
-question to add a real homebrew regression game, or starting on
+**Phase 9 follow-up 2 (HDMA/GDMA, `0xFF51-0xFF55`): implemented.** The
+other CGB piece deferred from the original Phase 9 slice, and more
+consequential for real-game compatibility than double-speed mode - many
+real CGB games use HBlank DMA to stream tile data mid-frame without
+visible tearing.
+
+Grounded in pandocs' `CGB_Registers.md` "LCD VRAM DMA Transfers"
+(fetched fresh). `GBCpu` gained `hdma_src_hi`/`hdma_src_lo`/
+`hdma_dst_hi`/`hdma_dst_lo` (pure write-only staging latches for
+`HDMA1-4`, matching pandocs' explicit "[write-only]" tag - no readback
+path exists on real hardware), `hdma_mode`/`hdma_active`/`hdma_src`/
+`hdma_dst`/`hdma_remaining`/`hdma_block_bytes_left` (the actual transfer
+state, snapshotted from the staging latches only when `HDMA5` is
+written - `start_or_cancel_hdma()`, `mmu.c`). Two modes, both sharing
+one underlying byte-copy mechanism: General-Purpose DMA copies the whole
+transfer as one uninterruptible block; HBlank DMA copies one 16-byte
+block per real HBlank (`gb_hdma_hblank_trigger()`, hooked into `ppu.c`'s
+existing Mode 3->0 transition - the same transition that already drives
+STAT interrupt timing, so no new PPU state machine was needed), pausing
+the CPU only for each block's few M-cycles and running normally between
+blocks, potentially spanning many frames.
+
+Both share `gb_hdma_tick()` (`mmu.c`, called from `gb_mcycle_tick()`
+same as `gb_dma_tick()`): a flat 2 bytes/M-cycle at normal speed, 1
+byte/M-cycle at double speed - verified directly against pandocs'
+literal "8 M-cycles Normal Speed / 16 fast M-cycles Double Speed"
+numbers for one block in `tests/test_cpu.c`, the same "stays at
+real-time rate, needs double the M-cycles at double speed" principle
+already established for the PPU/APU throttle in the double-speed pass
+above. `gb_cpu_step()` blocks CPU dispatch entirely while a block is
+copying (mirroring the `halted`/`speed_switch_pause` pattern already in
+place), but unlike the KEY1 freeze, *does* keep calling
+`gb_mcycle_tick()` so DMA/timer/PPU/APU all advance in real time -
+nothing in pandocs suggests HDMA/GDMA freezes other subsystems the way
+the KEY1 switch's own pause does.
+
+**A real bug caught and fixed during this pass, before it shipped**: the
+first `HDMA5` read-back implementation collapsed two genuinely different
+pandocs-documented states into one - "manually cancelled mid-transfer"
+(bit 7 forced to 1, but bits 0-6 *still* report the remaining block
+count) versus "naturally completed" (flat `$FF`). Caught by re-reading
+the plan's own grounding text against the code before writing tests,
+fixed in `mmu.c`'s `HDMA5` read handler to check `hdma_remaining != 0`
+as the distinguishing signal (a cancelled transfer always leaves bytes
+behind; a completed one never does), and directly covered by a new
+`tests/test_cpu.c` assertion.
+
+**Known, documented simplifications**: pandocs' "upon halting the CPU...
+the transfer will also be halted" is modeled as "skip arming a new
+HBlank block while `cpu->halted`," re-checked at the next real HBlank -
+not a precise resume-the-instant-HALT-ends model. Gambatte's own hwtest
+suite has several tests targeting exactly this interaction at cycle
+boundaries (`hdma_late_m0halt_*`, `hdma_ei_m3halt_m0unhalt_ly_*`),
+confirming it's a real, obscure nuance - those tests are raw `.asm`
+needing a bespoke non-rgbds toolchain with unconfirmed licensing, out of
+scope here, same reasoning that kept `ucity` and the double-speed
+gambatte tests out. VRAM-as-HDMA-source (pandocs: "yet to be tested...
+will cause garbage") just does a plain read, no garbage injection.
+Destination-address overflow is pandocs' own open question upstream, not
+specially handled either.
+
+**Verification**: no real ROM found - same search as the double-speed
+pass (Mooneye's upstream tree, gambatte-core's `hwtests/`) applies here
+too. Covered with direct unit tests (`tests/test_cpu.c`): `HDMA1-4`
+write-only latching; GDMA's exact 8-vs-16-M-cycle drain rate and correct
+byte placement; HBlank mode's per-trigger block copying across a
+multi-block transfer; mid-transfer cancellation's exact read-back
+encoding (the bug above); the `HALT`-gating simplification.
+`SAVESTATE_VERSION` bumped 12->13 for the ten new `hdma_*` fields (an
+HBlank transfer can genuinely be mid-flight across many frames), with
+matching `tests/test_savestate.c` coverage. Zero regressions: the full
+existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2`
+100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate round-trip) stayed
+exactly as before. Manual smoke check re-running the Tobu Tobu Girl
+Deluxe local demo (`roms/tobudx.gb`, gitignored) at both an early and a
+late frame: byte-identical to its pre-HDMA captures both times - this
+particular game evidently doesn't exercise HDMA in a way that affects
+either checked frame (a simpler, jam-style platformer rather than one
+built around raster/streaming effects), not a red flag on its own, but
+worth keeping in mind that this pass's real-game validation is thinner
+than double-speed mode's.
+
+**Next**: user-directed - the infrared port, resolving the GPL-license
+question to add a real homebrew regression game, finding a real CGB
+game that visibly exercises HDMA for stronger validation, or starting on
 original homebrew game content, which the user has flagged as a later
 goal of this project alongside CGB support.

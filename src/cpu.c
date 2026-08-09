@@ -936,6 +936,19 @@ int gb_cpu_step(GBCpu *cpu) {
         return 4;
     }
 
+    // CGB HDMA/GDMA (cpu.h's hdma_* comment): while a block is actively
+    // copying (the whole transfer for GDMA, up to 16 bytes for HDMA),
+    // "the execution of the program is halted" (pandocs' CGB_Registers.md
+    // "FF55 — HDMA5") - unlike the KEY1 freeze above, this *does* call
+    // gb_mcycle_tick() every M-cycle, since DMA/timer/PPU/APU all keep
+    // running in real time during an HDMA/GDMA transfer (nothing in
+    // pandocs suggests otherwise, unlike the KEY1 freeze's documented
+    // "DIV does not tick").
+    if (cpu->hdma_block_bytes_left) {
+        gb_mcycle_tick(cpu);
+        return 4;
+    }
+
     uint8_t pending = (uint8_t)(gb_read_byte(cpu, 0xFFFF) & gb_read_byte(cpu, 0xFF0F) & 0x1F);
 
     // Any pending, enabled interrupt wakes the CPU from HALT even when

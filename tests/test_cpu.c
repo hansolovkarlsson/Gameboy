@@ -245,10 +245,138 @@ static void test_key1_double_speed(void) {
     check("mcycle_tick: CGB double speed advances PPU by only 2 T-states", ppu.dots == 2);
 }
 
+// Direct unit test for HDMA/GDMA (0xFF51-0xFF55) - pandocs'
+// CGB_Registers.md. Covers register latching, GDMA's full-transfer
+// drain rate (checked directly against pandocs' literal "8 M-cycles
+// Normal / 16 fast M-cycles Double Speed" numbers for one $10 block),
+// HBlank mode's per-trigger block copying, mid-transfer cancellation,
+// and the HALT-gating simplification documented in
+// docs/HARDWARE_REFERENCE.md's HDMA section.
+static void test_hdma_gdma(void) {
+    uint8_t memory[65536] = {0};
+    uint8_t rom[0x8000] = {0};
+    GBCart cart = {0};
+    cart.rom = rom;
+    cart.rom_size = sizeof(rom);
+    cart.mbc_type = GB_MBC_NONE;
+
+    GBTimer timer;
+    memset(&timer, 0, sizeof(timer));
+
+    GBCpu cpu;
+    memset(&cpu, 0, sizeof(cpu));
+    cpu.memory = memory;
+    cpu.cart = &cart;
+    cpu.timer = &timer;
+    cpu.is_cgb = 1;
+    gb_cpu_init_tables();
+    gb_cpu_reset(&cpu);
+
+    // --- HDMA1-4: write-only staging latches ---
+    gb_write_byte(&cpu, 0xFF51, 0xC1);
+    gb_write_byte(&cpu, 0xFF52, 0x23);
+    gb_write_byte(&cpu, 0xFF53, 0x85);
+    gb_write_byte(&cpu, 0xFF54, 0x67);
+    check("HDMA1-4: always read back 0xFF (write-only)",
+          gb_read_byte(&cpu, 0xFF51) == 0xFF && gb_read_byte(&cpu, 0xFF52) == 0xFF &&
+          gb_read_byte(&cpu, 0xFF53) == 0xFF && gb_read_byte(&cpu, 0xFF54) == 0xFF);
+    check("HDMA1-4: internal staging latches hold the written bytes",
+          cpu.hdma_src_hi == 0xC1 && cpu.hdma_src_lo == 0x23 &&
+          cpu.hdma_dst_hi == 0x85 && cpu.hdma_dst_lo == 0x67);
+    check("HDMA5: reads 0xFF before any transfer starts", gb_read_byte(&cpu, 0xFF55) == 0xFF);
+
+    // --- GDMA: one $10 (16-byte) block, checked against pandocs' exact
+    // M-cycle counts (8 Normal Speed / 16 Double Speed for one block) ---
+    memory[0xC100] = 0xAA; // source: WRAM 0xC100-0xC10F
+    for (int i = 0; i < 16; i++) memory[0xC100 + i] = (uint8_t)(0x10 + i);
+    gb_write_byte(&cpu, 0xFF51, 0xC1); gb_write_byte(&cpu, 0xFF52, 0x00); // src = 0xC100
+    gb_write_byte(&cpu, 0xFF53, 0x80); gb_write_byte(&cpu, 0xFF54, 0x00); // dst = 0x8000
+    gb_write_byte(&cpu, 0xFF55, 0x00); // GDMA (bit7=0), length = (0+1)*16 = 16 bytes
+    check("GDMA start: hdma_active set", cpu.hdma_active == 1);
+    check("GDMA start: whole transfer armed as one block (normal speed)",
+          cpu.hdma_block_bytes_left == 16);
+
+    int normal_speed_steps = 0;
+    while (cpu.hdma_block_bytes_left) { gb_cpu_step(&cpu); normal_speed_steps++; }
+    check("GDMA normal speed: drains in exactly 8 M-cycles for one $10 block (pandocs)",
+          normal_speed_steps == 8);
+    check("GDMA: all 16 bytes landed correctly in VRAM bank 0 (cpu.memory)",
+          memcmp(&memory[0x8000], &memory[0xC100], 16) == 0);
+    check("GDMA: transfer marked complete", cpu.hdma_active == 0);
+    check("GDMA: HDMA5 reads 0xFF once complete", gb_read_byte(&cpu, 0xFF55) == 0xFF);
+
+    // Same block, this time at double speed - pandocs: 16 "fast" M-cycles.
+    for (int i = 0; i < 16; i++) memory[0xC100 + i] = (uint8_t)(0x20 + i);
+    memset(&memory[0x8000], 0, 16);
+    cpu.key1 = 0x80; // double speed
+    gb_write_byte(&cpu, 0xFF55, 0x00);
+    check("GDMA start: whole transfer armed as one block (double speed)",
+          cpu.hdma_block_bytes_left == 16);
+    int double_speed_steps = 0;
+    while (cpu.hdma_block_bytes_left) { gb_cpu_step(&cpu); double_speed_steps++; }
+    check("GDMA double speed: drains in exactly 16 M-cycles for one $10 block (pandocs)",
+          double_speed_steps == 16);
+    check("GDMA double speed: bytes still land correctly",
+          memcmp(&memory[0x8000], &memory[0xC100], 16) == 0);
+    cpu.key1 = 0x00;
+
+    // --- HBlank DMA: two $10 blocks (32 bytes), one per trigger ---
+    for (int i = 0; i < 32; i++) memory[0xC200 + i] = (uint8_t)(0x30 + i);
+    memset(&memory[0x8000], 0, 32);
+    gb_write_byte(&cpu, 0xFF51, 0xC2); gb_write_byte(&cpu, 0xFF52, 0x00); // src = 0xC200
+    gb_write_byte(&cpu, 0xFF53, 0x80); gb_write_byte(&cpu, 0xFF54, 0x00); // dst = 0x8000
+    gb_write_byte(&cpu, 0xFF55, 0x81); // HBlank mode (bit7=1), length = (1+1)*16 = 32 bytes
+    check("HBlank DMA start: hdma_active set, hdma_mode=1", cpu.hdma_active == 1 && cpu.hdma_mode == 1);
+    check("HBlank DMA start: no block armed yet - waits for a real HBlank",
+          cpu.hdma_block_bytes_left == 0);
+    check("HBlank DMA start: nothing copied yet", memory[0x8000] == 0);
+
+    gb_hdma_hblank_trigger(&cpu); // simulates ppu.c's real Mode 3->0 transition
+    check("HBlank DMA: first trigger arms exactly one 16-byte block",
+          cpu.hdma_block_bytes_left == 16);
+    while (cpu.hdma_block_bytes_left) gb_cpu_step(&cpu);
+    check("HBlank DMA: first block's 16 bytes copied correctly",
+          memcmp(&memory[0x8000], &memory[0xC200], 16) == 0);
+    check("HBlank DMA: still active, second block pending", cpu.hdma_active == 1 && cpu.hdma_remaining == 16);
+
+    gb_hdma_hblank_trigger(&cpu); // second HBlank
+    check("HBlank DMA: second trigger arms the final block", cpu.hdma_block_bytes_left == 16);
+    while (cpu.hdma_block_bytes_left) gb_cpu_step(&cpu);
+    check("HBlank DMA: both blocks copied correctly",
+          memcmp(&memory[0x8000], &memory[0xC200], 32) == 0);
+    check("HBlank DMA: transfer complete after both blocks", cpu.hdma_active == 0);
+    check("HBlank DMA: HDMA5 reads 0xFF once complete", gb_read_byte(&cpu, 0xFF55) == 0xFF);
+
+    // --- Cancelling an in-progress HBlank transfer ---
+    memset(&memory[0x8000], 0, 32);
+    gb_write_byte(&cpu, 0xFF55, 0x81); // re-arm, 32 bytes, HBlank mode
+    gb_hdma_hblank_trigger(&cpu);
+    while (cpu.hdma_block_bytes_left) gb_cpu_step(&cpu); // drain the first 16-byte block
+    check("cancel-test: one block drained, 16 bytes remain", cpu.hdma_remaining == 16);
+    gb_write_byte(&cpu, 0xFF55, 0x00); // bit 7 = 0 while HBlank-active: cancels, doesn't start a GDMA
+    check("cancel: hdma_active clears", cpu.hdma_active == 0);
+    check("cancel: does not start copying (no new GDMA)", cpu.hdma_block_bytes_left == 0);
+    check("cancel: HDMA5 read reports the 1 remaining block with bit 7 forced to 1 (pandocs)",
+          gb_read_byte(&cpu, 0xFF55) == 0x80);
+
+    // --- HALT gating: pandocs' "halting the CPU also halts the transfer" ---
+    memset(&memory[0x8000], 0, 32);
+    gb_write_byte(&cpu, 0xFF55, 0x81); // re-arm, 32 bytes, HBlank mode
+    cpu.halted = 1;
+    gb_hdma_hblank_trigger(&cpu);
+    check("HALT: a pending HBlank block is not armed while cpu->halted",
+          cpu.hdma_block_bytes_left == 0);
+    cpu.halted = 0;
+    gb_hdma_hblank_trigger(&cpu);
+    check("HALT: the same trigger arms normally once no longer halted",
+          cpu.hdma_block_bytes_left == 16);
+}
+
 int main(void) {
     test_halt_after_ei();
     test_dma_wram_mirror_source();
     test_key1_double_speed();
+    test_hdma_gdma();
 
     if (failures == 0) {
         printf("\nAll cpu.c tests passed.\n");

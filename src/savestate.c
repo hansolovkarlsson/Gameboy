@@ -9,7 +9,7 @@
 #include <string.h>
 
 #define SAVESTATE_MAGIC "GBSS"
-#define SAVESTATE_VERSION 12u
+#define SAVESTATE_VERSION 13u
 
 // Explicit little-endian primitives - the same reasoning main.c's own
 // write_u32le()/write_u16le() (its WAV writer) already applies: on-disk
@@ -98,6 +98,15 @@ int gb_savestate_save(GBCpu *cpu, const char *path) {
     // itself, not just the resulting speed bit.
     w8(f, cpu->key1);
     w16(f, cpu->speed_switch_pause);
+
+    // CGB HDMA/GDMA - an HBlank transfer genuinely can be mid-flight
+    // (spanning many frames) at save time, same "must round-trip, not
+    // just the resulting VRAM bytes" reasoning as OAM DMA below.
+    w8(f, cpu->hdma_src_hi); w8(f, cpu->hdma_src_lo);
+    w8(f, cpu->hdma_dst_hi); w8(f, cpu->hdma_dst_lo);
+    w8(f, cpu->hdma_mode); w8(f, cpu->hdma_active);
+    w16(f, cpu->hdma_src); w16(f, cpu->hdma_dst);
+    w16(f, cpu->hdma_remaining); w16(f, cpu->hdma_block_bytes_left);
 
     // OAM DMA - a transfer genuinely can be mid-flight at any point
     // between gb_cpu_step() calls (unlike, say, di_cancels_ei_delay,
@@ -268,6 +277,13 @@ int gb_savestate_load(GBCpu *cpu, const char *path) {
     // CGB double-speed mode (KEY1) - see gb_savestate_save()'s matching comment.
     r8(f, &cpu->key1, &err);
     r16(f, &cpu->speed_switch_pause, &err);
+
+    // CGB HDMA/GDMA - see gb_savestate_save()'s matching comment.
+    r8(f, &cpu->hdma_src_hi, &err); r8(f, &cpu->hdma_src_lo, &err);
+    r8(f, &cpu->hdma_dst_hi, &err); r8(f, &cpu->hdma_dst_lo, &err);
+    r8(f, &cpu->hdma_mode, &err); r8(f, &cpu->hdma_active, &err);
+    r16(f, &cpu->hdma_src, &err); r16(f, &cpu->hdma_dst, &err);
+    r16(f, &cpu->hdma_remaining, &err); r16(f, &cpu->hdma_block_bytes_left, &err);
 
     // OAM DMA - see gb_savestate_save()'s matching comment.
     r8(f, &cpu->dma_request_pending, &err); r8(f, &cpu->dma_request_value, &err);

@@ -138,6 +138,34 @@ typedef struct GBCpu {
     uint8_t key1;
     uint16_t speed_switch_pause;
 
+    // CGB VRAM DMA transfers - HDMA1-5, 0xFF51-0xFF55 (pandocs'
+    // CGB_Registers.md). hdma_src_hi/lo and hdma_dst_hi/lo are pure
+    // write-only staging latches for FF51-54 (no readback exists on real
+    // hardware); hdma_src/hdma_dst are the *actual* transfer pointers,
+    // assembled and 16-byte-aligned from those staging bytes only at the
+    // moment FF55 is written (mmu.c's start_or_cancel_hdma()) - matching
+    // real hardware, where FF51-54 have no effect on an already-running
+    // transfer. hdma_mode is FF55 bit 7 at that same moment (0=General-
+    // Purpose DMA, all `hdma_remaining` bytes copy as one uninterruptible
+    // block; 1=HBlank DMA, up to 16 bytes copy per real HBlank - see
+    // gb_hdma_hblank_trigger(), ppu.c's Mode 3->0 transition).
+    // hdma_block_bytes_left is what actually blocks CPU dispatch
+    // (gb_cpu_step()'s own check, mirroring speed_switch_pause/halted):
+    // the whole transfer at once for GDMA, or up to 16 bytes at a time
+    // for HDMA, drained by gb_hdma_tick() (mmu.c, called from
+    // gb_mcycle_tick() same as gb_dma_tick()). hdma_active tracks the
+    // transfer overall (which for HDMA mode can span many frames between
+    // blocks); hdma_remaining is the total bytes still left across the
+    // whole transfer, independent of how much is left in the current
+    // block. All no-ops in DMG mode (is_cgb == 0), same convention as
+    // svbk/key1 above.
+    uint8_t hdma_src_hi, hdma_src_lo, hdma_dst_hi, hdma_dst_lo;
+    uint8_t hdma_mode;
+    uint8_t hdma_active;
+    uint16_t hdma_src, hdma_dst;
+    uint16_t hdma_remaining;
+    uint16_t hdma_block_bytes_left;
+
     // Forward-declared rather than #include "cart.h" here - cpu.h
     // shouldn't need to know GBCart's internals, only that mmu.c can
     // reach one through a GBCpu. NULL is valid (Phase 1's old flat-ROM
@@ -180,6 +208,19 @@ void gb_dma_tick(GBCpu *cpu);
 // isolation without a full GBCpu/GBTimer/GBPpu/GBApu wired together).
 // See mmu.c's own comment for the full reasoning.
 void gb_mcycle_tick(GBCpu *cpu);
+
+// Advances an active HDMA/GDMA transfer's `hdma_block_bytes_left` by one
+// M-cycle's worth of bytes (2 at normal speed, 1 at double speed - see
+// GBCpu's own hdma_* comment). Called from gb_mcycle_tick() right after
+// gb_dma_tick(), same "own function, same call site" split as that one.
+void gb_hdma_tick(GBCpu *cpu);
+
+// Arms one 16-byte HBlank-DMA block, if a transfer is active, in HBlank
+// mode, not already mid-block, and the CPU isn't halted (pandocs: "upon
+// halting the CPU... the transfer will also be halted"). Called from
+// ppu.c's own Mode 3->0 transition - the one real per-scanline HBlank
+// entry point.
+void gb_hdma_hblank_trigger(GBCpu *cpu);
 
 // Unlike Z80OpcodeHandler (cpm/emu/src/z80.h), no separate ram parameter -
 // GBCpu carries its own memory pointer and every handler goes through

@@ -571,11 +571,11 @@ handling](CPU_REFERENCE.md#interrupt-handling) section for that half.
 
 Phase 9's scope: cartridge detection, WRAM/VRAM banking, CGB tile
 attributes, and color palettes — enough for real CGB color rendering.
-A follow-up pass added double-speed mode (`KEY1`, below). HDMA/GDMA and
-the infrared port (`RP`) are still deliberately not implemented; their
-registers remain part of the same inert `0xFF4C-0xFF7F` stub DMG mode
-has always used (reads `0xFF`, writes dropped) even when `is_cgb` is
-set.
+Two follow-up passes added double-speed mode (`KEY1`, below) and
+HDMA/GDMA (below). The infrared port (`RP`) is still deliberately not
+implemented; its register remains part of the same inert `0xFF4C-0xFF7F`
+stub DMG mode has always used (reads `0xFF`, writes dropped) even when
+`is_cgb` is set.
 
 ### Mode detection
 
@@ -678,12 +678,14 @@ before normal execution resumes (`gb_op_stop()`/`gb_cpu_step()`'s
 
 What actually speeds up 2x: the CPU, the Timer/DIV registers, and OAM
 DMA transfer speed. What stays at the normal real-time rate: the PPU
-(LCD) and the APU (all sound timings/frequencies) — HDMA-to-VRAM would
-too, but it's out of scope regardless (see below). This emulator's
-timer and OAM DMA (`gb_timer_step()`, `gb_dma_tick()`) are already
-driven 1:1 with real CPU M-cycles with no throttling, so both speed up
-automatically once double speed is active — no code change needed
-there. The only place that *does* need a change is `gb_mcycle_tick()`
+(LCD) and the APU (all sound timings/frequencies) — HDMA/GDMA also
+stays at the normal real-time rate (see its own section below, which
+implements this: it moves twice as many M-cycles for the same real
+bytes at double speed). This emulator's timer and OAM DMA
+(`gb_timer_step()`, `gb_dma_tick()`) are already driven 1:1 with real
+CPU M-cycles with no throttling, so both speed up automatically once
+double speed is active — no code change needed there. The only place
+that *does* need a change for the PPU/APU is `gb_mcycle_tick()`
 (`src/mmu.c`), the single shared per-M-cycle backbone every opcode
 handler and the interrupt-dispatch path already funnel through: it
 hands `gb_ppu_step()`/`gb_apu_step()` half as many T-states per call
@@ -714,11 +716,82 @@ DMG/CGB regression suite staying byte-exact throughout, since
 double-speed is purely opt-in and never triggered unless a ROM
 explicitly arms KEY1 and executes `STOP`.
 
+### HDMA/GDMA — VRAM DMA transfers (`0xFF51-0xFF55`)
+
+The CGB's dedicated VRAM DMA engine (distinct from OAM DMA, which only
+targets OAM) — pandocs' *CGB Registers*, "LCD VRAM DMA Transfers".
+`HDMA1`/`HDMA2` (source high/low) and `HDMA3`/`HDMA4` (dest high/low)
+are pure write-only staging latches with no readback path on real
+hardware (always read `0xFF`); the source's low 4 bits and the dest's
+low 4 bits are both forced to 0 (16-byte aligned), and the destination
+is always forced into `0x8000-0x9FF0` regardless of what's written.
+Writing `HDMA5` snapshots those latches into the actual transfer and
+starts it — bits 0-6 encode length (`(n+1)*16` bytes, `$10`-`$800`),
+bit 7 selects one of two modes:
+
+- **General-Purpose DMA (bit 7 = 0)**: copies the entire transfer as one
+  uninterruptible block — "the execution of the program is halted until
+  the transfer has completed." Ignores VRAM bus contention entirely,
+  even mid-Mode-3.
+- **HBlank DMA (bit 7 = 1)**: copies exactly one 16-byte block per real
+  HBlank (`gb_hdma_hblank_trigger()`, hooked into `ppu.c`'s Mode 3→0
+  transition — the same transition already driving STAT interrupt
+  timing), pausing the CPU only for that block's few M-cycles each time
+  and running normally in between, until the whole transfer completes
+  (possibly spanning many frames). Writing `0` to bit 7 while an HBlank
+  transfer is active cancels it (without starting a fresh GDMA) rather
+  than being interpreted as a new transfer request; `HDMA1-4` are not
+  reset by a cancel.
+
+Both modes share the same underlying byte-copy mechanism
+(`gb_hdma_tick()`, `src/mmu.c`, called from `gb_mcycle_tick()` same as
+`gb_dma_tick()`): a flat rate of 2 bytes/M-cycle at normal speed, 1
+byte/M-cycle at double speed, matching pandocs' literal "8 M-cycles
+Normal Speed / 16 fast M-cycles Double Speed" numbers for one `$10`
+block exactly (verified directly in `tests/test_cpu.c`) — the same
+"stays at real-time rate, so double the M-cycles at double speed"
+principle the KEY1 section above already established for the PPU/APU.
+While any block is actively copying, `gb_cpu_step()` blocks CPU
+dispatch entirely (mirroring the `halted`/`speed_switch_pause` pattern),
+but *does* keep calling `gb_mcycle_tick()` so DMA/timer/PPU/APU all
+advance in real time — unlike the KEY1 freeze, nothing in pandocs
+suggests HDMA/GDMA stops other subsystems.
+
+Reading `HDMA5` reports one of three states, not two: actively copying
+(bit 7 clear, bits 0-6 = remaining blocks - 1); manually cancelled
+mid-transfer (bit 7 forced to 1, but bits 0-6 *still* report the
+remaining block count at cancellation — pandocs' own explicit wording,
+distinct from "completed"); or never-started/naturally-completed (flat
+`$FF`).
+
+**Known simplifications**: the CPU-`HALT`-pauses-the-transfer behavior
+pandocs documents ("upon halting the CPU... the transfer will also be
+halted") is modeled as "skip arming a new HBlank block while
+`cpu->halted`," re-checked at the next real HBlank — not a precise
+resume-the-instant-HALT-ends model. Gambatte's own hwtest suite has
+several tests targeting HDMA+HALT interaction at exact cycle boundaries
+(`hdma_late_m0halt_*`, `hdma_ei_m3halt_m0unhalt_ly_*`), confirming this
+is a real, obscure nuance — those tests are raw `.asm` needing a bespoke
+non-rgbds toolchain with unconfirmed licensing, out of scope here.
+VRAM-as-HDMA-source (pandocs: "yet to be tested... trying to specify a
+source in VRAM will cause garbage") just does a plain read with no
+garbage injection. Destination-address overflow is pandocs' own open
+question ("still needs to be investigated" upstream) and isn't specially
+handled either.
+
+No known real-ROM test exists for this: same search as KEY1 above
+(Mooneye's upstream tree, gambatte-core's `hwtests/`) applies. Verified
+with direct unit tests (`tests/test_cpu.c`): register latching, GDMA's
+exact 8-vs-16-M-cycle drain rate, HBlank mode's per-trigger block
+copying across a multi-block transfer, mid-transfer cancellation's exact
+read-back encoding, and the `HALT`-gating simplification — plus the full
+existing regression suite staying byte-exact, since HDMA is purely
+opt-in (never triggered unless a ROM writes `HDMA5`).
+
 ### What's deliberately out of scope
 
-HDMA/GDMA (`0xFF51-0xFF55`) and the infrared port (`RP`, `0xFF56`) are
-unimplemented; their registers sit in the same inert stub as any other
-genuinely unmapped I/O address.
+The infrared port (`RP`, `0xFF56`) is unimplemented; its register sits
+in the same inert stub as any other genuinely unmapped I/O address.
 
 ## Implementation status
 

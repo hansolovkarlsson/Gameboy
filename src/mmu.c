@@ -45,6 +45,32 @@ static uint8_t *wram_banked_ptr(GBCpu *cpu, uint16_t addr) {
     return &cpu->wram_bank[bank - 2][addr - 0xD000];
 }
 
+// FF55 write handler (HDMA1-4 latching happens directly at their own
+// gb_write_byte() call sites, right below). pandocs' CGB_Registers.md
+// "FF55 — HDMA5": writing zero to bit 7 while an HBlank transfer is
+// already active cancels it (doesn't start a fresh GDMA); HDMA1-4 are
+// explicitly *not* reset by this - matches leaving hdma_src/hdma_dst/
+// hdma_remaining untouched here. Otherwise this arms a new transfer,
+// snapshotting the staging latches into the real transfer pointers -
+// changes to FF51-54 after this point have no effect on the transfer
+// now in progress, only on whatever the *next* FF55 write arms.
+static void start_or_cancel_hdma(GBCpu *cpu, uint8_t val) {
+    if (cpu->hdma_active && cpu->hdma_mode == 1 && !(val & 0x80)) {
+        cpu->hdma_active = 0;
+        return;
+    }
+    cpu->hdma_src = (uint16_t)(((cpu->hdma_src_hi << 8) | cpu->hdma_src_lo) & 0xFFF0);
+    cpu->hdma_dst = (uint16_t)(0x8000 | (((cpu->hdma_dst_hi << 8) | cpu->hdma_dst_lo) & 0x1FF0));
+    cpu->hdma_remaining = (uint16_t)(((val & 0x7F) + 1) * 16);
+    cpu->hdma_mode = (uint8_t)(val >> 7);
+    cpu->hdma_active = 1;
+    // GDMA has no HBlank gating at all - it's one uninterruptible block
+    // covering the whole transfer, armed immediately here. HBlank mode
+    // leaves this at 0; gb_hdma_hblank_trigger() (ppu.c's Mode 3->0
+    // transition) arms the first real block.
+    cpu->hdma_block_bytes_left = (cpu->hdma_mode == 0) ? cpu->hdma_remaining : 0;
+}
+
 uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     if (addr < 0x8000) return gb_cart_read(cpu->cart, addr);
     if (addr >= 0xA000 && addr < 0xC000) return gb_cart_read_ram(cpu->cart, addr);
@@ -89,6 +115,28 @@ uint8_t gb_read_byte(GBCpu *cpu, uint16_t addr) {
     // pandocs' CGB_Registers.md "FF4D — KEY1/SPD", confirmed against
     // gbdev/hardware.inc's B_SPD_DOUBLE=7/B_SPD_PREPARE=0 bit constants.
     if (addr == 0xFF4D) return cpu->is_cgb ? (uint8_t)((cpu->key1 & 0x81) | 0x7E) : 0xFF;
+    // HDMA1-4 (0xFF51-0xFF54): pure write-only staging latches on real
+    // hardware, no readback path at all - pandocs' CGB_Registers.md
+    // tags each one "[write-only]" explicitly. Always 0xFF, CGB or not.
+    if (addr >= 0xFF51 && addr <= 0xFF54) return 0xFF;
+    // HDMA5 (0xFF55): bit 7 = "not active" (1) / "active" (0); bits 0-6
+    // = remaining $10-byte blocks minus 1 - pandocs' CGB_Registers.md
+    // "FF55 — HDMA5". Three distinct states, not two: genuinely active
+    // (bit 7 clear, real remaining count); manually cancelled mid-HBlank-
+    // transfer (bit 7 forced to 1, but the lower 7 bits *still* report
+    // how many blocks were left at cancellation - pandocs' own explicit
+    // wording, not the same as "completed"); and never-started/naturally-
+    // completed (flat $FF). hdma_remaining is always a multiple of 16 by
+    // construction (start_or_cancel_hdma() below, and gb_hdma_tick() only
+    // clears hdma_active exactly when it reaches 0), so >>4 is an exact
+    // block count and "still nonzero but not active" unambiguously means
+    // "was cancelled," never "just completed."
+    if (addr == 0xFF55) {
+        if (!cpu->is_cgb) return 0xFF;
+        if (cpu->hdma_active) return (uint8_t)(((cpu->hdma_remaining >> 4) - 1) & 0x7F);
+        if (cpu->hdma_remaining) return (uint8_t)((((cpu->hdma_remaining >> 4) - 1) & 0x7F) | 0x80);
+        return 0xFF;
+    }
     // Genuinely unmapped $FFxx I/O - no backing register exists at
     // all, so these always read back as 1 in every bit (same
     // unused_hwio-GS.gb ROM; $FF15/$FF1F/$FF27-$FF29 are the
@@ -171,6 +219,14 @@ void gb_write_byte(GBCpu *cpu, uint16_t addr, uint8_t val) {
     // writable; bit 7 (current speed) is set only by gb_op_stop()'s actual
     // switch (cpu.c), never by a direct write.
     if (addr == 0xFF4D) { if (cpu->is_cgb) cpu->key1 = (uint8_t)((cpu->key1 & 0x80) | (val & 0x01)); return; }
+    // HDMA1-4 - pure staging latches, see the matching read-side
+    // comment. Ignored entirely in DMG mode.
+    if (addr == 0xFF51) { if (cpu->is_cgb) cpu->hdma_src_hi = val; return; }
+    if (addr == 0xFF52) { if (cpu->is_cgb) cpu->hdma_src_lo = val; return; }
+    if (addr == 0xFF53) { if (cpu->is_cgb) cpu->hdma_dst_hi = val; return; }
+    if (addr == 0xFF54) { if (cpu->is_cgb) cpu->hdma_dst_lo = val; return; }
+    // HDMA5 - see start_or_cancel_hdma()'s own comment above.
+    if (addr == 0xFF55) { if (cpu->is_cgb) start_or_cancel_hdma(cpu, val); return; }
     // Genuinely unmapped - see the matching read-side comment above;
     // no backing register, so the write has nowhere to go.
     if (addr == 0xFF03 || (addr >= 0xFF08 && addr <= 0xFF0E) || (addr >= 0xFF4C && addr <= 0xFF7F)) {
@@ -283,6 +339,58 @@ void gb_dma_tick(GBCpu *cpu) {
     }
 }
 
+// Advances an active HDMA/GDMA transfer (cpu.h's hdma_* comment) by one
+// M-cycle's worth of bytes. Rate is a flat 2 bytes/M-cycle at normal
+// speed, 1 byte/M-cycle at double speed - pandocs' CGB_Registers.md
+// "Transfer Timings": a $10-byte block takes 8 M-cycles at Normal Speed
+// but 16 "fast" M-cycles at Double Speed, i.e. it stays at the same
+// *real-time* rate regardless of CPU speed, exactly the same "needs
+// double the M-cycles when the CPU runs 2x faster" pattern already
+// applied to the PPU/APU throttle in gb_mcycle_tick() below.
+void gb_hdma_tick(GBCpu *cpu) {
+    if (!cpu->hdma_block_bytes_left) return;
+    int rate = (cpu->is_cgb && (cpu->key1 & 0x80)) ? 1 : 2;
+    for (int i = 0; i < rate && cpu->hdma_block_bytes_left; i++) {
+        uint8_t byte = gb_read_byte(cpu, cpu->hdma_src);
+        // Destination write bypasses gb_write_byte()/Mode-3 VRAM
+        // blocking entirely - pandocs: GDMA "blindly attempts to copy
+        // the data, even if the LCD controller is currently accessing
+        // VRAM." Same "DMA writes go direct" reasoning gb_dma_tick()
+        // above already uses for OAM. VBK is read live here (not
+        // snapshotted when the transfer was armed) per pandocs' own
+        // warning against changing it mid-transfer - implying it *does*
+        // take effect immediately if a game ignores that warning.
+        uint8_t *dst = (cpu->ppu && (cpu->ppu->vbk & 1))
+            ? &cpu->ppu->vram_bank1[cpu->hdma_dst - 0x8000]
+            : &cpu->memory[cpu->hdma_dst];
+        *dst = byte;
+        cpu->hdma_src++;
+        cpu->hdma_dst++;
+        cpu->hdma_remaining--;
+        cpu->hdma_block_bytes_left--;
+    }
+    if (!cpu->hdma_remaining) cpu->hdma_active = 0;
+}
+
+// Arms one 16-byte HBlank-DMA block - called from ppu.c's own Mode 3->0
+// transition, the one real per-scanline HBlank entry point. Pandocs'
+// CGB_Registers.md: "the HBlank DMA transfers $10 bytes of data during
+// each HBlank" (LY=0-143 only - ppu.c only reaches Mode 0 through this
+// transition on visible lines, never during VBlank, so no separate
+// LY check is needed here). !hdma_block_bytes_left guards against
+// re-arming mid-block (shouldn't be possible - a block always fully
+// drains within the M-cycles of a single HBlank - but keeps this
+// idempotent regardless). !cpu->halted is this implementation's chosen
+// reading of pandocs' "upon halting the CPU, the transfer will also be
+// halted" - documented as a simplification (not a precise mid-freeze
+// resume) in docs/HARDWARE_REFERENCE.md's HDMA section.
+void gb_hdma_hblank_trigger(GBCpu *cpu) {
+    if (cpu->is_cgb && cpu->hdma_active && cpu->hdma_mode == 1
+        && !cpu->hdma_block_bytes_left && !cpu->halted) {
+        cpu->hdma_block_bytes_left = cpu->hdma_remaining < 16 ? cpu->hdma_remaining : 16;
+    }
+}
+
 // Advances every subsystem whose own state depends on precise sub-
 // instruction timing - DMA, the timer, the PPU, and the APU - by
 // exactly one real M-cycle (4 T-states), called once per real M-cycle
@@ -323,6 +431,7 @@ void gb_dma_tick(GBCpu *cpu) {
 // often in real time, so halving keeps their real-time rate constant.
 void gb_mcycle_tick(GBCpu *cpu) {
     gb_dma_tick(cpu);
+    gb_hdma_tick(cpu);
     if (cpu->timer) gb_timer_step(cpu->timer, cpu, 4);
     int video_audio_cycles = (cpu->is_cgb && (cpu->key1 & 0x80)) ? 2 : 4;
     if (cpu->ppu) gb_ppu_step(cpu->ppu, cpu, video_audio_cycles);
