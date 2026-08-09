@@ -2251,7 +2251,8 @@ particular game evidently doesn't exercise HDMA in a way that affects
 either checked frame (a simpler, jam-style platformer rather than one
 built around raster/streaming effects), not a red flag on its own, but
 worth keeping in mind that this pass's real-game validation is thinner
-than double-speed mode's.
+than double-speed mode's - closed by a real-hardware-shaped RGBDS test
+ROM in a later follow-up, see below.
 
 **Phase 9 follow-up 3 (infrared port, `RP`/`0xFF56`): implemented at
 register level, deliberately not as real communication.** The last
@@ -2297,12 +2298,56 @@ explicitly out of scope, same category as real link-cable multiplayer);
 a real GPL-license policy decision (needed before `ucity` or similar can
 be committed as a homebrew regression test).
 
+**Phase 9 follow-up 4 (real-hardware-shaped HDMA/GDMA validation): a
+purpose-built RGBDS test ROM, closing the "real-game validation is
+thinner" gap the HDMA/GDMA follow-up left open.** User asked to check
+whether a real game exercises HDMA for stronger validation than
+`tests/test_cpu.c`'s direct/synthetic unit tests provide. The search
+came up empty rather than confirming anything: `tobutobugirl-dx`
+(already used as a local demo) confirmed via direct GitHub source
+search to never reference `HDMA5` at all, fully explaining its earlier
+byte-identical renders rather than leaving that result ambiguous.
+`mills32/Parallax-effect-for-Game-Boy-Color`, found via web search,
+genuinely does use `HDMA1-5` (confirmed by reading its actual assembly
+source directly, not trusting a search summary) - but has no license at
+all and is built with SDCC/GBDK, a toolchain this project has never
+needed and hasn't set up. GBDK-2020's own `hblank_copy_vram` example
+inherits the same unresolved GPL2+LE policy question already blocking
+`ucity`.
+
+Given no clean candidate, the user chose to close the gap the same way
+`rgbds/examples/mbc3_rtc.asm` already closed an equivalent one for
+MBC3's RTC: a small, purpose-built ROM using the toolchain this project
+already has (`rgbds`), entirely this project's own code (no licensing
+question), driving the real memory-mapped `0xFF51-0xFF55` registers
+through genuinely CPU-executed instructions rather than a direct
+function call. New `rgbds/examples/hdma.asm` (see `rgbds/README.md`'s
+own entry for the full per-round breakdown), reporting results over
+serial (`SB`/`SC`, the same mechanism `hello.asm`/`mbc3_rtc.asm` use):
+General-Purpose DMA (the CPU genuinely blocks on the very next
+instruction until the transfer completes - no explicit wait coded into
+the ROM, matching real hardware exactly); HBlank DMA (explicitly polls
+`HDMA5` to completion, which only succeeds if two *real* HBlank periods
+actually occur - i.e. `ppu.c`'s own Mode 3->0 transition genuinely
+firing `gb_hdma_hblank_trigger()`, the one thing the direct unit tests
+couldn't exercise); and VRAM bank isolation (GDMAs into VRAM bank 1 at
+the exact address round 1 used in bank 0, then confirms bank 0's
+original bytes are untouched). All three rounds produced exactly the
+expected output on the first real run - `make gameboy-rgbds-hdma-test`
+locks that captured output in as the exact expected string, same
+"construct the ROM, then capture its real output" approach
+`mbc3_rtc.asm`'s target already used. Needs `--mode cgb` at runtime
+(HDMA is CGB-only; this ROM's own header doesn't carry the CGB flag -
+`gb_resolve_cgb_mode()`'s `"cgb"` mode forces it regardless). Zero
+regressions: the full existing suite, including both other RGBDS
+targets, stayed green throughout.
+
 **Next**: user-directed - all three CGB register-level follow-ups from
-Phase 9 are now done (double-speed, HDMA/GDMA, infrared port). Open
+Phase 9 are done (double-speed, HDMA/GDMA, infrared port), and HDMA/GDMA
+now has real-hardware-shaped validation alongside its unit tests. Open
 threads: resolving the GPL-license question to add a real homebrew
-regression game, finding a real CGB game that visibly exercises HDMA
-for stronger validation, building real networking/link infrastructure
-(would unlock both real IR communication and real link-cable
-multiplayer at once, since they're the same underlying gap), or starting
-on original homebrew game content, which the user has flagged as a
-later goal of this project alongside CGB support.
+regression game, building real networking/link infrastructure (would
+unlock both real IR communication and real link-cable multiplayer at
+once, since they're the same underlying gap), or starting on original
+homebrew game content, which the user has flagged as a later goal of
+this project alongside CGB support.

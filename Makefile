@@ -128,6 +128,16 @@ RGBDS_MBC3_RTC_SRC := rgbds/examples/mbc3_rtc.asm
 RGBDS_MBC3_RTC_OBJ := $(BIN_DIR)/rgbds-mbc3-rtc.o
 RGBDS_MBC3_RTC_ROM := $(BIN_DIR)/rgbds-mbc3-rtc.gb
 
+# CGB HDMA/GDMA (0xFF51-0xFF55), driven through the actual memory-mapped
+# registers by genuinely CPU-executed code and, for the HBlank round,
+# genuine PPU Mode 3->0 timing - see rgbds/examples/hdma.asm's own top
+# comment for why this exists alongside tests/test_cpu.c's synthetic
+# gb_hdma_hblank_trigger() calls (no real, permissively-licensed game or
+# demo using HDMA was found).
+RGBDS_HDMA_SRC := rgbds/examples/hdma.asm
+RGBDS_HDMA_OBJ := $(BIN_DIR)/rgbds-hdma.o
+RGBDS_HDMA_ROM := $(BIN_DIR)/rgbds-hdma.gb
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -157,7 +167,7 @@ SDL_PKGS := sdl2
 SDL_CFLAGS := $(shell pkg-config --cflags $(SDL_PKGS) 2>/dev/null) -I$(SRC_DIR)
 SDL_LIBS := $(shell pkg-config --libs $(SDL_PKGS) 2>/dev/null)
 
-.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
+.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-rgbds-hdma-test gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
 
 all: gameboy
 
@@ -213,6 +223,15 @@ gameboy-rgbds-mbc3-test: $(TARGET) | $(BIN_DIR)
 		&& echo "gameboy-rgbds-mbc3-test: OK (RTC latch/isolation behavior correct)" \
 		|| (echo "gameboy-rgbds-mbc3-test: FAIL (expected serial output not seen)"; exit 1)
 
+gameboy-rgbds-hdma-test: $(TARGET) | $(BIN_DIR)
+	rgbasm -o $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_SRC)
+	rgblink -o $(RGBDS_HDMA_ROM) $(RGBDS_HDMA_OBJ)
+	rgbfix -v -p 0xFF $(RGBDS_HDMA_ROM)
+	./$(TARGET) $(RGBDS_HDMA_ROM) --mode cgb 2>&1 | \
+		grep -q " R1:GDMAROUND1BYTES! R2:HBLANKROUND2BYTES0123456789ABCDE R3a:BANK1-ISOLATION! R3b:GDMAROUND1BYTES! DONE" \
+		&& echo "gameboy-rgbds-hdma-test: OK (GDMA/HBlank-DMA/VRAM-bank-isolation all correct through real CPU+PPU timing)" \
+		|| (echo "gameboy-rgbds-hdma-test: FAIL (expected serial output not seen)"; exit 1)
+
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
 
@@ -249,4 +268,4 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM)
