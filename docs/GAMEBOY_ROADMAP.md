@@ -3455,6 +3455,92 @@ existing regression suite (unit tests, all visual/game/savestate
 targets, all three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed
 green throughout - this change touches only `wayfarer/`.
 
-**Next**: Milestone 4 (items/inventory + HUD) is the natural next
-step, once user-directed - likely also the natural point to revisit
-the player-health/game-over scope deferred here.
+**Milestone 4 (this pass): done.** User-directed: "do next" after
+Milestone 3. Roadmap Milestone 4 is "items/inventory + HUD," but a full
+inventory system has no real use yet - no locked doors exist for a key
+to open, that's a later milestone's own stretch scope - so, confirmed
+with the user, this pass is the honestly-scoped slice: player health
+(hearts), a heart-icon HUD, the enemy can now damage the player on
+contact, and one heart pickup that heals - a real, immediately-useful
+item, not a placeholder. On hearts reaching 0: confirmed auto-respawn
+immediately, no button press needed.
+
+**`wayfarer/src/room.h`** gained `ROOM_CENTER_X`/`ROOM_CENTER_Y`
+(derived from the existing `ROOM_MIN/MAX_X/Y`) - one source of truth
+for "where the player starts/respawns," shared by `player.c`'s own
+`player_init()` (previously its own inline arithmetic) and `world.c`'s
+new respawn target.
+
+**`wayfarer/src/player.c`/`player.h`** gained `MAX_HEARTS=3`,
+`INVINCIBILITY_FRAMES=60` (~1s - long enough that a single enemy pass,
+which takes only ~24 frames to fully cross a stationary 16px-wide
+player at 1px/frame, can't cause a second deduction from the same
+graze), `player_damage()`/`player_heal_full()`/`player_get_hearts()`.
+No knockback, no invincibility-flicker visual feedback this pass - real,
+deliberate scope decisions, simplest correct behavior, stated plainly.
+
+**New `wayfarer/src/heart_hud.c`/`heart_hud.h`**: a 3-sprite,
+fixed-screen-position HUD - deliberately sprites, not BG tiles, so
+Milestones 1-2's already-locked-in room/wall geometry needs zero
+changes; sprites simply draw on top of whatever room tile is
+underneath. One hand-authored 8x8 heart-shape tile (a heart silhouette
+isn't formulaic like the diamond/circle shapes every other tile asset
+here used, so drawn directly as a per-pixel grid, then verified by
+rendering before being committed). Two OBJ palettes share that one
+tile - full (bright red) and empty (dim gray) - the same "one tile,
+palette-swapped" technique the sibling `prism/` project's own
+`board.c` clear-animation flash uses, rather than a second bitmap.
+
+**New `wayfarer/src/pickup.c`/`pickup.h`**: one heart pickup, reusing
+`heart_hud.h`'s own exported tile ID and "full" palette directly - zero
+art duplication, same tile, a different sprite slot/position. Belongs
+to room (1,1) only, fixed at that room's own center
+(`ROOM_CENTER_X`/`Y`). Unlike the enemy's patrol, a stationary pickup
+has no per-frame update to fall back on for re-showing itself after
+being hidden, so `world.c` calls `pickup_show()` explicitly on
+entering its room, not just `pickup_hide()` on leaving.
+
+**`wayfarer/src/world.c`** refactored its existing inline
+transition-redraw block into a new static `go_to_room()` - a real,
+non-cosmetic factor-out: the on-death respawn path needs the exact same
+`wait_vbl_done(); DISPLAY_OFF; ...; SHOW_BKG; DISPLAY_ON;` sequence
+(now also handling `pickup_show()`/`hide()` alongside the existing
+`enemy_hide()`), and duplicating that block between two call sites
+would be exactly the kind of drift risk this project's own
+"guard real-hardware-safe timing carefully" discipline argues against.
+`enemy.h` gained `enemy_get_x()`/`get_y()`/`is_alive()` read-only
+accessors for a *second*, separate AABB check (player-vs-enemy contact
+damage) alongside the existing sword-vs-enemy one already living inside
+`enemy_try_hit()` (which also mutates state, so isn't reused for this
+read-only check). `world_update()` now also calls `heart_hud_update()`
+unconditionally every frame, checks player-vs-enemy overlap while in
+the enemy's room (`player_damage(1)` on contact, a no-op if still
+invincible), triggers `go_to_room()`-based respawn at 0 hearts, and
+checks `pickup_try_collect()` while in the pickup's room.
+
+**Verified** via a new scripted `--input` sequence
+(`wayfarer/input_script_m4.txt`, replacing `input_script_m3.txt`):
+standing in the enemy's patrol lane (no attack) costs exactly one heart
+- confirmed via the HUD (the third heart's OBJ palette swaps to dim
+gray) - and, by sampling several frames across the enemy's entire pass
+through the stationary player, confirmed the *same* pass doesn't cost
+a second heart (invincibility holding). Continuing across two chained
+room transitions (Milestone 2's own verified east-then-south path) into
+room (1,1) and walking onto the pickup visibly heals back to full (all
+three hearts red again) and the pickup sprite disappears for good.
+Respawn-on-zero-hearts didn't need a separate throwaway build (the
+plan's own fallback, mirroring `prism/`'s Milestone 5 precedent) - the
+same patrol-lane scenario, left running long enough, produced a real
+third hit and a real respawn (hearts refilled, player back at
+`ROOM_CENTER_X/Y`), observed directly frame-by-frame. Locked in as
+`wayfarer/reference_m4.ppm` only after confirming frame stability;
+`reference_m3.ppm`/`input_script_m3.txt` deleted once superseded. Full
+existing regression suite (unit tests, all visual/game/savestate
+targets, all three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed
+green throughout - this change touches only `wayfarer/`.
+
+**Next**: Milestone 5 (stretch - a locked-door-and-key puzzle room,
+sound effects, a title screen, SRAM save, a win condition) is the
+natural next step, once user-directed - the first real use for an
+actual inventory item (a key), now that health/HUD/contact-damage/one
+pickup are all in place.

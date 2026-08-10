@@ -24,4 +24,12 @@ void enemy_hide(void);
 // otherwise returns 0 and changes nothing.
 uint8_t enemy_try_hit(uint8_t hx, uint8_t hy, uint8_t hw, uint8_t hh);
 
+// Read-only accessors (same shape as player.c's own) - world.c needs
+// these for its separate player-vs-enemy contact-damage AABB check
+// (enemy_try_hit() is specifically the sword-vs-enemy one, and also
+// mutates state, so it isn't reused for this read-only check).
+uint8_t enemy_get_x(void);
+uint8_t enemy_get_y(void);
+uint8_t enemy_is_alive(void);
+
 #endif

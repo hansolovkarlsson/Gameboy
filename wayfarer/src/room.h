@@ -22,6 +22,13 @@
 #define ROOM_MIN_Y 8
 #define ROOM_MAX_Y 120
 
+// Every room shares this same coordinate system, so one center point
+// serves as both the player's initial spawn (player.c) and the
+// respawn target after losing all hearts (world.c) - one source of
+// truth rather than two independent copies of the same arithmetic.
+#define ROOM_CENTER_X ((ROOM_MIN_X + ROOM_MAX_X) / 2)
+#define ROOM_CENTER_Y ((ROOM_MIN_Y + ROOM_MAX_Y) / 2)
+
 // The absolute screen bounds a 16x16 sprite's top-left corner can ever
 // occupy, regardless of walls - the hard clamp on an *open* side, so a
 // uint8_t position can never step past the true edge (which would wrap

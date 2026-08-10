@@ -98,6 +98,15 @@ static uint8_t player_x;
 static uint8_t player_y;
 static facing_t facing;
 
+#define MAX_HEARTS 3
+// ~1s at ~59.7fps - long enough that a single enemy pass (it takes
+// only ~24 frames to fully cross a stationary 16px-wide player at
+// 1px/frame) can't cause a second deduction from the same graze.
+#define INVINCIBILITY_FRAMES 60
+
+static uint8_t hearts = MAX_HEARTS;
+static uint8_t invincible_timer = 0;
+
 // Positions the 4 quadrant sprites (cursor.c's own position_sprites()
 // pattern, sibling prism/ project) so the combined 16x16 icon's
 // top-left pixel is at (player_x, player_y), picking whichever
@@ -151,9 +160,11 @@ void player_init(void) {
     set_sprite_palette(PLAYER_PALETTE, 1, player_palette);
     set_sprite_data(TILE_DOWN_TL, PLAYER_TILE_COUNT, player_tiles);
 
-    player_x = (uint8_t)((ROOM_MIN_X + ROOM_MAX_X) / 2);
-    player_y = (uint8_t)((ROOM_MIN_Y + ROOM_MAX_Y) / 2);
+    player_x = ROOM_CENTER_X;
+    player_y = ROOM_CENTER_Y;
     facing = FACING_DOWN;
+    hearts = MAX_HEARTS;
+    invincible_timer = 0;
 
     position_player();
     SHOW_SPRITES;
@@ -182,6 +193,8 @@ void player_update(uint8_t joy) {
         if (!room_blocks(player_x, new_y)) player_y = new_y;
     }
 
+    if (invincible_timer > 0) invincible_timer--;
+
     position_player();
 }
 
@@ -193,4 +206,16 @@ void player_set_position(uint8_t x, uint8_t y) {
     player_x = x;
     player_y = y;
     position_player();
+}
+
+uint8_t player_get_hearts(void) { return hearts; }
+
+void player_damage(uint8_t amount) {
+    if (invincible_timer > 0) return;
+    hearts = (amount >= hearts) ? 0 : (uint8_t)(hearts - amount);
+    invincible_timer = INVINCIBILITY_FRAMES;
+}
+
+void player_heal_full(void) {
+    hearts = MAX_HEARTS;
 }

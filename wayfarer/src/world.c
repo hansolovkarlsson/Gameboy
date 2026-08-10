@@ -11,6 +11,8 @@
 #include <stdint.h>
 
 #include "enemy.h"
+#include "heart_hud.h"
+#include "pickup.h"
 #include "player.h"
 #include "room.h"
 #include "sword.h"
@@ -22,6 +24,10 @@
 // The one enemy (enemy.c) belongs to this room only.
 #define ENEMY_ROOM_X 0
 #define ENEMY_ROOM_Y 0
+
+// The one heart pickup (pickup.c) belongs to this room only.
+#define PICKUP_ROOM_X 1
+#define PICKUP_ROOM_Y 1
 
 static uint8_t room_x;
 static uint8_t room_y;
@@ -39,6 +45,45 @@ static uint8_t in_enemy_room(void) {
     return room_x == ENEMY_ROOM_X && room_y == ENEMY_ROOM_Y;
 }
 
+static uint8_t in_pickup_room(void) {
+    return room_x == PICKUP_ROOM_X && room_y == PICKUP_ROOM_Y;
+}
+
+// The full room-switch sequence: a real-hardware-safe screen-off bulk
+// redraw (same category of risk as any other bulk VRAM/tilemap write
+// in this project - guarded the same way main.c's own boot sequence
+// already is), moving the player to the new room's entry point, and
+// showing/hiding the room-bound enemy/pickup sprites as appropriate.
+// Used both by the normal edge-transition path and by the on-death
+// respawn path below - a real, non-cosmetic factor-out: duplicating a
+// DISPLAY_OFF/room-redraw block between the two would be exactly the
+// kind of drift risk this project's own "guard real-hardware-safe
+// timing carefully" discipline argues against.
+static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t entry_y) {
+    uint8_t leaving_enemy_room = in_enemy_room();
+    uint8_t leaving_pickup_room = in_pickup_room();
+
+    wait_vbl_done();
+    DISPLAY_OFF;
+
+    room_x = new_x;
+    room_y = new_y;
+    draw_current_room();
+    player_set_position(entry_x, entry_y);
+
+    // Sprites persist across a BG-only room redraw unless explicitly
+    // moved - a still-alive enemy/uncollected pickup must not linger
+    // on screen after the player leaves its room, and the pickup (no
+    // per-frame update of its own to fall back on, unlike the enemy)
+    // needs an explicit show on entry too.
+    if (leaving_enemy_room && !in_enemy_room()) enemy_hide();
+    if (leaving_pickup_room && !in_pickup_room()) pickup_hide();
+    if (!leaving_pickup_room && in_pickup_room()) pickup_show();
+
+    SHOW_BKG;
+    DISPLAY_ON;
+}
+
 void world_init(void) {
     room_x = 0;
     room_y = 0;
@@ -48,6 +93,11 @@ void world_init(void) {
     player_init();
     sword_init();
     enemy_init();
+    heart_hud_init();
+    pickup_init();
+    // Correct regardless of which room the game happens to start in,
+    // not just assumed safe because today it's (0,0).
+    if (in_pickup_room()) pickup_show(); else pickup_hide();
 }
 
 void world_update(uint8_t joy) {
@@ -91,28 +141,7 @@ void world_update(uint8_t joy) {
     }
 
     if (transitioning) {
-        uint8_t leaving_enemy_room = in_enemy_room();
-
-        // A full room-tile-map rewrite mid-gameplay is the same "bulk
-        // VRAM write while the LCD is live" risk category as any of
-        // this project's other setup writes - guarded the same
-        // real-hardware-safe way main.c's own boot sequence already
-        // is, rather than accepting a rare tear.
-        wait_vbl_done();
-        DISPLAY_OFF;
-
-        room_x = new_room_x;
-        room_y = new_room_y;
-        draw_current_room();
-        player_set_position(entry_x, entry_y);
-
-        // Sprites persist across a BG-only room redraw unless
-        // explicitly moved - a still-alive enemy must not linger on
-        // screen after the player leaves its room.
-        if (leaving_enemy_room && !in_enemy_room()) enemy_hide();
-
-        SHOW_BKG;
-        DISPLAY_ON;
+        go_to_room(new_room_x, new_room_y, entry_x, entry_y);
     }
 
     uint8_t pressed = (uint8_t)(joy & (uint8_t)~prev_joy);
@@ -124,5 +153,28 @@ void world_update(uint8_t joy) {
         if (sword_is_active()) {
             enemy_try_hit(sword_get_x(), sword_get_y(), 8, 8);
         }
+        if (enemy_is_alive()) {
+            uint8_t ex = enemy_get_x();
+            uint8_t ey = enemy_get_y();
+            uint8_t pcx = player_get_x();
+            uint8_t pcy = player_get_y();
+            uint8_t overlap_x = pcx < (uint8_t)(ex + 8) && (uint8_t)(pcx + 16) > ex;
+            uint8_t overlap_y = pcy < (uint8_t)(ey + 8) && (uint8_t)(pcy + 16) > ey;
+            if (overlap_x && overlap_y) {
+                player_damage(1);
+                if (player_get_hearts() == 0) {
+                    go_to_room(ENEMY_ROOM_X, ENEMY_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
+                    player_heal_full();
+                }
+            }
+        }
     }
+
+    if (in_pickup_room()) {
+        if (pickup_try_collect(player_get_x(), player_get_y(), 16, 16)) {
+            player_heal_full();
+        }
+    }
+
+    heart_hud_update();
 }

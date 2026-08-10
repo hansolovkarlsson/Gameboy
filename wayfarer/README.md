@@ -32,31 +32,38 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 3 (combat)
+## Status: Milestone 4 (health, HUD, contact damage, heart pickup)
 
-Milestone 1 built one static, fully-bordered room and a 16x16
-directional player sprite that walks it freely (pixel-level, not
-grid-snapped), stopped cleanly by wall collision. Milestone 2
-(`src/world.c`) wired a small 2x2 grid of rooms together — stepping off
-an open side's true screen edge cuts instantly to the adjacent room,
-entering from its opposite edge, while a closed side still blocks
-movement.
+Milestones 1-2 built a small 2x2 grid of bordered rooms with a
+freely-walking, collision-checked player and instant edge-to-edge room
+transitions. Milestone 3 added combat: `src/sword.c`'s one-shot sword
+swing and `src/enemy.c`'s one patrolling enemy (confined to room
+(0,0)), a hit permanently defeating it — but the enemy couldn't hurt
+the player back yet.
 
-This pass adds combat: `src/sword.c` is a one-shot sword swing,
-edge-triggered by `A` (movement isn't locked during a swing), an 8x8
-blade sprite held one tile-width beyond whichever edge of the player
-the current facing points at. `src/enemy.c` is one small patrolling
-enemy (a round blob, deliberately simpler/smaller than the player),
-confined to room (0,0), moving back and forth along a fixed range. A
-sword hit defeats the enemy permanently for the session — **the enemy
-cannot hurt the player yet**; player health/damage/game-over is real,
-separate scope, deliberately deferred to its own later milestone
-rather than folded in here, the same "one provable slice" discipline
-every prior milestone used.
+This pass closes that gap, scoped deliberately tight: a full inventory
+system has no real use yet (no locked doors exist for a key to open —
+that's a later milestone's own stretch scope), so this is player
+health, a HUD, contact damage, and exactly one real, immediately-useful
+item, not a placeholder. `src/player.c` gained 3 hearts and a brief
+(~1s) invincibility window after any hit, so one grazing pass by the
+enemy only ever costs one heart. `src/heart_hud.c` is a 3-sprite,
+fixed-screen-position HUD (not BG tiles — avoids touching the
+already-locked-in room/wall geometry at all) — one hand-drawn heart
+tile, shown full or empty via an OBJ-palette swap rather than a second
+bitmap. The enemy now damages the player on contact
+(`src/world.c`); reaching 0 hearts auto-respawns immediately in room
+(0,0), no button press needed. `src/pickup.c` is one heart pickup,
+fixed in room (1,1), that fully heals on contact and stays collected
+for the session. No knockback and no invincibility-flicker feedback
+this pass — real, deliberate scope decisions, not silently missing.
 
-Verified via a scripted `--input` sequence (`input_script_m3.txt`)
-that includes a real negative-case check first — an early swing nowhere
-near the enemy provably does nothing to it — before approaching and
-landing a real hit, confirmed by the enemy disappearing and staying
-gone many frames later. Locked in as `reference_m3.ppm` (supersedes
-`reference_m2.ppm`, deleted once the new one was confirmed).
+Verified via a scripted `--input` sequence (`input_script_m4.txt`):
+standing in the enemy's patrol lane costs exactly one heart (confirmed
+via the HUD, and confirmed the *same* pass doesn't cost a second one),
+then crossing into room (1,1) and collecting the pickup visibly heals
+back to full. Respawn-on-zero-hearts was verified directly (not via a
+throwaway build) — the same patrol lane, given enough time, produces
+three real hits and a real respawn, observed frame-by-frame. Locked in
+as `reference_m4.ppm` (supersedes `reference_m3.ppm`, deleted once the
+new one was confirmed).

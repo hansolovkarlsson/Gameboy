@@ -1,0 +1,32 @@
+# Wayfarer Milestone 4 verification script (player.c hearts/heart_hud.c/
+# enemy.c contact damage/pickup.c). Starts centered in room (0,0)
+# (72,64), where the one enemy patrols a fixed horizontal range - see
+# enemy.c.
+#
+# 1. Hold RIGHT to stand in the enemy's patrol lane (x=100) with no
+#    attack - the enemy walks into the player, costing exactly one
+#    heart (3->2, confirmed via the HUD - the third heart's palette
+#    swaps to empty/dim). Invincibility (60 frames) prevents a second
+#    deduction during that same pass.
+# 2. Continue RIGHT to cross room (0,0)'s open east edge into room
+#    (1,0) (Milestone 2's own verified transition), then hold DOWN to
+#    cross (1,0)'s open south edge into room (1,1) - where the one
+#    heart pickup sits at that room's own center.
+# 3. Hold RIGHT+DOWN together to walk onto the pickup - collecting it
+#    heals hearts back to full (2->3, confirmed via the HUD - all
+#    three hearts back to bright red) and the pickup sprite disappears
+#    for good.
+#
+# Every frame number re-derived empirically (capture/inspect candidate
+# frames), not guessed. Confirmed stable (byte-identical) from frame
+# 265 onward.
+5 RIGHT down
+33 RIGHT up
+65 RIGHT down
+109 RIGHT up
+115 DOWN down
+185 DOWN up
+190 RIGHT down
+190 DOWN down
+260 RIGHT up
+260 DOWN up

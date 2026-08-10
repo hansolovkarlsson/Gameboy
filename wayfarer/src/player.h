@@ -35,4 +35,17 @@ uint8_t player_get_facing(void);
 // edge.
 void player_set_position(uint8_t x, uint8_t y);
 
+// Current heart count (0..MAX_HEARTS, see player.c).
+uint8_t player_get_hearts(void);
+
+// Subtracts amount from hearts (clamped at 0) and starts a brief
+// invincibility window - a no-op entirely if still invincible from a
+// prior hit, so a multi-frame graze against one hazard only ever costs
+// one heart.
+void player_damage(uint8_t amount);
+
+// Resets hearts to the maximum - shared by both the heart pickup and
+// the on-death respawn path (world.c).
+void player_heal_full(void);
+
 #endif
