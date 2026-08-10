@@ -10,7 +10,7 @@
 
 #include "hud.h"
 
-static const uint8_t digit_tiles[HUD_DIGIT_COUNT * 16] = {
+const uint8_t hud_digit_tiles[HUD_DIGIT_COUNT * 16] = {
     // 0
     0x7E, 0x7E, 0xFF, 0xFF, 0xC3, 0xC3, 0xC3, 0xC3,
     0xC3, 0xC3, 0xC3, 0xC3, 0xFF, 0xFF, 0x7E, 0x7E,
@@ -72,5 +72,5 @@ void hud_set_moves(uint8_t moves) {
 }
 
 void hud_init(void) {
-    set_bkg_data(HUD_DIGIT_TILE_BASE, HUD_DIGIT_COUNT, digit_tiles);
+    set_bkg_data(HUD_DIGIT_TILE_BASE, HUD_DIGIT_COUNT, hud_digit_tiles);
 }

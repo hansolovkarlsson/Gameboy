@@ -55,12 +55,54 @@ the ROM's own header too, but explicit matches how the RGBDS HDMA test
 ROM is run). Opt-in, same as `gameboy-sdl` and the RGBDS targets: never
 part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 6b (real title screen)
+## Status: Milestone 6c (real SRAM high-score persistence)
 
-A real "PRISM" / "PRESS START" title screen the player sees before
-gameplay begins, on top of Milestone 6a's sound effects and Milestone
-5's complete playable build (score, move budget, game-over, restart).
-Milestones 1-6a are done.
+The best score ever reached, shown on the title screen and genuinely
+persisted across separate play sessions via real cartridge SRAM — not
+just this milestone's own feature, but a real capability this
+project's emulator core didn't have at all before now (see
+`docs/GAMEBOY_ROADMAP.md`'s own entry on `src/cart.c`'s new
+`gb_cart_load_ram_file()`/`gb_cart_save_ram_file()`). On top of
+Milestone 6b's title screen, Milestone 6a's sound effects, and
+Milestone 5's complete playable build (score, move budget, game-over,
+restart). Milestones 1-6b are done.
+
+`prism/Makefile` now builds a real MBC1+RAM+BATTERY cartridge (`-Wl-yt0x03
+-Wm-ya1`, cartridge type `0x03`, 1 SRAM bank) instead of `mbc=none` -
+confirmed by checking `bin/gameboy`'s own startup log after building,
+not just trusted from the flag docs. New `src/highscore.c`/`highscore.h`:
+3 bytes of real SRAM (`gb/hardware.h`'s `_SRAM[]` array, `ENABLE_RAM`/
+`DISABLE_RAM`-gated) - a 1-byte magic value plus the score as two
+explicit little-endian bytes. A magic-byte mismatch (including a
+genuinely fresh cart) means "uninitialized," reset to 0 - never trust
+SRAM content blindly, the real-hardware-accurate practice.
+`highscore_maybe_update(score)` is called after *every* scoring swap,
+not just at game-over - more crash-resilient (data is safe the moment
+it's written), and it's also what makes a single ordinary match-clearing
+swap (score 0 → 30, which beats the initial 0) enough to exercise a
+real SRAM write in the committed regression test, without needing a
+full playthrough. `title_screen()` (`title.c`) gained a third line,
+"HIGH" plus the 4-digit value below it - two new letter glyphs (H, G,
+tile IDs `24-25`) plus the number reusing `hud.c`'s exact digit bitmap
+data (now exported via `hud.h`) at a fresh tile-ID range, avoiding art
+duplication.
+
+**A real bug found and fixed along the way**: adding the "HIGH <score>"
+line (row 15, just below the 12x12 grid's own rows 3-14) exposed that
+`board.c`'s `fill_screen_blank()` only ever reset background *tile
+IDs* for the whole 32x32 map, never CGB *attributes* (palette index) -
+harmless before now, since nothing had ever set a non-zero attribute
+outside the grid before `board_init()` ran. Once `title_screen()`
+started drawing text there in its own dark-navy `TITLE_PALETTE`, those
+cells kept that stale palette assignment into actual gameplay (a
+visibly darker patch under the grid), since `board_redraw()` only
+re-attributes the grid's own 12x12 region, not row 15. Found by
+comparing the new build's captured frame against the still-valid
+Milestone 6b reference pixel-by-pixel (not just eyeballing "looks
+wrong") - the diff was exactly 32×8 pixels at tile row 15, columns 8-11,
+pinpointing the cause immediately. Fixed by having `fill_screen_blank()`
+reset attributes to 0 for the whole map too, the same discipline that
+already existed for tile IDs.
 
 New `src/title.c`/`title.h`: a small custom letter tileset (same
 reasoning as `hud.c`'s digits — not GBDK's console/font system, to
@@ -108,7 +150,7 @@ on `restart_game()` this pass — a deliberate scope decision, not an
 oversight: the visual reset is enough feedback on its own.
 
 `make gameboy-prism-build` now `cmp`s a second captured artifact
-(`--wav`, `prism/reference_m6b_sfx.wav`) against the same scripted input
+(`--wav`, `prism/reference_m6c_sfx.wav`) against the same scripted input
 run used for the visual check, exercising `sfx_play_select()` and
 `sfx_play_match()`. Verified before locking in, not just "a file was
 produced": a small Python script (the `wave` module, zero-crossing
@@ -124,6 +166,19 @@ committed at that value) confirmed each has a real, audibly distinct
 signature (revert: a clearly lower average frequency than select/match;
 game-over: a much longer, low-amplitude, broadband tail, ~720ms,
 absent from every other event) before being reverted back out.
+
+`reference_m6c_sfx.wav` supersedes Milestone 6a/6b's own WAV reference
+for a real, by-now-familiar reason: adding `highscore_init()`'s few
+extra pre-title-screen instructions shifted every subsequent event's
+*exact* real-time/sample position by a small, consistent amount
+(~40ms) - not enough to shift which vblank *frame number* any scripted
+input event lands on (so the visual `.ppm` reference and game logic are
+completely unaffected), but enough to fail a byte-exact `cmp` against
+audio captured before that shift existed. The same category of thing
+Milestone 5's own RNG-seed-timing discovery already established -
+expected, and handled the same way: re-captured, verified (the same
+zero-crossing frequency analysis confirmed both tones' actual content
+was identical, just time-shifted), and superseded.
 
 No GBDK console/font system — risk of tile-ID collision with `gems.c`'s
 own tiles `0-4` in the same VRAM bank. New `src/hud.c`/`hud.h` instead:
@@ -172,6 +227,20 @@ game-logic bug — a test-script confound, now documented so it isn't
 re-discovered from scratch the next time a new source file shifts a
 pre-`initrand()` boot path.
 
+**SRAM persistence itself is verified with two real, separate process
+invocations sharing one `.sav` file** — a genuinely stronger test than
+"logic looks right," since it exercises the exact same `--sav`
+load/save path a real player's session would: run 1 (`--input
+input_script_m6b.txt --sav <out>.sav`) starts fresh (no prior save),
+makes the same match-clearing swap as always, and its resulting `.sav`
+is `cmp`'d against a committed `prism/reference_m6c.sav` (a mostly-zero
+8 KiB file — magic `0x48` + score `30` as bytes `0x1E,0x00`, the rest
+genuinely zero, matching what a real cartridge's unused SRAM would also
+show). Run 2 (`--sav <out>.sav`, no `--input` at all) boots straight to
+the title screen using *that exact file* and confirms it now reads
+"HIGH 0030" instead of "HIGH 0000", `cmp`'d against a committed
+`prism/reference_m6c_title.ppm`.
+
 ### Known emulator finding: a real rendering-catch-up quirk
 
 Building this milestone surfaced a genuine, reproducible timing bug in
@@ -199,16 +268,20 @@ still-open small gap) as a real, valuable finding for a future,
 dedicated investigation into `src/ppu.c`'s LCD-enable/frame-timing
 path, not something to silently work around without saying so.
 
-Re-checked for Milestones 3, 4, 5, and 6b, since each one's game loop is
-genuinely dynamic in a new way (Milestone 3: real per-frame input;
-Milestone 4: a multi-step cascade resolving over an unknown number of
-internal steps; Milestone 5: HUD redraws triggered by that same cascade
-outcome; Milestone 6b: the new title-screen-to-gameplay transition,
-including its `DISPLAY_OFF`/`DISPLAY_ON` toggle): each milestone's own
-scripted `--input` sequence captured at two different frame counts past
-its last input event produced byte-identical output every time,
-confirming the render is stable well before `gameboy-prism-build`'s
-chosen frame count, not coincidentally stable at exactly one number.
+Re-checked for Milestones 3, 4, 5, 6b, and 6c, since each one's game
+loop is genuinely dynamic in a new way (Milestone 3: real per-frame
+input; Milestone 4: a multi-step cascade resolving over an unknown
+number of internal steps; Milestone 5: HUD redraws triggered by that
+same cascade outcome; Milestone 6b: the new title-screen-to-gameplay
+transition, including its `DISPLAY_OFF`/`DISPLAY_ON` toggle; Milestone
+6c: a second, independent boot loading real SRAM content): each
+milestone's own scripted `--input` sequence captured at two different
+frame counts past its last input event produced byte-identical output
+every time, confirming the render is stable well before
+`gameboy-prism-build`'s chosen frame count, not coincidentally stable
+at exactly one number.
 
-See `docs/GAMEBOY_ROADMAP.md` for the rest of Milestone 6 (stretch/
-polish: SRAM high-score persistence).
+Milestone 6 (stretch/polish) is now complete: sound effects (6a), a
+real title screen (6b), and SRAM high-score persistence (6c). See
+`docs/GAMEBOY_ROADMAP.md`'s Phase 10 entry for the full writeup and
+whatever comes next.

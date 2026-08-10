@@ -227,9 +227,14 @@ int main(int argc, char **argv) {
                 "                                      BUTTON one of A/B/SELECT/START/RIGHT/LEFT/UP/DOWN\n"
                 "  %s <rom.gb> --load-state <in.state>  Restore state before running (see savestate.c)\n"
                 "  %s <rom.gb> --save-state <out.state> Save state after the run budget/--frames/--wav ends\n"
+                "  %s <rom.gb> --sav <path>             Load battery-backed cart RAM from <path> before\n"
+                "                                      running (if it exists), save it there after -\n"
+                "                                      real cartridge-RAM persistence (see cart.c),\n"
+                "                                      opt-in and separate from --load-state/--save-state's\n"
+                "                                      full CPU/PPU/APU/RAM dump\n"
                 "  %s <rom.gb> --mode dmg|cgb|auto      Force DMG or CGB emulation, or pick by the\n"
                 "                                      cartridge's own header flag (default: auto)\n",
-                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
+                argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0], argv[0]);
         return 1;
     }
 
@@ -238,6 +243,7 @@ int main(int argc, char **argv) {
     const char *input_path = NULL;
     const char *load_state_path = NULL;
     const char *save_state_path = NULL;
+    const char *sav_path = NULL;
     const char *mode_arg = "auto";
     int target_frames = 2;
     double wav_seconds = 5.0;
@@ -256,6 +262,8 @@ int main(int argc, char **argv) {
             load_state_path = argv[++i];
         } else if (strcmp(argv[i], "--save-state") == 0 && i + 1 < argc) {
             save_state_path = argv[++i];
+        } else if (strcmp(argv[i], "--sav") == 0 && i + 1 < argc) {
+            sav_path = argv[++i];
         } else if (strcmp(argv[i], "--mode") == 0 && i + 1 < argc) {
             mode_arg = argv[++i];
         }
@@ -265,6 +273,7 @@ int main(int argc, char **argv) {
     if (gb_cart_load(&cart, argv[1]) != 0) {
         return 1;
     }
+    gb_cart_load_ram_file(&cart, sav_path);
 
     int is_cgb = gb_resolve_cgb_mode(&cart, mode_arg);
     if (is_cgb < 0) {
@@ -356,6 +365,7 @@ int main(int argc, char **argv) {
     if (save_state_path) {
         gb_savestate_save(&cpu, save_state_path);
     }
+    gb_cart_save_ram_file(&cart, sav_path);
 
     fprintf(stderr, "\n\nExecuted %ld instructions (budget %ld), %d frame(s). Final PC=0x%04X\n",
             executed, budget, frames_seen, (unsigned)cpu.pc);

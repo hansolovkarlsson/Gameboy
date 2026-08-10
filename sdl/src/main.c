@@ -77,6 +77,7 @@ typedef struct {
     SDL_Texture *texture;
     uint32_t pixel_buffer[GB_SCREEN_HEIGHT][GB_SCREEN_WIDTH]; // ARGB8888, refilled each draw_frame()
     char *save_state_path; // "<rom>.state" - see handle_key_down()'s F5/F9 handling below
+    char *battery_save_path; // "<rom>.sav" - real battery-backed cart RAM, see main()
 } GameboyApp;
 
 // DMG shade index (0=white..3=black) -> 8-bit grayscale sample, exactly
@@ -238,7 +239,9 @@ int main(int argc, char **argv) {
     if (argc < 2 || strcmp(argv[1], "-h") == 0 || strcmp(argv[1], "--help") == 0) {
         printf("Usage:\n  %s <rom.gb> [--mode dmg|cgb|auto]   Run a Game Boy ROM in a real SDL2 window\n\n", argv[0]);
         printf("Keys: arrows = D-pad, Z = B, X = A, Enter = Start, Right Shift = Select,\n"
-               "      F5 = save state, F9 = load state (to/from '<rom>.state')\n");
+               "      F5 = save state, F9 = load state (to/from '<rom>.state')\n"
+               "Battery-backed cart RAM (if the cartridge has one) auto-persists to\n"
+               "'<rom>.sav' across runs - loaded at startup, saved at clean shutdown.\n");
         return argc < 2 ? EXIT_FAILURE : EXIT_SUCCESS;
     }
     char *rom_path = argv[1];
@@ -294,6 +297,19 @@ int main(int argc, char **argv) {
     app.save_state_path = malloc(path_len + 7); // ".state\0"
     memcpy(app.save_state_path, rom_path, path_len);
     strcpy(app.save_state_path + path_len, ".state");
+
+    // "<rom path>.sav" - real battery-backed cart RAM (src/cart.c's
+    // gb_cart_load_ram_file()/gb_cart_save_ram_file(), a no-op on any
+    // cart that isn't actually battery-backed), same naming convention
+    // real GB emulators use. Loaded now so any prior save is in place
+    // before the CPU ever runs; saved once at clean shutdown, below -
+    // not write-through on every cart RAM write, a deliberate scope
+    // decision (a forced kill won't persist, unlike real hardware's
+    // always-on battery), not an oversight.
+    app.battery_save_path = malloc(path_len + 5); // ".sav\0"
+    memcpy(app.battery_save_path, rom_path, path_len);
+    strcpy(app.battery_save_path + path_len, ".sav");
+    gb_cart_load_ram_file(&app.cart, app.battery_save_path);
 
     app.window = SDL_CreateWindow(rom_path, SDL_WINDOWPOS_CENTERED, SDL_WINDOWPOS_CENTERED,
                                    GB_SCREEN_WIDTH * SCALE, GB_SCREEN_HEIGHT * SCALE, SDL_WINDOW_SHOWN);
@@ -355,9 +371,12 @@ int main(int argc, char **argv) {
     if (app.window) SDL_DestroyWindow(app.window);
     SDL_Quit();
 
+    gb_cart_save_ram_file(&app.cart, app.battery_save_path);
+
     free(app.cpu.memory);
     free(app.audio_buffer);
     free(app.save_state_path);
+    free(app.battery_save_path);
     gb_cart_free(&app.cart);
     return EXIT_SUCCESS;
 }

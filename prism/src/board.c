@@ -19,11 +19,26 @@ static uint8_t map_attrs[GRID_TILE_W * GRID_TILE_H];
 // across the whole screen) if never explicitly written. See
 // prism/README.md's "known emulator timing quirk" note, found via this
 // exact code in Milestone 2.
+//
+// Also resets every cell's CGB attribute byte (palette index) to 0 -
+// a real bug found via Milestone 6c: title_screen() (title.c) is the
+// first code that ever sets non-zero attributes *outside* the 12x12
+// grid region before this runs (its own "HIGH <score>" line, row 15,
+// falls below the grid's own rows 3-14, which board_redraw() below
+// re-attributes correctly but never touches anything past). Without
+// this, those cells kept title.c's dark-navy TITLE_PALETTE background
+// color instead of picking up a neutral one, showing as a visibly
+// darker patch under the grid once gameplay started.
 static void fill_screen_blank(void) {
     uint8_t blank_row[32];
-    for (uint8_t i = 0; i < 32; i++) blank_row[i] = BLANK_TILE_ID;
+    uint8_t blank_attrs[32];
+    for (uint8_t i = 0; i < 32; i++) {
+        blank_row[i] = BLANK_TILE_ID;
+        blank_attrs[i] = 0;
+    }
     for (uint8_t y = 0; y < 32; y++) {
         set_bkg_tiles(0, y, 32, 1, blank_row);
+        set_bkg_attributes(0, y, 32, 1, blank_attrs);
     }
 }
 

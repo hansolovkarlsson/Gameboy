@@ -2831,11 +2831,140 @@ value updated accordingly. Zero regressions: the full existing suite
 `2048-gb`, `droneboy`, `tobutobugirl`, savestate round-trip, all three
 RGBDS ROMs) stayed green throughout.
 
-**Next**: user-directed - investigate the PPU timing finding above (a
-real, standalone bug worth its own dedicated session), continue Prism's
-milestone roadmap (Milestone 6c - SRAM high-score persistence is the
-one remaining stretch/polish item, and now has a title screen ready to
-display it on), resolve the GPL-license question to add a real homebrew
+**Cartridge battery-RAM persistence (Phase 2 addendum): done.** A real,
+pre-existing gap surfaced while scoping Prism's own Milestone 6c: `src/
+cart.h`'s `GBCart.has_battery` field was literally commented `// not
+yet used (no save-to-disk persistence this phase)` - this emulator had
+no mechanism for a battery-backed cartridge's external RAM to survive
+between separate process runs, only the full CPU/PPU/APU/RAM
+`--save-state`/`--load-state` dump (and the SDL front end's F5/F9 keys,
+which call the same thing). Asked the user whether to build a "high
+score" that doesn't actually persist for a real player, or fix the
+underlying gap first; picked the latter - a genuine, valuable emulator
+capability on its own, not just a Prism prerequisite.
+
+Two new functions in `src/cart.c`/`cart.h`, mirroring the existing
+`gb_cart_*` naming style: `gb_cart_load_ram_file()`/
+`gb_cart_save_ram_file()`, both a no-op unless `has_battery && has_ram
+&& ram` (matches real hardware: no battery, no persistence, ever). A
+missing file (first-ever boot) is silently fine - `cart->ram` is
+already zero-initialized, and callers shouldn't trust SRAM content
+blindly anyway (see Prism's own magic-byte check below) - the
+real-hardware-accurate practice, not an emulator shortcut. The CLI
+driver (`src/main.c`) gained an opt-in `--sav <path>` flag, deliberately
+*not* automatic from the ROM path, so every existing Makefile
+regression target - none of which pass it - stays completely
+unaffected; confirmed by actually running `gameboy-2048-test` (a real
+MBC1+battery ROM) and `gameboy-rgbds-mbc3-test` afterward and checking
+`git status` shows no stray files in the committed `test_roms/`
+directories, not just reasoned about. The SDL front end
+(`sdl/src/main.c`) gained automatic, always-on persistence instead -
+`<rom>.sav`, derived exactly the way `app.save_state_path` already is -
+loaded right after `gb_cart_load()`, saved at the existing clean-
+shutdown point. Deliberately shutdown-triggered, not write-through on
+every cart-RAM write - a real, honestly-scoped decision (a forced kill
+won't persist, unlike real hardware's always-on battery), not an
+oversight; an easy future enhancement if ever wanted. Three new direct
+unit tests in `tests/test_cart.c` (round-trip, missing-file-is-a-no-op,
+non-battery-cart-never-touches-the-file), run automatically as part of
+the existing `gameboy-test` target. Manually verified end-to-end too:
+capturing a real MBC3+RTC ROM's `--sav` output showed the exact bytes
+('R'/'r') that ROM's own test logic writes into cartridge RAM, not a
+theoretical claim. Zero regressions: the full existing suite (unit
+tests including the three new cases, Mooneye 80/83, `dmg-acid2` 100%,
+`cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
+round-trip, all three RGBDS ROMs) stayed green throughout.
+
+**Milestone 6c (this pass): done.** Prism's own use of the capability
+above - the best score ever reached, shown on the title screen and
+genuinely persisted across separate play sessions. `prism/Makefile`
+now builds a real MBC1+RAM+BATTERY cartridge (cartridge type `0x03`,
+confirmed directly against `src/cart.c`'s own header-parsing switch;
+GBDK's `-Wl-yt0x03`/`-Wm-ya1` flags per `prism/toolchain/gbdk/examples/
+gb/mbc3_rtc/Makefile`'s real precedent, 1 SRAM bank) instead of
+`mbc=none` - confirmed after building by checking `bin/gameboy`'s own
+startup log reports it, not just trusted from the flag docs. New
+`prism/src/highscore.c`/`highscore.h`: 3 bytes of real SRAM
+(`gb/hardware.h`'s `_SRAM[]` array, `ENABLE_RAM`/`DISABLE_RAM`-gated) -
+a 1-byte magic value (`0x48`) plus the score as two explicit
+little-endian bytes, explicit packing rather than a `uint16_t*` cast,
+matching this codebase's general preference for simple, explicit state
+manipulation. A magic-byte mismatch (including a genuinely fresh cart,
+which this emulator zero-fills) means "uninitialized," resetting to 0.
+`highscore_maybe_update(score)` is called after *every* scoring swap in
+`main.c`, not just at game-over - more crash-resilient (data is safe
+the moment it's written, closer to real always-on-battery hardware
+behavior than waiting for a session-end checkpoint), and it's also what
+makes a single ordinary match-clearing swap (the same one every prior
+milestone's script has used, score 0 -> 30, which beats the initial 0)
+enough to exercise a real SRAM write in the committed regression test -
+no throwaway-build trick needed here, unlike Milestone 5/6a's
+game-over-path asymmetry.
+
+`title.c`'s `title_screen()` gained a third line, "HIGH" plus the
+4-digit value below it - two more letter glyphs (H, G, tile IDs
+`24-25`, same standard 5x7 dot-matrix convention as Milestone 6b's
+other eight) plus the number reusing `hud.c`'s exact digit bitmap data
+(now exported via `hud.h` as `hud_digit_tiles`) at a fresh tile-ID
+range (`26-35`), avoiding art duplication entirely.
+
+**A real bug found and fixed along the way, not papered over.** Adding
+the "HIGH <score>" line (row 15, just below the 12x12 grid's own rows
+3-14) exposed that `board.c`'s `fill_screen_blank()` only ever reset
+background *tile IDs* for the whole 32x32 map, never CGB *attributes*
+(palette index) - harmless before now, since nothing had ever set a
+non-zero attribute outside the grid before `board_init()` ran.
+`title_screen()` became the first code to draw text there in its own
+dark-navy `TITLE_PALETTE` before the game screen loads, so those cells
+kept that stale palette assignment into actual gameplay - a visibly
+darker patch under the grid, since `board_redraw()` only re-attributes
+the grid's own 12x12 region. Found by diffing the new build's captured
+frame against the still-valid Milestone 6b reference pixel-by-pixel
+(not eyeballing "looks wrong"): the diff was exactly 32x8 pixels at
+tile row 15, columns 8-11, pinpointing the cause immediately. Fixed by
+having `fill_screen_blank()` reset attributes to 0 for the whole map
+too - the same discipline that already existed for tile IDs, now
+applied consistently.
+
+A second real, expected finding: adding `highscore_init()`'s few extra
+pre-title-screen instructions shifted every subsequent audio event's
+exact real-time/sample position by a small, consistent amount (~40ms) -
+the same category of thing Milestone 5's own RNG-seed-timing discovery
+already established, just in the audio domain this time. Not enough to
+shift which vblank *frame number* any scripted input event lands on
+(the visual `.ppm` reference and game logic are completely unaffected -
+confirmed byte-identical to the Milestone 6b reference), but enough to
+fail a byte-exact `cmp` against audio captured before the shift
+existed. Re-captured, re-verified (the same zero-crossing frequency
+analysis confirmed both tones' actual content was identical, just
+time-shifted), and superseded as `reference_m6c_sfx.wav`.
+
+**Verified with two real, separate process invocations sharing one
+`.sav` file** - genuinely exercising the same load/save path a real
+player's session would, not just unit-testing the mechanism in
+isolation. Run 1 (`--input input_script_m6b.txt --sav <out>.sav`)
+starts fresh, makes the usual match-clearing swap, and its `.sav` is
+`cmp`'d against a new committed `prism/reference_m6c.sav` (a
+mostly-zero 8 KiB file - magic `0x48` + score `30` as bytes
+`0x1E,0x00`, everything else genuinely zero). Run 2 (`--sav <out>.sav`,
+no `--input` at all) boots straight to the title screen using that
+exact file and confirms it now reads "HIGH 0030" instead of "HIGH
+0000", `cmp`'d against a new committed `prism/reference_m6c_title.ppm`
+(rendered and read back to confirm "HIGH" and the digits are legible
+and correctly positioned before locking in, same discipline Milestone
+6b used for its own new letterforms). Both steps added to
+`gameboy-prism-build`'s Makefile recipe. Zero regressions: the full
+existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
+`cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
+round-trip, all three RGBDS ROMs) stayed green throughout.
+
+**Next**: Milestone 6 (stretch/polish) is now complete - sound effects
+(6a), a real title screen (6b), and SRAM high-score persistence (6c).
+User-directed from here: investigate the PPU timing finding above (a
+real, standalone bug worth its own dedicated session), give the SDL
+front end's new write-through-on-every-cart-RAM-write option a look (a
+natural, easy enhancement flagged but deliberately not built this
+pass), resolve the GPL-license question to add a real homebrew
 regression game, or build real networking/link infrastructure (would
 unlock both real IR communication and real link-cable multiplayer at
 once, since they're the same underlying gap).

@@ -396,6 +396,79 @@ static void test_mbc5_rom_banking(void) {
     free(cart.rom);
 }
 
+// gb_cart_load_ram_file()/gb_cart_save_ram_file() (cart.c) - real
+// battery-backed cart RAM persistence, added because GBCart.has_battery
+// used to be genuinely unused (no save-to-disk mechanism existed at
+// all). Direct unit tests since this is real file I/O, not something
+// any existing ROM's own regression test isolates cleanly.
+static void test_battery_ram_file_round_trip(void) {
+    const char *path = "/tmp/gb_test_cart_battery.sav";
+    remove(path);
+
+    GBCart cart = {0};
+    cart.has_ram = 1;
+    cart.has_battery = 1;
+    cart.ram_size = 0x2000;
+    cart.ram = calloc(1, cart.ram_size);
+    cart.ram[0] = 0x48;
+    cart.ram[1] = 0x1E;
+    cart.ram[0x1FFF] = 0xAB; // last byte too - confirms the whole buffer round-trips, not just the front
+
+    gb_cart_save_ram_file(&cart, path);
+
+    GBCart loaded = {0};
+    loaded.has_ram = 1;
+    loaded.has_battery = 1;
+    loaded.ram_size = 0x2000;
+    loaded.ram = calloc(1, loaded.ram_size);
+    gb_cart_load_ram_file(&loaded, path);
+
+    check("battery RAM: round-trip preserves every byte, including the last one",
+          memcmp(cart.ram, loaded.ram, cart.ram_size) == 0);
+
+    free(cart.ram);
+    free(loaded.ram);
+    remove(path);
+}
+
+static void test_battery_ram_file_missing_is_noop(void) {
+    const char *path = "/tmp/gb_test_cart_battery_missing.sav";
+    remove(path); // guarantee it doesn't exist
+
+    GBCart cart = {0};
+    cart.has_ram = 1;
+    cart.has_battery = 1;
+    cart.ram_size = 0x2000;
+    cart.ram = calloc(1, cart.ram_size);
+    cart.ram[0] = 0x99; // would be clobbered by a real load - shouldn't be, since the file doesn't exist
+
+    gb_cart_load_ram_file(&cart, path);
+    check("battery RAM: loading a nonexistent path is a silent no-op, doesn't touch ram[]",
+          cart.ram[0] == 0x99);
+
+    free(cart.ram);
+}
+
+static void test_battery_ram_file_non_battery_is_noop(void) {
+    const char *path = "/tmp/gb_test_cart_battery_nonbattery.sav";
+    remove(path);
+
+    GBCart cart = {0};
+    cart.has_ram = 1;
+    cart.has_battery = 0; // no battery - real hardware never persists this either
+    cart.ram_size = 0x2000;
+    cart.ram = calloc(1, cart.ram_size);
+    cart.ram[0] = 0x55;
+
+    gb_cart_save_ram_file(&cart, path);
+    FILE *f = fopen(path, "rb");
+    check("battery RAM: saving a non-battery cart never creates a file", f == NULL);
+    if (f) fclose(f);
+
+    free(cart.ram);
+    remove(path);
+}
+
 int main(void) {
     test_mbc1_basic_rom_banking();
     test_mbc1_large_rom_advanced_mode();
@@ -408,6 +481,9 @@ int main(void) {
     test_mbc5_rom_banking();
     test_mbc5_default_bank_is_one();
     test_cart_load_from_file();
+    test_battery_ram_file_round_trip();
+    test_battery_ram_file_missing_is_noop();
+    test_battery_ram_file_non_battery_is_noop();
 
     if (failures == 0) {
         printf("\nAll cart.c tests passed.\n");

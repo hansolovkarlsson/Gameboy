@@ -40,7 +40,7 @@ typedef struct GBCart {
 
     GBMbcType mbc_type;
     int has_ram;
-    int has_battery; // not yet used (no save-to-disk persistence this phase)
+    int has_battery; // gates gb_cart_load_ram_file()/gb_cart_save_ram_file() below
     int has_rtc;      // MBC3 only
 
     // The post-boot-ROM F register's H/C bits depend on whether this
@@ -93,6 +93,17 @@ typedef struct GBCart {
 // doesn't support (printed to stderr - never silently guessed).
 int gb_cart_load(GBCart *cart, const char *path);
 void gb_cart_free(GBCart *cart);
+
+// Real battery-backed cartridge RAM persistence - a no-op on any cart
+// that isn't has_battery && has_ram (matches real hardware: no
+// battery, no persistence, ever). gb_cart_load_ram_file() is silently
+// fine if path doesn't exist (first-ever boot, no prior save) - see
+// cart.c for why callers still shouldn't trust the loaded content
+// blindly. Neither call is automatic - src/main.c's --sav flag and
+// sdl/src/main.c both call these explicitly at the points that make
+// sense for each front end.
+void gb_cart_load_ram_file(GBCart *cart, const char *path);
+void gb_cart_save_ram_file(const GBCart *cart, const char *path);
 
 uint8_t gb_cart_read(GBCart *cart, uint16_t addr);              // 0x0000-0x7FFF
 void gb_cart_write_ctrl(GBCart *cart, uint16_t addr, uint8_t val); // 0x0000-0x7FFF (MBC control registers - ROM itself is read-only)

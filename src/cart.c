@@ -259,6 +259,29 @@ void gb_cart_free(GBCart *cart) {
     cart->ram = NULL;
 }
 
+// A no-op for anything but a real battery-backed cart - matches real
+// hardware (no battery, no persistence, ever). A missing file (first-
+// ever boot, no prior save) is silently fine: cart->ram is already
+// zero-initialized by gb_cart_load()'s calloc, and callers shouldn't
+// trust SRAM content blindly anyway (see e.g. Prism's own
+// highscore.c magic-byte check) - the real-hardware-accurate practice,
+// not an emulator-specific shortcut.
+void gb_cart_load_ram_file(GBCart *cart, const char *path) {
+    if (!cart->has_battery || !cart->has_ram || !cart->ram || !path) return;
+    FILE *f = fopen(path, "rb");
+    if (!f) return;
+    fread(cart->ram, 1, cart->ram_size, f);
+    fclose(f);
+}
+
+void gb_cart_save_ram_file(const GBCart *cart, const char *path) {
+    if (!cart->has_battery || !cart->has_ram || !cart->ram || !path) return;
+    FILE *f = fopen(path, "wb");
+    if (!f) return;
+    fwrite(cart->ram, 1, cart->ram_size, f);
+    fclose(f);
+}
+
 uint8_t gb_cart_read(GBCart *cart, uint16_t addr) {
     int bank;
 

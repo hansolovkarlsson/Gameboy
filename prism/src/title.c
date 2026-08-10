@@ -1,20 +1,25 @@
-// See title.h. A small custom letter tileset - only the 8 distinct
-// letters actually needed across "PRISM" and "PRESS START" (P, R, I,
-// S, M, E, T, A) plus a blank/space tile, 9 single-8x8-tile glyphs -
-// not GBDK's console/font system, same tile-ID-collision reasoning
-// Milestone 5 already established for hud.c's digits. Each letterform
-// is the standard, widely-known 5x7 dot-matrix block-letter shape (the
-// same public-domain convention as hud.c's 7-segment digits - not
-// copied art), left-aligned within the 8-bit row for a consistent
-// right-side letter-spacing column, computed via
-// python3 -c "print(hex(int('11110',2)<<3))" style row-by-row shifts,
-// then duplicated per row (both GB 2bpp bitplane bytes identical) for
-// the same 2-color (0=background, 3=fill) scheme gems.c/hud.c use.
+// See title.h. A small custom letter tileset - only the 10 distinct
+// letters actually needed across "PRISM", "PRESS START", and "HIGH"
+// (P, R, I, S, M, E, T, A, H, G) plus a blank/space tile, 11
+// single-8x8-tile glyphs - not GBDK's console/font system, same
+// tile-ID-collision reasoning Milestone 5 already established for
+// hud.c's digits. Each letterform is the standard, widely-known 5x7
+// dot-matrix block-letter shape (the same public-domain convention as
+// hud.c's 7-segment digits - not copied art), left-aligned within the
+// 8-bit row for a consistent right-side letter-spacing column, computed
+// via python3 -c "print(hex(int('11110',2)<<3))" style row-by-row
+// shifts, then duplicated per row (both GB 2bpp bitplane bytes
+// identical) for the same 2-color (0=background, 3=fill) scheme
+// gems.c/hud.c use. The "HIGH" score's own 4-digit number reuses
+// hud.c's exact digit bitmap data (hud_digit_tiles, exported via
+// hud.h) at a separate tile-ID range below, rather than duplicating it.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stdint.h>
 
+#include "highscore.h"
+#include "hud.h"
 #include "title.h"
 
 #define TITLE_TILE_BASE 15 // right after hud.c's digit range (5-14)
@@ -27,7 +32,14 @@
 #define TITLE_E (TITLE_TILE_BASE + 6)
 #define TITLE_T (TITLE_TILE_BASE + 7)
 #define TITLE_A (TITLE_TILE_BASE + 8)
-#define TITLE_TILE_COUNT 9
+#define TITLE_H (TITLE_TILE_BASE + 9)
+#define TITLE_G (TITLE_TILE_BASE + 10)
+#define TITLE_TILE_COUNT 11
+
+// A separate tile-ID range for the "HIGH" line's own 4-digit number -
+// title.c's own letter glyphs already run through TITLE_TILE_BASE+10,
+// so this starts right after them.
+#define TITLE_DIGIT_TILE_BASE (TITLE_TILE_BASE + TITLE_TILE_COUNT)
 
 static const uint8_t title_tiles[TITLE_TILE_COUNT * 16] = {
     // blank/space
@@ -48,6 +60,10 @@ static const uint8_t title_tiles[TITLE_TILE_COUNT * 16] = {
     0xF8,0xF8, 0x20,0x20, 0x20,0x20, 0x20,0x20, 0x20,0x20, 0x20,0x20, 0x20,0x20, 0x00,0x00,
     // A
     0x70,0x70, 0x88,0x88, 0x88,0x88, 0xF8,0xF8, 0x88,0x88, 0x88,0x88, 0x88,0x88, 0x00,0x00,
+    // H
+    0x88,0x88, 0x88,0x88, 0x88,0x88, 0xF8,0xF8, 0x88,0x88, 0x88,0x88, 0x88,0x88, 0x00,0x00,
+    // G
+    0x70,0x70, 0x88,0x88, 0x80,0x80, 0xB8,0xB8, 0x88,0x88, 0x88,0x88, 0x70,0x70, 0x00,0x00,
 };
 
 // Palette index 5 - gems.c uses 0-4. Color 0 a dark navy background,
@@ -85,6 +101,8 @@ static uint8_t glyph_tile(char c) {
         case 'E': return TITLE_E;
         case 'T': return TITLE_T;
         case 'A': return TITLE_A;
+        case 'H': return TITLE_H;
+        case 'G': return TITLE_G;
         default: return TITLE_BLANK; // space
     }
 }
@@ -102,13 +120,35 @@ static void draw_centered(const char *text, uint8_t len, uint8_t y) {
     set_bkg_attributes(x, y, len, 1, attrs);
 }
 
+// Same digit-extraction shape as hud.c's own draw_number(), but
+// targeting TITLE_DIGIT_TILE_BASE (this module's own tile-ID range)
+// and horizontally centered rather than fixed-position - hud.c's
+// version isn't reusable as-is since it hardcodes HUD_DIGIT_TILE_BASE
+// and a fixed x/y.
+static void draw_number_centered(uint16_t value, uint8_t digits, uint8_t y) {
+    uint8_t tiles[4]; // 4 digits is the largest field used (the score)
+    for (int8_t i = (int8_t)digits - 1; i >= 0; i--) {
+        tiles[i] = (uint8_t)(TITLE_DIGIT_TILE_BASE + (value % 10));
+        value /= 10;
+    }
+    uint8_t x = (uint8_t)((20 - digits) / 2);
+    set_bkg_tiles(x, y, digits, 1, tiles);
+
+    uint8_t attrs[4];
+    for (uint8_t i = 0; i < digits; i++) attrs[i] = TITLE_PALETTE;
+    set_bkg_attributes(x, y, digits, 1, attrs);
+}
+
 void title_screen(void) {
     set_bkg_palette(TITLE_PALETTE, 1, title_palette);
     set_bkg_data(TITLE_TILE_BASE, TITLE_TILE_COUNT, title_tiles);
+    set_bkg_data(TITLE_DIGIT_TILE_BASE, HUD_DIGIT_COUNT, hud_digit_tiles);
     fill_screen_blank();
 
     draw_centered("PRISM", 5, 6);
     draw_centered("PRESS START", 11, 10);
+    draw_centered("HIGH", 4, 13);
+    draw_number_centered(highscore_get(), 4, 15);
 
     SHOW_BKG;
     DISPLAY_ON;

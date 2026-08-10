@@ -1,14 +1,16 @@
-// Milestone 6b - real title screen. See docs/GAMEBOY_ROADMAP.md's Phase
-// 10 entry for the full milestone roadmap. Milestone 6a (sound effects,
-// on top of Milestone 5's scoring/move budget/game-over/restart) added
-// real audio feedback; this pass adds a real "PRISM" / "PRESS START"
-// title screen (prism/src/title.h/title.c) the player sees before
-// gameplay begins, instead of dropping straight into a fresh board.
-// See prism/src/sfx.h/sfx.c for the four one-shot SFX (select/revert/
-// match/game-over) and their hook points below, prism/src/board.h/
-// board.c for the grid state and match/gravity/refill logic, prism/src/
-// cursor.h/cursor.c for the cursor sprite, and prism/src/hud.h/hud.c
-// for the score/moves display.
+// Milestone 6c - real SRAM high score persistence. See
+// docs/GAMEBOY_ROADMAP.md's Phase 10 entry for the full milestone
+// roadmap. Milestone 6b (title screen) added the "PRISM" / "PRESS
+// START" screen the player sees before gameplay begins
+// (prism/src/title.h/title.c); this pass makes it also show the best
+// score ever reached, persisted to real battery-backed cartridge RAM
+// (prism/src/highscore.h/highscore.c - see prism/Makefile's
+// -Wl-yt0x03/-Wm-ya1 flags) rather than something that resets every
+// power cycle. See prism/src/sfx.h/sfx.c for the four one-shot SFX
+// (select/revert/match/game-over) and their hook points below,
+// prism/src/board.h/board.c for the grid state and match/gravity/
+// refill logic, prism/src/cursor.h/cursor.c for the cursor sprite, and
+// prism/src/hud.h/hud.c for the score/moves display.
 //
 // Selection is a second, small state machine alongside the cursor: `A`
 // with no active selection selects the cursor's current cell (shown by
@@ -41,6 +43,7 @@
 #include "cursor.h"
 #include "gems.h"
 #include "grid.h"
+#include "highscore.h"
 #include "hud.h"
 #include "sfx.h"
 #include "title.h"
@@ -134,6 +137,7 @@ static void handle_select(uint8_t pressed_a) {
             if (cleared > 0) {
                 sfx_play_match();
                 score += cleared * 10;
+                highscore_maybe_update(score); // every scoring swap, not just game-over - see highscore.c
                 moves_remaining--;
                 hud_set_score(score);
                 hud_set_moves(moves_remaining);
@@ -175,6 +179,7 @@ void main(void) {
     initrand(DIV_REG);
 
     sfx_init();
+    highscore_init(); // must run before title_screen(), which displays it
     title_screen();
 
     set_bkg_palette(0, GEM_TYPE_COUNT, gem_palettes);

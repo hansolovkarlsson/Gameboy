@@ -23,7 +23,12 @@ OBJS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(SRCS))
 # own gb_resolve_cgb_mode() (src/cart.c) would run it in CGB mode
 # regardless via --mode cgb, but the ROM's own header should tell the
 # truth too, matching how a real CGB-only cart's header actually reads.
-LCCFLAGS := -Wm-yC
+# -Wl-yt0x03: cartridge type MBC1+RAM+BATTERY (confirmed against this
+# project's own src/cart.c header-parsing switch) - the high score
+# (prism/src/highscore.c) needs real, persistent cartridge RAM.
+# -Wm-ya1: 1 cart RAM bank (8 KiB) - GBDK's smallest selectable unit,
+# far more than the 3 bytes highscore.c actually needs.
+LCCFLAGS := -Wm-yC -Wl-yt0x03 -Wm-ya1
 
 all: $(BINS)
 

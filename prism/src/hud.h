@@ -16,6 +16,15 @@
 #define HUD_DIGIT_TILE_BASE 5
 #define HUD_DIGIT_COUNT 10
 
+// The raw digit tile bytes (16 bytes/tile), exported so title.c can
+// load the exact same art at its own, different tile-ID range (the
+// title screen and the in-game HUD never render at the same time, but
+// using different IDs keeps things simple and avoids the exact kind of
+// shared-tile-ID surprise this project has already hit twice - see
+// Milestone 2's uninitialized tile map and Milestone 4's S_PALETTE/
+// S_PAL mixup).
+extern const uint8_t hud_digit_tiles[HUD_DIGIT_COUNT * 16];
+
 // Loads the digit tileset. Call once at startup, after board_init()
 // (which already blanks the entire background tile map, including
 // row 0 - the HUD's own row - via fill_screen_blank(), board.c).
