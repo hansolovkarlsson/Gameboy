@@ -1,0 +1,20 @@
+# Wayfarer Milestone 1 verification script (room.c/player.c). Player
+# starts centered in the room at (72,64) (ROOM_MIN/MAX_X/Y's midpoint,
+# room.h) and walks into each of the 4 walls in turn, holding each
+# direction for comfortably more frames than the real distance needs
+# (1px/frame movement) so the captured end state proves collision
+# actually stops the player at the wall, not just "walked partway."
+#
+# Sequence: hold DOWN (72,64)->(72,120), hold RIGHT (72,120)->(136,120),
+# hold UP (136,120)->(136,8), hold LEFT (136,8)->(8,8) - visiting all
+# four walls and both axes of collision. Frame numbers include generous
+# margin past each leg's real distance (56/64/112/128px respectively);
+# confirmed stable (byte-identical) from frame 470 onward.
+10 DOWN down
+90 DOWN up
+95 RIGHT down
+175 RIGHT up
+180 UP down
+310 UP up
+315 LEFT down
+455 LEFT up

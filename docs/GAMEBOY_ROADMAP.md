@@ -154,6 +154,14 @@ that the emulator core is mature enough to be a genuinely fun target -
 GBDK-2020 (C) rather than RGBDS. See the Status section's own Phase 10
 entry for the concept, milestone roadmap, and toolchain reasoning.
 
+### Phase 11: a second original homebrew game ("Wayfarer")
+
+A second, separate homebrew game alongside `prism/` - `wayfarer/`, a
+CGB-only top-down action-adventure in the tradition of the original
+Zelda (1986), also written in GBDK-2020 (C), reusing the same toolchain
+install `prism/` already needs. See the Status section's own Phase 11
+entry for the concept, milestone roadmap, and design.
+
 ## Status
 
 **Phase 1 (CPU core): functionally complete and passing its gate.**
@@ -3195,3 +3203,100 @@ resolve the GPL-license question to add a real homebrew regression
 game, or build real networking/link infrastructure (would unlock both
 real IR communication and real link-cable multiplayer at once, since
 they're the same underlying gap).
+
+**Phase 11 (a second original homebrew game - "Wayfarer"): scoped,
+Milestone 1 (single-room movement) complete.** User-directed: "a basic
+top-view game like the original Zelda." Confirmed as a genuinely
+separate project from `prism/` (not an extension of it - a different
+genre, match-3 vs. top-down action-adventure), CGB-only (same proven
+toolchain/palette pipeline `prism/` already established), first
+milestone scoped to the smallest real slice: a player sprite walking
+around one static room with wall collision, no room transitions,
+combat, or items yet.
+
+**Toolchain reuse, not duplication**: `wayfarer/Makefile`'s
+`GBDK_HOME` defaults to `../prism/toolchain/gbdk` - the same GBDK-2020
+install `prism/` already needs - rather than fetching/extracting a
+second copy of the same multi-hundred-MB release archive. A real,
+deliberate decision, not an oversight; overridable if an independent
+install is ever wanted. New top-level `wayfarer/` subproject, same
+shape as `prism/` (own `Makefile`, own `README.md`). Root `Makefile`
+gained one opt-in passthrough target, `gameboy-wayfarer-build` - same
+"opt-in, external dependency, never part of plain `make`/`make
+gameboy-test`" treatment every other GBDK/RGBDS/SDL target already
+gets.
+
+**Milestone roadmap** (whole-game scope): (1) toolchain bring-up +
+single-room movement - this pass; (2) room transitions - multiple
+rooms wired into a small overworld grid, screen-edge triggers; (3)
+combat - a sword attack, one simple enemy type, hit detection, health;
+(4) items/inventory + HUD; (5) stretch, later - a locked-door-and-key
+puzzle room, sound effects, a title screen, SRAM save (reusing
+`prism/`'s own now-proven `gb_cart_load_ram_file()`/`highscore.c`
+pattern), a win condition.
+
+**Milestone 1 (this pass): done.** `wayfarer/src/room.c` draws a
+single static, fully-bordered room - the whole visible 20x18-tile
+(160x144px) screen, a 1-tile wall ring around the outside (a simple
+beveled-stone tile: dark top/left edge, light bottom/right edge, solid
+fill between - not hand-drawn, computed from that rule and converted to
+GB 2bpp planar tile bytes by a one-off local script, same discipline as
+every tile asset in `prism/`) and open floor everywhere inside.
+`wayfarer/src/player.c` draws a 16x16 directional player sprite (4 OAM
+sprites, `prism/src/cursor.c`'s own `position_sprites()` shape) with
+three authored tile sets - down (front-facing), up (back-facing), and
+one side profile reused mirrored via `S_FLIPX` for left vs. right (the
+same "one tile, four flipped corners" reuse technique `prism/`'s
+`cursor.c`/`swapanim.c` already established, applied here as "one
+profile, two flipped facings" instead) - swapping automatically as the
+D-pad is held.
+
+Movement is continuous (1px/frame, not grid-snapped) and
+held-responsive (reads `joypad()`'s live state every frame, not
+edge-triggered) - deliberately different from `prism/`'s own cursor,
+which moves one grid cell per discrete press, since a top-down
+action-adventure needs to read as real-time movement, not a menu
+cursor. Collision is checked independently per axis against a plain
+pixel-bounds query (`room_blocks()`) rather than general tile-by-tile
+lookup - correct and sufficient since only the outer wall ring exists
+this milestone - so the player can slide along a wall on one axis while
+blocked on the other, rather than sticking outright.
+
+Also carried forward directly rather than rediscovered: the real fix
+for the "PPU rendering-catch-up quirk" this project's own `prism/`
+investigation found and corrected (see this Status section's `prism/`
+entries) - `wayfarer/src/main.c` disables the display
+(`wait_vbl_done(); DISPLAY_OFF;`) before any of its own VRAM/tilemap/
+palette setup writes, and only re-enables it (`SHOW_BKG; DISPLAY_ON;`)
+once `room_init()`/`player_init()` have both finished, so this brand-new
+project never has a chance to reintroduce the same real-hardware-shaped
+torn-frame bug from scratch. Confirmed empirically, not just assumed
+safe by carrying the pattern over: frames 1-3 (still mid-boot-ROM
+white-screen state) differ from the final render, but frame 5 onward is
+already byte-identical to frame 10 - no torn frame ever observed, in
+contrast to `prism/title.c`'s own pre-fix behavior which did show one.
+
+Verified via a new scripted `--input` sequence
+(`wayfarer/input_script_m1.txt`) that holds each of the 4 directions in
+turn - down, right, up, then left - for comfortably more frames than
+the real distance needs, walking the player from the room's center into
+every wall. Each leg's resulting frame was captured and visually
+inspected (zoomed crops, not just thumbnails - the same discipline
+`prism/`'s own Milestone 7 verification found necessary for a
+few-pixel-per-frame change): confirmed the player stops flush against
+the bottom wall, then the right wall, then the top wall, and finally
+lands exactly in the top-left corner (flush against both the top and
+left walls simultaneously, proving per-axis collision resolves
+correctly even at a corner) - and that all three directional art sets
+(down, right/side, and left/flipped-side) render correctly and
+distinctly at each stop. Locked in as `wayfarer/reference_m1.ppm` only
+after confirming frame stability (two captures 5 frames apart,
+byte-identical). Full existing regression suite (unit tests, all
+visual/game/savestate targets, all three RGBDS ROMs, Mooneye, and
+`gameboy-prism-build` itself) stayed green throughout - this is a
+wholly new, isolated subproject touching no emulator core code and no
+existing `prism/` files.
+
+**Next**: Milestone 2 (room transitions - wiring multiple rooms into a
+small overworld grid with screen-edge triggers) is the natural next
+step, once user-directed.

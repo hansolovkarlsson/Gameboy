@@ -179,6 +179,16 @@ PRISM_SAV_OUT := $(BIN_DIR)/prism-output.sav
 PRISM_TITLE_REF := prism/reference_m6c_title.ppm
 PRISM_TITLE_OUT := $(BIN_DIR)/prism-title-output.ppm
 
+# Wayfarer (wayfarer/ - a second, separate original homebrew game, a
+# top-down action-adventure rather than prism/'s match-3 puzzle - see
+# wayfarer/README.md and docs/GAMEBOY_ROADMAP.md's own entry). Milestone
+# 1: a directional player sprite walks around one static bordered room,
+# stopped cleanly by wall collision on every side.
+WAYFARER_ROM := wayfarer/bin/wayfarer.gb
+WAYFARER_SCRIPT := wayfarer/input_script_m1.txt
+WAYFARER_REF := wayfarer/reference_m1.ppm
+WAYFARER_OUT := $(BIN_DIR)/wayfarer-output.ppm
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -208,7 +218,7 @@ SDL_PKGS := sdl2
 SDL_CFLAGS := $(shell pkg-config --cflags $(SDL_PKGS) 2>/dev/null) -I$(SRC_DIR)
 SDL_LIBS := $(shell pkg-config --libs $(SDL_PKGS) 2>/dev/null)
 
-.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-rgbds-hdma-test gameboy-prism-build gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
+.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-rgbds-hdma-test gameboy-prism-build gameboy-wayfarer-build gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
 
 all: gameboy
 
@@ -292,6 +302,13 @@ gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 		&& echo "gameboy-prism-build: OK (Milestone 6c - a fresh boot loads the persisted high score onto the title screen)" \
 		|| (echo "gameboy-prism-build: FAIL (title screen doesn't match $(PRISM_TITLE_REF))"; exit 1)
 
+gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
+	$(MAKE) -C wayfarer
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 470
+	cmp $(WAYFARER_OUT) $(WAYFARER_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 1 - player sprite walks into all four walls in turn, stopped cleanly by collision each time)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_REF))"; exit 1)
+
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
 
@@ -328,5 +345,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT)
 	$(MAKE) -C prism clean
+	$(MAKE) -C wayfarer clean
