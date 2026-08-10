@@ -32,22 +32,31 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 1 (single-room movement)
+## Status: Milestone 2 (room transitions)
 
-A 16x16 directional player sprite walks freely (pixel-level, not
-grid-snapped) around one static, fully-bordered room, stopped cleanly
-by the wall ring on every side — collision checked independently per
-axis, so the player can slide along a wall rather than sticking. Three
-directional art sets (down/up/one side profile, the side profile
+Milestone 1 built one static, fully-bordered room and a 16x16
+directional player sprite that walks it freely (pixel-level, not
+grid-snapped), stopped cleanly by wall collision checked independently
+per axis (so the player can slide along a wall rather than sticking).
+Three directional art sets (down/up/one side profile, the side profile
 mirrored via hardware sprite flip for left vs right — see
-`src/player.c`) swap automatically as the D-pad is held. No room
-transitions, combat, items, or HUD yet — all explicitly deferred to
-later milestones (see `docs/GAMEBOY_ROADMAP.md`), not silently
-missing.
+`src/player.c`) swap automatically as the D-pad is held.
 
-Verified via a scripted `--input` sequence
-(`input_script_m1.txt`) that walks the player into all four walls in
-turn — down, right, up, then left — confirming collision genuinely
-stops movement at each wall (not just "didn't crash"), and that all
-four directional art sets render correctly, before locking in
-`reference_m1.ppm` as the committed regression reference.
+This pass (`src/world.c`) wires a small 2x2 grid of rooms together
+(`src/room.c`'s `room_draw()` now takes which of a room's 4 sides have
+a neighbor, walling off only the sides that don't). Stepping off an
+*open* side's true screen edge cuts instantly to the adjacent room,
+entering from its opposite edge — a hard cut, not a scroll, by design.
+A closed side still blocks movement exactly like Milestone 1, now
+proven in a non-origin room too. No combat, items, or HUD yet — all
+explicitly deferred to later milestones (see
+`docs/GAMEBOY_ROADMAP.md`), not silently missing.
+
+Verified via a scripted `--input` sequence (`input_script_m2.txt`)
+that crosses two chained transitions (east, then south) and confirms a
+closed north side still blocks movement in between — each room's
+distinct wall-opening pattern (every room in a 2x2 grid is a corner,
+so each has exactly 2 open sides) doubles as an easy visual fingerprint
+that the right room is on screen at each step. Locked in as
+`reference_m2.ppm` (supersedes `reference_m1.ppm`, deleted once the new
+one was confirmed).

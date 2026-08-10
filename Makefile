@@ -182,11 +182,12 @@ PRISM_TITLE_OUT := $(BIN_DIR)/prism-title-output.ppm
 # Wayfarer (wayfarer/ - a second, separate original homebrew game, a
 # top-down action-adventure rather than prism/'s match-3 puzzle - see
 # wayfarer/README.md and docs/GAMEBOY_ROADMAP.md's own entry). Milestone
-# 1: a directional player sprite walks around one static bordered room,
-# stopped cleanly by wall collision on every side.
+# 2: a small 2x2 grid of rooms, cutting instantly to the adjacent room
+# when the player steps off an open (neighbor-having) edge of the
+# screen; a closed edge still blocks movement exactly like Milestone 1.
 WAYFARER_ROM := wayfarer/bin/wayfarer.gb
-WAYFARER_SCRIPT := wayfarer/input_script_m1.txt
-WAYFARER_REF := wayfarer/reference_m1.ppm
+WAYFARER_SCRIPT := wayfarer/input_script_m2.txt
+WAYFARER_REF := wayfarer/reference_m2.ppm
 WAYFARER_OUT := $(BIN_DIR)/wayfarer-output.ppm
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
@@ -304,9 +305,9 @@ gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 
 gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	$(MAKE) -C wayfarer
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 470
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 345
 	cmp $(WAYFARER_OUT) $(WAYFARER_REF) \
-		&& echo "gameboy-wayfarer-build: OK (Milestone 1 - player sprite walks into all four walls in turn, stopped cleanly by collision each time)" \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 2 - crosses two chained room transitions, and confirms a closed side still blocks movement in a non-origin room)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)

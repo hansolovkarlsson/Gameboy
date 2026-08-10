@@ -184,3 +184,12 @@ void player_update(uint8_t joy) {
 
     position_player();
 }
+
+uint8_t player_get_x(void) { return player_x; }
+uint8_t player_get_y(void) { return player_y; }
+
+void player_set_position(uint8_t x, uint8_t y) {
+    player_x = x;
+    player_y = y;
+    position_player();
+}

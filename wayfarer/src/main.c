@@ -3,21 +3,24 @@
 // action-adventure in the tradition of the original Zelda (1986) -
 // free pixel-level movement around bordered rooms, viewed from above.
 // See docs/GAMEBOY_ROADMAP.md's own entry for the whole milestone
-// roadmap; this is Milestone 1 only - a player sprite that walks
-// around one static bordered room with wall collision. No room
-// transitions, combat, items, or HUD yet - all explicitly deferred to
-// later milestones, not silently missing.
+// roadmap. Milestone 1 built one static bordered room with wall
+// collision; this pass (Milestone 2) wires a small 2x2 grid of rooms
+// together, cutting instantly to the adjacent room when the player
+// steps off an open (neighbor-having) edge of the screen
+// (world.h/world.c). No combat, items, or HUD yet - all explicitly
+// deferred to later milestones, not silently missing.
 //
-// See room.h/room.c for the room's tile/palette data and wall bounds,
-// player.h/player.c for the directional sprite and movement/collision.
+// See room.h/room.c for a room's own tile/palette data and per-side
+// wall bounds, player.h/player.c for the directional sprite and
+// movement/collision, world.h/world.c for the grid position and
+// transition logic.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stdint.h>
 #include <rand.h>
 
-#include "player.h"
-#include "room.h"
+#include "world.h"
 
 void main(void) {
     // Seeded now even though nothing's randomized yet this milestone -
@@ -39,15 +42,14 @@ void main(void) {
     wait_vbl_done();
     DISPLAY_OFF;
 
-    room_init();
-    player_init(); // also enables SHOW_SPRITES
+    world_init(); // loads the room/player art and draws the starting room; also enables SHOW_SPRITES
 
     SHOW_BKG;
     DISPLAY_ON;
 
     while (1) {
         uint8_t joy = joypad();
-        player_update(joy);
+        world_update(joy);
         vsync();
     }
 }

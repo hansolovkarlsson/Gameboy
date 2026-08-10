@@ -3297,6 +3297,86 @@ visual/game/savestate targets, all three RGBDS ROMs, Mooneye, and
 wholly new, isolated subproject touching no emulator core code and no
 existing `prism/` files.
 
-**Next**: Milestone 2 (room transitions - wiring multiple rooms into a
-small overworld grid with screen-edge triggers) is the natural next
-step, once user-directed.
+**Milestone 2 (this pass): done.** User-directed: "let's build Milestone
+2 - room transitions." Already scoped as an instant cut (not a scroll)
+in Milestone 1's own wrap-up above, so no new design question there;
+the real design work was the grid shape and how a room's own wall
+layout should depend on it.
+
+**Grid shape: 2x2** (`GRID_W=2`, `GRID_H=2`, `wayfarer/src/world.c`) -
+the smallest grid that genuinely exercises both axes of transition
+(east/west and north/south) in one milestone. Every room in a 2x2 grid
+is a corner, so every room has exactly 2 open sides and 2 walled sides
+- a real, easy-to-verify visual fingerprint per room (room (0,0):
+east+south open; (1,0): west+south open; (0,1): east+north open; (1,1):
+west+north open), not an artificial marker added just for testing.
+
+**`wayfarer/src/room.c`/`room.h`**: `room_init()` now does only the
+one-time tile/palette load (tile *data* is identical for every room -
+only the tile *map* changes). New `room_draw(has_north, has_south, has_east, has_west)`
+builds that map: a tile is wall iff it sits on a *closed* side's edge
+column/row; a corner tile (on two edges at once) is wall unless *both*
+adjoining sides are open, so a fully-open corner reads as a real,
+walkable opening rather than a floating single-tile wall stub, and
+stores the 4 flags for `room_blocks()`. `room_blocks()` changed from a
+single fixed bound to a per-side one: a closed side keeps exactly
+Milestone 1's bound (`ROOM_MIN_X`/`ROOM_MAX_X`/etc.); an open side
+relaxes that out to the *absolute* screen edge a 16x16 sprite's
+top-left corner can reach (`ABS_MIN_X=0`/`ABS_MAX_X=144`/etc.) rather
+than removing the bound entirely - still blocks going *past* the true
+edge (which would wrap a `uint8_t` position), leaving the exact edge
+pixel as a clean hand-off point for `world.c`'s transition check to
+catch before another frame's movement could underflow. With all 4
+sides closed this is byte-for-byte Milestone 1's original behavior -
+confirmed as a real regression check (room (1,0)'s own closed north
+side, see Verification below), not just reasoned about.
+
+**`wayfarer/src/player.c`/`player.h`** gained `player_get_x()`/
+`player_get_y()` (read-only accessors, same shape as the sibling
+`prism/`'s `cursor.c` own `cursor_get_x()`/`get_y()`) and
+`player_set_position(x, y)` (repositions the sprite immediately via the
+existing file-local `position_player()`, so a post-transition frame
+never shows a stale position) - `player_update()`'s own movement/
+collision logic is otherwise untouched.
+
+**New `wayfarer/src/world.c`/`world.h`** owns the grid position
+(`room_x`, `room_y`) and the transition check itself.
+`world_update(joy)` calls `player_update(joy)` first (unchanged), then
+checks - in a fixed west/east/north/south order, the same "fixed
+priority, documented" tie-break `player.c`'s own diagonal-facing logic
+already uses for the rare exact-corner case - whether the player is
+sitting exactly on an *open* absolute edge. On a match: the same
+real-hardware-safe screen-off pattern `main.c`'s own boot sequence
+already uses (`wait_vbl_done(); DISPLAY_OFF;` ... `SHOW_BKG; DISPLAY_ON;`),
+reused here because a full room-tile-map rewrite mid-gameplay is the
+same "bulk VRAM write while the LCD is live" risk category as any
+other setup write in this project - worth actually guarding here,
+unlike the sibling `prism/` project's own per-*cell* `board_redraw()`,
+which accepts a rare single-frame tear as a known, documented tradeoff
+for a much smaller write. Then updates `room_x`/`room_y`, redraws via
+`room_draw()`, and calls `player_set_position()` to place the player
+just inside the new room's opposite edge (e.g. exiting west sets the
+new room's entry `x = ROOM_MAX_X`, `y` unchanged - the whole edge is
+open, so no realignment is needed).
+
+**Verified** via a new scripted `--input` sequence
+(`wayfarer/input_script_m2.txt`, replacing `input_script_m1.txt`) that
+holds RIGHT to cross room (0,0)'s open east edge into room (1,0)
+(confirmed by eye: the wall-opening pattern changes from east+south-open
+to west+south-open, exactly the expected fingerprint), then holds UP to
+confirm room (1,0)'s own *closed* north side still blocks movement
+(the player stops flush against the top wall, same as Milestone 1's
+own collision behavior, now proven in a non-origin room), then holds
+DOWN to cross (1,0)'s open south edge into room (1,1) (west+north-open
+fingerprint) - a second, chained transition. Every frame number
+re-derived empirically, not guessed. Locked in as
+`wayfarer/reference_m2.ppm` only after confirming frame stability;
+`reference_m1.ppm`/`input_script_m1.txt` deleted once superseded (this
+project's own "supersede, don't accumulate" convention, already
+established by the sibling `prism/` project's history). Full existing
+regression suite (unit tests, all visual/game/savestate targets, all
+three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed green
+throughout - this change touches only `wayfarer/`.
+
+**Next**: Milestone 3 (combat - a sword attack, one simple enemy type,
+hit detection, health) is the natural next step, once user-directed.
