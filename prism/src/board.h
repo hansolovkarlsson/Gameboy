@@ -16,6 +16,21 @@
 // gem tile/palette data (gems.h) and initrand() has been called.
 void board_init(void);
 
+// Read-only access to a single grid cell's gem type (0..GEM_TYPE_COUNT-1) -
+// swapanim.c needs to know which two gem colors to animate *before*
+// board_try_swap() mutates state.
+uint8_t board_peek(uint8_t x, uint8_t y);
+
+// Redraws the whole 12x12 grid from current state. Normally handled
+// internally by board_try_swap() itself on a committed swap; exposed
+// here for main.c's own swap-animation revert path - swapanim_play()
+// (swapanim.h) leaves both involved cells' background tiles blanked
+// regardless of which direction it slid, so a reverted (non-matching)
+// swap needs an explicit redraw of its own after sliding the gems back,
+// since board_try_swap() doesn't redraw on that path (nothing in
+// grid[] state actually changed).
+void board_redraw(void);
+
 // Attempts to swap grid cells (x1,y1) and (x2,y2) (expected adjacent,
 // though this function doesn't itself enforce that - main.c's
 // selection logic already only calls it for adjacent cells). If the

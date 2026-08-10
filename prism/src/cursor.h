@@ -24,6 +24,16 @@ void cursor_init(void);
 // so it's read once by the caller and shared, not read again here.
 void cursor_update(uint8_t joy);
 
+// Hides the four corner-bracket sprites (moves them off-screen) without
+// forgetting the current cursor cell; cursor_show() restores them at
+// that same cell. Used by main.c around swapanim_play() calls, to keep
+// the concurrently-visible sprite count comfortably under the
+// hardware's 10-sprites-per-scanline limit during a swap animation
+// (swapanim.c's own 8 gem sprites already use most of that budget on a
+// same-row horizontal swap).
+void cursor_hide(void);
+void cursor_show(void);
+
 // Current cursor cell, 0 to GRID_SIZE-1 on each axis - Milestone 4's
 // selection/swap logic (main.c) needs to know which cell the cursor is
 // over.

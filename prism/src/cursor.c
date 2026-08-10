@@ -87,5 +87,16 @@ void cursor_update(uint8_t joy) {
     position_sprites();
 }
 
+void cursor_hide(void) {
+    move_sprite(SPRITE_TL, 0, 0);
+    move_sprite(SPRITE_TR, 0, 0);
+    move_sprite(SPRITE_BL, 0, 0);
+    move_sprite(SPRITE_BR, 0, 0);
+}
+
+void cursor_show(void) {
+    position_sprites();
+}
+
 uint8_t cursor_get_x(void) { return cursor_x; }
 uint8_t cursor_get_y(void) { return cursor_y; }

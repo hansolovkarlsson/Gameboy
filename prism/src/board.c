@@ -45,7 +45,7 @@ static void fill_screen_blank(void) {
 // Rebuilds the 12x12 tile-ID/attribute maps from grid[][] and draws
 // them - same shape as Milestone 2's old build_grid(), just reading
 // real state now instead of a fixed (row+col)%5 formula.
-static void board_redraw(void) {
+void board_redraw(void) {
     for (uint8_t gy = 0; gy < GRID_SIZE; gy++) {
         for (uint8_t gx = 0; gx < GRID_SIZE; gx++) {
             uint8_t gem_type = grid[gy][gx];
@@ -140,6 +140,10 @@ static void collapse_and_refill(uint8_t to_clear[GRID_SIZE][GRID_SIZE]) {
             write_y--;
         }
     }
+}
+
+uint8_t board_peek(uint8_t x, uint8_t y) {
+    return grid[y][x];
 }
 
 void board_init(void) {

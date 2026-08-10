@@ -142,28 +142,33 @@ RGBDS_HDMA_ROM := $(BIN_DIR)/rgbds-hdma.gb
 # game, written in GBDK-2020 (C) rather than RGBDS - see prism/README.md
 # for the toolchain (not vendored here, same reasoning as RGBDS) and
 # docs/GAMEBOY_ROADMAP.md for the milestone roadmap. Currently
-# Milestone 6c (real SRAM high-score persistence, on top of Milestone
-# 6b's title screen, Milestone 6a's sound effects, and Milestone 5's
-# scoring/move budget/game-over/restart) - the scripted --input sequence
-# (prism/input_script_m6b.txt, same mechanism test_roms/2048-gb's own
-# regression test uses) presses Start to dismiss the title screen
-# (prism/src/title.c), then makes the same real match-producing swap
-# against the deterministic initial board (initrand() seeded from
-# DIV_REG *before* title_screen()'s own player-paced wait, so the board
-# is unaffected by it) and confirms the HUD (prism/src/hud.c: score
-# 0 -> 30, moves 20 -> 19), the select/match sound effects
-# (prism/src/sfx.c, via a second audio capture of the same run), and -
-# new this milestone - real cartridge-RAM persistence
-# (prism/src/highscore.c, src/cart.c's gb_cart_load_ram_file()/
-# gb_cart_save_ram_file()): that run's --sav output is cmp'd against a
-# committed reference, then a *second*, separate invocation loads it
-# fresh (no --input at all) and confirms the title screen now reads
-# "HIGH 0030" instead of "HIGH 0000".
+# Milestone 7 (animated gem swap, prism/src/swapanim.c, on top of
+# Milestone 6c's real SRAM high-score persistence, 6b's title screen,
+# 6a's sound effects, and Milestone 5's scoring/move budget/game-over/
+# restart) - the scripted --input sequence (prism/input_script_m7.txt,
+# same mechanism test_roms/2048-gb's own regression test uses) presses
+# Start to dismiss the title screen (prism/src/title.c), attempts one
+# deliberately non-matching swap first (exercising swapanim_play()'s
+# revert/slide-back path) against the deterministic initial board
+# (initrand() seeded from DIV_REG *before* title_screen()'s own
+# player-paced wait, so the board is unaffected by it), then makes the
+# same real match-producing swap Milestone 6b's own script used and
+# confirms the HUD (prism/src/hud.c: score 0 -> 30, moves 20 -> 19),
+# the select/revert/match sound effects (prism/src/sfx.c, via a second
+# audio capture of the same run - now 4 real events, not 2, since the
+# revert attempt is scripted this milestone too), and real cartridge-RAM
+# persistence (prism/src/highscore.c, src/cart.c's
+# gb_cart_load_ram_file()/gb_cart_save_ram_file()): that run's --sav
+# output is cmp'd against a committed reference, then a *second*,
+# separate invocation loads it fresh (no --input at all) and confirms
+# the title screen now reads "HIGH 0030" instead of "HIGH 0000" - both
+# unaffected by this milestone's purely-rendering swap animation,
+# confirmed unchanged rather than assumed.
 PRISM_ROM := prism/bin/prism.gb
-PRISM_SCRIPT := prism/input_script_m6b.txt
-PRISM_REF := prism/reference_m6b.ppm
+PRISM_SCRIPT := prism/input_script_m7.txt
+PRISM_REF := prism/reference_m7.ppm
 PRISM_OUT := $(BIN_DIR)/prism-output.ppm
-PRISM_WAV_REF := prism/reference_m6c_sfx.wav
+PRISM_WAV_REF := prism/reference_m7_sfx.wav
 PRISM_WAV_OUT := $(BIN_DIR)/prism-sfx-output.wav
 PRISM_SAV_REF := prism/reference_m6c.sav
 PRISM_SAV_OUT := $(BIN_DIR)/prism-output.sav
@@ -267,13 +272,13 @@ gameboy-rgbds-hdma-test: $(TARGET) | $(BIN_DIR)
 gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 	$(MAKE) -C prism
 	rm -f $(PRISM_SAV_OUT)
-	./$(TARGET) $(PRISM_ROM) --mode cgb --input $(PRISM_SCRIPT) --sav $(PRISM_SAV_OUT) --ppm $(PRISM_OUT) --frames 110
+	./$(TARGET) $(PRISM_ROM) --mode cgb --input $(PRISM_SCRIPT) --sav $(PRISM_SAV_OUT) --ppm $(PRISM_OUT) --frames 200
 	cmp $(PRISM_OUT) $(PRISM_REF) \
-		&& echo "gameboy-prism-build: OK (Milestone 6b - title screen -> Start -> score/moves HUD tracks a real match correctly)" \
+		&& echo "gameboy-prism-build: OK (Milestone 7 - title screen -> Start -> a reverted swap slides back apart, then a real match slides together and clears)" \
 		|| (echo "gameboy-prism-build: FAIL (rendered frame doesn't match $(PRISM_REF))"; exit 1)
 	./$(TARGET) $(PRISM_ROM) --mode cgb --input $(PRISM_SCRIPT) --wav $(PRISM_WAV_OUT) --seconds 3
 	cmp $(PRISM_WAV_OUT) $(PRISM_WAV_REF) \
-		&& echo "gameboy-prism-build: OK (Milestone 6a - select/match sound effects match a real captured reference)" \
+		&& echo "gameboy-prism-build: OK (Milestone 6a - select/revert/match sound effects match a real captured reference)" \
 		|| (echo "gameboy-prism-build: FAIL (captured audio doesn't match $(PRISM_WAV_REF))"; exit 1)
 	cmp $(PRISM_SAV_OUT) $(PRISM_SAV_REF) \
 		&& echo "gameboy-prism-build: OK (Milestone 6c - a real match-clearing swap persists a new high score to cart RAM)" \

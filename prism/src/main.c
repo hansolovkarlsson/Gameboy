@@ -46,6 +46,7 @@
 #include "highscore.h"
 #include "hud.h"
 #include "sfx.h"
+#include "swapanim.h"
 #include "title.h"
 
 // 20 is this build's real, shipped starting move budget - not a
@@ -133,6 +134,15 @@ static void handle_select(uint8_t pressed_a) {
 
     if (is_adjacent(selected_x, selected_y, cx, cy)) {
         if (moves_remaining > 0) {
+            // Peeked before board_try_swap() mutates state - the
+            // animation needs to know both cells' real gem colors.
+            uint8_t gem_a = board_peek(selected_x, selected_y);
+            uint8_t gem_b = board_peek(cx, cy);
+
+            marker_hide();
+            cursor_hide(); // keeps concurrently-visible sprites under the hardware's 10-per-scanline limit during the animation - see swapanim.h
+            swapanim_play(selected_x, selected_y, gem_a, cx, cy, gem_b);
+
             uint16_t cleared = board_try_swap(selected_x, selected_y, cx, cy);
             if (cleared > 0) {
                 sfx_play_match();
@@ -144,7 +154,11 @@ static void handle_select(uint8_t pressed_a) {
                 if (moves_remaining == 0) sfx_play_gameover();
             } else {
                 sfx_play_revert();
+                swapanim_play(cx, cy, gem_b, selected_x, selected_y, gem_a); // slide back apart
+                board_redraw(); // restore both cells' real BG art - board_try_swap() itself doesn't redraw on a revert, since grid[] never changed
             }
+
+            cursor_show();
         }
         selected = 0;
         marker_hide();
@@ -194,6 +208,7 @@ void main(void) {
 
     cursor_init(); // also enables SHOW_SPRITES
     marker_init();
+    swapanim_init();
 
     // Seeded from the real current joypad state, not hardcoded 0 - if
     // the player is still physically holding Start (the same button

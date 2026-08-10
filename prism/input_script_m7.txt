@@ -1,0 +1,45 @@
+# Prism Milestone 7 verification script (animated gem swap,
+# prism/src/swapanim.c). Extends input_script_m6b.txt's known sequence
+# (Start, then select (0,3)/swap up with (0,2): a real Y,Y,Y vertical
+# match at column 0 rows 3-5) with a *leading* non-matching swap first,
+# to exercise and lock in the revert/slide-back path too - not
+# guessable up front, found by inspecting the deterministic board's
+# real initial layout: (0,0) and (1,0) are Blue and Purple (adjacent,
+# different colors, and the board's own no-free-match guarantee at
+# init means swapping them can't accidentally create one either).
+#
+# Every event's frame number was re-derived empirically (capture/
+# inspect several candidate frames, same technique every prior
+# milestone's own timing-shift used), not guessed - each blocking
+# swapanim_play() call now inserts up to 16 real frames (an 8-frame
+# forward slide, plus another 8-frame slide-back on the revert path)
+# that didn't exist before this milestone, on top of whatever real
+# game-loop frames already elapsed.
+#
+# Sequence: Start (dismiss title) -> select (0,0) -> move to (1,0) ->
+# attempt swap (reverts: Blue/Purple, no match, slides back apart) ->
+# move to (0,3) -> select -> move to (0,2) -> attempt swap (matches:
+# creates the Y,Y,Y vertical run, HUD score 0->30, moves 20->19).
+# Confirmed stable (byte-identical) from frame 195 onward.
+10 START down
+11 START up
+30 A down
+31 A up
+40 RIGHT down
+41 RIGHT up
+50 A down
+51 A up
+80 LEFT down
+81 LEFT up
+90 DOWN down
+91 DOWN up
+100 DOWN down
+101 DOWN up
+110 DOWN down
+111 DOWN up
+120 A down
+121 A up
+130 UP down
+131 UP up
+140 A down
+141 A up

@@ -3025,12 +3025,96 @@ Zero regressions: the full existing suite (unit tests, Mooneye 80/83,
 green throughout - this change touches only `prism/src/title.c`,
 nothing in the emulator core.
 
-**Next**: Milestone 6 (stretch/polish) is complete - sound effects
-(6a), a real title screen (6b), and SRAM high-score persistence (6c) -
-and the PPU timing finding is resolved. User-directed from here: give
-the SDL front end's write-through-on-every-cart-RAM-write option a
-look (a natural, easy enhancement flagged but deliberately not built
-during Milestone 6c), resolve the GPL-license question to add a real
-homebrew regression game, or build real networking/link infrastructure
-(would unlock both real IR communication and real link-cable
-multiplayer at once, since they're the same underlying gap).
+**Milestone 7 (this pass): done.** Animated gem swap - user-directed:
+"the two pieces that switch [should be] animated instead of just
+switching... you can see that they're switching places before the
+[matched] tripple disappears." Previously `board_try_swap()`
+(`prism/src/board.c`) mutated the grid and redrew instantly - a
+matching swap jumped straight to the already-resolved (cleared/
+collapsed/refilled) board with no transition, and a non-matching swap
+just snapped back with only a sound effect for feedback. Asked the user
+whether a reverted (non-matching) swap should also visibly slide back
+apart or just snap back as before; they chose to animate both
+directions, so every swap attempt gets consistent visual feedback.
+
+New `prism/src/swapanim.c`/`swapanim.h`: `swapanim_play()` blanks the
+two involved cells' background tiles, then slides two 16x16 sprite
+gems across each other over 8 frames (2px/frame - an exact divisor of
+the 16px cell pitch), reusing `gems.h`'s own diamond-quadrant bitmap
+and palettes rather than authoring new art - loaded once more into
+sprite-tile/OBJ-palette address space (confirmed via `gb/gb.h`'s own
+`set_bkg_data()` doc note that sprite and background tiles only share
+memory at IDs 128-255, well above every ID in use here). The sprite
+icon itself reuses a single quadrant tile (`gem_tiles[0]`) mirrored via
+`S_FLIPX`/`S_FLIPY` for all four corners - the same one-tile-plus-flips
+technique `cursor.c`'s corner brackets already used - rather than
+loading all 4 of the background version's separately-pre-flipped
+quadrant tiles; verified the two are pixel-identical by checking the
+committed `gem_tiles` bytes are exact bit-reversals/row-reversals of
+each other before relying on it, then confirmed visually.
+
+`main.c`'s `handle_select()` now peeks both cells' gem types
+(`board_peek()`, new in `board.c`/`board.h`, alongside un-`static`-ing
+`board_redraw()`) before the swap, hides the cursor and selection
+marker for the animation's duration (`cursor_hide()`/`cursor_show()`,
+new in `cursor.c`/`cursor.h` - keeps the concurrently-visible sprite
+count under the hardware's 10-per-scanline limit; `swapanim.c`'s own 8
+gem sprites already use most of that budget on a same-row horizontal
+swap), plays the forward slide, then calls the unchanged
+`board_try_swap()`. On a match, its own existing internal redraw
+handles everything. On a revert, `main.c` explicitly plays the slide
+back apart and calls the newly-exposed `board_redraw()` itself, since
+`board_try_swap()` has no reason to redraw when nothing in `grid[]`
+actually changed.
+
+Verified past the point of "it compiled": traced individual pixel
+columns frame-by-frame across a real captured swap (not just eyeballed
+thumbnails, which made a real 2px/frame motion look deceptively static
+at a glance) and confirmed both gems migrate monotonically toward each
+other's cell and land exactly swapped; confirmed the revert path's
+apparent "double oscillation" in that same pixel trace was the correct
+there-and-back shape of a single forward+backward animation, not a
+double-trigger bug, by adding a temporary one-shot serial-port counter
+in `handle_select()` (reverted after use, same "instrument, observe,
+revert" discipline the PPU quirk investigation above already
+established) that confirmed the swap branch fires exactly once per
+attempt. A one-frame render tear observed while probing arbitrary frame
+counts (mid-redraw, the same well-understood category of risk any bulk
+VRAM write during live gameplay already carried, not a new regression -
+`board_redraw()` already ran unguarded mid-gameplay on every prior
+milestone's matching swap) resolved by the very next frame, confirmed
+transient rather than persistent before picking the final reference
+frame count.
+
+New `prism/input_script_m7.txt` (replaces `input_script_m6b.txt`) adds
+a deliberately non-matching leading swap - (0,0) and (1,0), Blue and
+Purple on the deterministic board, found by inspecting a captured
+frame rather than guessed - ahead of the same matching swap
+`input_script_m6b.txt` used, so both the forward-only and forward-then-
+back animation paths are exercised and locked into the regression
+reference. Every frame number re-derived empirically (each blocking
+`swapanim_play()` call inserts up to 16 real frames that didn't exist
+before this milestone); confirmed stable from frame 195 onward before
+locking in `reference_m7.ppm` (replaces `reference_m6b.ppm`) and
+`reference_m7_sfx.wav` (replaces `reference_m6c_sfx.wav` - now capturing
+4 real SFX events, not 2: select, revert, select, match). Explicitly
+re-confirmed `reference_m6c.sav` and `reference_m6c_title.ppm` are
+**unaffected** by re-running those exact checks rather than assuming a
+purely-rendering change couldn't touch them - both still pass unchanged,
+since final score/moves state and the separate title-screen-only
+invocation are untouched by adding an animation. Zero regressions: the
+full existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
+`cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
+round-trip, all three RGBDS ROMs) stayed green throughout - this change
+touches only `prism/`, nothing in the emulator core.
+
+**Next**: Milestone 6 (stretch/polish - sound effects, a real title
+screen, SRAM high-score persistence) and Milestone 7 (animated gem
+swap) are both complete, and the PPU timing finding is resolved.
+User-directed from here: give the SDL front end's
+write-through-on-every-cart-RAM-write option a look (a natural, easy
+enhancement flagged but deliberately not built during Milestone 6c),
+resolve the GPL-license question to add a real homebrew regression
+game, or build real networking/link infrastructure (would unlock both
+real IR communication and real link-cable multiplayer at once, since
+they're the same underlying gap).

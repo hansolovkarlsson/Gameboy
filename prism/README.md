@@ -55,7 +55,7 @@ the ROM's own header too, but explicit matches how the RGBDS HDMA test
 ROM is run). Opt-in, same as `gameboy-sdl` and the RGBDS targets: never
 part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 6c (real SRAM high-score persistence)
+## Status: Milestone 7 (animated gem swap)
 
 The best score ever reached, shown on the title screen and genuinely
 persisted across separate play sessions via real cartridge SRAM — not
@@ -65,7 +65,8 @@ project's emulator core didn't have at all before now (see
 `gb_cart_load_ram_file()`/`gb_cart_save_ram_file()`). On top of
 Milestone 6b's title screen, Milestone 6a's sound effects, and
 Milestone 5's complete playable build (score, move budget, game-over,
-restart). Milestones 1-6b are done.
+restart). Milestones 1-6c are done; see below for Milestone 7
+(animated gem swap).
 
 `prism/Makefile` now builds a real MBC1+RAM+BATTERY cartridge (`-Wl-yt0x03
 -Wm-ya1`, cartridge type `0x03`, 1 SRAM bank) instead of `mbc=none` -
@@ -288,7 +289,84 @@ added `wait_vbl_done()` shifts every subsequent audio event's exact
 real-time/sample position by a small, fixed amount, without shifting
 which frame number anything lands on.
 
-Milestone 6 (stretch/polish) is now complete: sound effects (6a), a
-real title screen (6b), and SRAM high-score persistence (6c). See
-`docs/GAMEBOY_ROADMAP.md`'s Phase 10 entry for the full writeup and
-whatever comes next.
+Milestone 6 (stretch/polish) is complete: sound effects (6a), a
+real title screen (6b), and SRAM high-score persistence (6c).
+
+### Milestone 7: animated gem swap
+
+User-directed: a swap should visibly show the two gems trading places
+before a match resolves, not jump straight to the resolved board.
+`board_try_swap()` (`board.c`) still owns match-detection/cascade/
+redraw exactly as before — the animation wraps around it, not inside
+it. Asked the user whether a reverted (non-matching) swap should also
+slide back apart visibly, or just snap back as it always had; they
+chose to animate both directions for consistent feedback on every
+attempt.
+
+New `src/swapanim.c`/`swapanim.h`: `swapanim_play()` blanks the two
+cells' background tiles, then slides two 16x16 sprite gems across each
+other over 8 frames (2px/frame, an exact divisor of the 16px cell
+pitch — no rounding remainder). No new art — it reuses `gems.h`'s own
+diamond-quadrant bitmap and palettes, loaded once more into sprite-
+tile/OBJ-palette address space (confirmed via `gb/gb.h`'s own
+`set_bkg_data()` doc note that sprite and background tiles only share
+memory at IDs 128-255 — every ID used here is well below that). It
+even reuses a *single* quadrant tile mirrored via `S_FLIPX`/`S_FLIPY`
+for all four corners — the same technique `cursor.c`'s corner brackets
+already used — after confirming the committed `gem_tiles` bytes are
+exact bit-reversals/row-reversals of each other, not four separate
+tiles as the background version uses.
+
+`main.c`'s `handle_select()` now peeks both cells' gem types
+(`board_peek()`, new) before swapping, hides the cursor and selection
+marker for the animation (`cursor_hide()`/`cursor_show()`, new in
+`cursor.c` — keeps the concurrently-visible sprite count under the
+hardware's 10-per-scanline limit, since `swapanim.c`'s own 8 gem
+sprites already use most of that budget on a same-row horizontal
+swap), plays the forward slide, then calls the unchanged
+`board_try_swap()`. On a match, its existing internal redraw handles
+everything. On a revert, `main.c` plays the slide back apart and calls
+the newly-exposed `board_redraw()` itself, since `board_try_swap()`
+has no reason to redraw when `grid[]` never actually changed.
+
+**Verified past "it compiled"**: traced individual pixel columns
+frame-by-frame across a real captured swap — eyeballing zoomed
+thumbnails alone made the real 2px/frame motion look deceptively
+static — and confirmed both gems migrate monotonically and land
+exactly swapped. The revert path's pixel trace initially looked like a
+double-trigger bug (an apparent double oscillation); confirmed it was
+actually the correct there-and-back shape of one forward+backward
+animation by adding a temporary one-shot serial-port counter in
+`handle_select()` (reverted after use — the same instrument/observe/
+revert discipline the PPU quirk investigation below already
+established) that proved the swap branch fires exactly once per
+attempt. A one-frame render tear seen while probing arbitrary frame
+counts (mid-redraw — the same well-understood risk any bulk VRAM
+write during live gameplay already carried; `board_redraw()` already
+ran unguarded mid-gameplay on every prior milestone's matching swap,
+not a new regression) resolved by the very next frame, confirmed
+transient before picking the final reference frame count.
+
+New `input_script_m7.txt` (replaces `input_script_m6b.txt`) adds a
+deliberately non-matching leading swap — (0,0) and (1,0), Blue and
+Purple on the deterministic board, found by inspecting a captured
+frame, not guessed — ahead of the same matching swap the old script
+used, exercising both the forward-only and forward-then-back animation
+paths in the locked regression reference. Every frame number
+re-derived empirically, since each blocking `swapanim_play()` call
+inserts up to 16 real frames that didn't exist before this milestone;
+confirmed stable from frame 195 onward before locking in
+`reference_m7.ppm` (replaces `reference_m6b.ppm`) and
+`reference_m7_sfx.wav` (replaces `reference_m6c_sfx.wav` — now 4 real
+SFX events: select, revert, select, match). Explicitly re-confirmed
+(not assumed) that `reference_m6c.sav` and `reference_m6c_title.ppm`
+are unaffected by re-running those exact checks — both still pass
+unchanged, since final score/moves state and the separate
+title-screen-only invocation are untouched by a purely-rendering
+animation. Zero regressions: the full existing suite (unit tests,
+Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%, `2048-gb`,
+`droneboy`, `tobutobugirl`, savestate round-trip, all three RGBDS
+ROMs) stayed green throughout.
+
+See `docs/GAMEBOY_ROADMAP.md`'s Phase 10 entry for the full writeup
+and whatever comes next.
