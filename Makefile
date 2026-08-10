@@ -142,18 +142,21 @@ RGBDS_HDMA_ROM := $(BIN_DIR)/rgbds-hdma.gb
 # game, written in GBDK-2020 (C) rather than RGBDS - see prism/README.md
 # for the toolchain (not vendored here, same reasoning as RGBDS) and
 # docs/GAMEBOY_ROADMAP.md for the milestone roadmap. Currently
-# Milestone 5 (scoring, move budget, game-over/restart flow) - the
-# scripted --input sequence (prism/input_script_m5.txt, same mechanism
-# test_roms/2048-gb's own regression test uses) makes one real
-# match-producing swap against the deterministic initial board
-# (initrand() seeded from DIV_REG at a fixed point in an otherwise
-# deterministic boot sequence) and confirms the HUD (prism/src/hud.c)
-# reflects it: score goes 0 -> 30 (one 3-gem match * 10), moves goes
-# 20 -> 19.
+# Milestone 6a (sound effects, on top of Milestone 5's scoring/move
+# budget/game-over/restart) - the same scripted --input sequence
+# (prism/input_script_m5.txt, same mechanism test_roms/2048-gb's own
+# regression test uses) makes one real match-producing swap against the
+# deterministic initial board (initrand() seeded from DIV_REG at a
+# fixed point in an otherwise deterministic boot sequence) and confirms
+# both the HUD (prism/src/hud.c: score 0 -> 30, moves 20 -> 19) and the
+# select/match sound effects (prism/src/sfx.c) via a second, audio
+# capture of the same run.
 PRISM_ROM := prism/bin/prism.gb
 PRISM_SCRIPT := prism/input_script_m5.txt
 PRISM_REF := prism/reference_m5.ppm
 PRISM_OUT := $(BIN_DIR)/prism-output.ppm
+PRISM_WAV_REF := prism/reference_m6_sfx.wav
+PRISM_WAV_OUT := $(BIN_DIR)/prism-sfx-output.wav
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
@@ -255,6 +258,10 @@ gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 	cmp $(PRISM_OUT) $(PRISM_REF) \
 		&& echo "gameboy-prism-build: OK (Milestone 5 - score/moves HUD tracks a real match correctly)" \
 		|| (echo "gameboy-prism-build: FAIL (rendered frame doesn't match $(PRISM_REF))"; exit 1)
+	./$(TARGET) $(PRISM_ROM) --mode cgb --input $(PRISM_SCRIPT) --wav $(PRISM_WAV_OUT) --seconds 3
+	cmp $(PRISM_WAV_OUT) $(PRISM_WAV_REF) \
+		&& echo "gameboy-prism-build: OK (Milestone 6a - select/match sound effects match a real captured reference)" \
+		|| (echo "gameboy-prism-build: FAIL (captured audio doesn't match $(PRISM_WAV_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -292,5 +299,5 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT)
 	$(MAKE) -C prism clean

@@ -2677,12 +2677,86 @@ existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
 `cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
 round-trip, all three RGBDS ROMs) stayed green throughout.
 
+**Milestone 6a (this pass): done.** Sound effects - asked the user which
+of Milestone 6's three independent stretch features (sound effects,
+SRAM high-score persistence, a real title screen) to build first; SRAM
+persistence and the title screen stay on the roadmap as later, separate
+passes (6b/6c).
+
+GBDK-2020 has no higher-level "play a sound effect" API - confirmed by
+reading `prism/toolchain/gbdk/include/gb/hardware.h` directly (the only
+header exposing sound) and `prism/toolchain/gbdk/examples/gb/sound/
+sound.c` (GBDK's own register-poke demo, ported from GBSoundDemo - a
+real reference for exact bit-field usage, not a music tracker). New
+`prism/src/sfx.c`/`sfx.h`: four one-shot triggers, each a single
+write-and-restart to one channel's registers, relying entirely on real
+GB hardware envelope/sweep/length-counter auto-decay - deliberately no
+per-frame service loop or note sequencer, staying within "simple
+tone-generator pokes," not building a mini tracker. `sfx_play_select()`
+(channel 1, no sweep, a short high blip on selecting a cell),
+`sfx_play_revert()` (channel 1, a falling pitch via a real hardware
+sweep in `AUD1SWEEP_DOWN` mode, on a swap that creates no match),
+`sfx_play_match()` (channel 1, a rising pitch via `AUD1SWEEP_UP` -
+deliberately the mirror image of `sfx_play_revert()`, same mechanism,
+opposite direction, so the two read as distinct by ear), and
+`sfx_play_gameover()` (channel 4 noise, a lower, longer buzz whose
+volume envelope alone fades it to silence over ~0.94s, rather than the
+length counter cutting it short - a different channel and timbre, not
+just a different pitch, from the other three, so it reads as a
+distinct "session over" event). Each channel-1 tone's exact `NR13`/
+`NR14` period value was derived from pandocs' real conversion formula
+(`period = 2048 - 131072/frequency`), computed once offline rather than
+hand-derived - same "generate programmatically from a real formula"
+discipline as the digit/gem tile bitmaps. This project's own emulator
+already had all 4 sound channels implemented and independently
+verified (`src/apu.c`, `tests/test_apu.c`, and `test_roms/droneboy`'s
+real sustained 4-channel audio, including a genuine CH1 sweep/envelope
+bug found and fixed there) - so these SFX register writes render
+through already-trustworthy hardware behavior, not an unverified code
+path. `main.c` hooks: `sfx_init()` once at startup; `sfx_play_select()`
+on selecting a cell; `sfx_play_match()`/`sfx_play_revert()` after
+`board_try_swap()` returns (still gated by the existing
+`moves_remaining > 0` check); `sfx_play_gameover()` immediately after
+`moves_remaining` reaches 0. No sound on `restart_game()` this pass - a
+deliberate scope decision, not an oversight: the visual reset (fresh
+board, zeroed HUD) is enough feedback on its own.
+
+**Verification mirrored `gameboy-droneboy-test`'s own established
+pattern** - a byte-exact `cmp` against a committed `.wav` reference -
+rather than inventing a new method for this project's first game-audio
+milestone. The existing `prism/input_script_m5.txt`, unchanged, drives
+one cell selection and one real match-clearing swap against the
+deterministic board, exercising `sfx_play_select()`/`sfx_play_match()`;
+captured via `--wav --seconds 3` and verified before locking in, not
+just "a file was produced" - a small Python script (the `wave` module,
+zero-crossing frequency estimation per 20ms window) confirmed genuine
+silence before the first scripted input event, a mid-high blip
+(~744 Hz average) at the select frame, and a rising tone (~658 Hz
+average, spanning 200-1050 Hz) at the match frame. Locked in as
+`prism/reference_m6_sfx.wav`; `gameboy-prism-build` now runs this `--wav`
+capture and `cmp` alongside its existing `--ppm` check. `sfx_play_revert()`
+and `sfx_play_gameover()` aren't reachable from that exact script (it
+never attempts an invalid swap, and never runs the move budget to 0),
+so both were verified the same way Milestone 5 verified game-over
+*logic* itself - real, but not part of the committed byte-exact
+regression: a throwaway scratch capture (one extra probe swap after the
+scripted sequence) showed a clearly lower-frequency event (~183 Hz
+average, vs. ~658-744 Hz for select/match) confirming `sfx_play_revert()`'s
+falling sweep; a `STARTING_MOVES`-reduced-to-1 throwaway build (never
+committed at that value, restored to 20 and re-verified byte-identical
+against both existing references afterward) showed a much longer,
+low-amplitude, broadband tail (~720ms, absent from every other event)
+confirming `sfx_play_gameover()`. Zero regressions: the full existing
+suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%,
+`2048-gb`, `droneboy`, `tobutobugirl`, savestate round-trip, all three
+RGBDS ROMs) stayed green throughout.
+
 **Next**: user-directed - investigate the PPU timing finding above (a
 real, standalone bug worth its own dedicated session), continue Prism's
-milestone roadmap (Milestone 6 - stretch/polish: sound effects, SRAM
-high-score persistence, a real title screen - is the natural next step,
-and would make Prism a genuinely finished game rather than just a
-playable one), resolve the GPL-license question to add a real homebrew
+milestone roadmap (Milestone 6b/6c - SRAM high-score persistence and a
+real title screen are the remaining stretch/polish items, and together
+would make Prism a genuinely finished game rather than just a playable
+one), resolve the GPL-license question to add a real homebrew
 regression game, or build real networking/link infrastructure (would
 unlock both real IR communication and real link-cable multiplayer at
 once, since they're the same underlying gap).

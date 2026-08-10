@@ -1,10 +1,12 @@
-// Milestone 5 - scoring, move budget, game-over/restart flow. See
-// docs/GAMEBOY_ROADMAP.md's Phase 10 entry for the full milestone
-// roadmap. The first genuinely *complete* playable build: a score, a
-// finite move budget, a game-over state once it runs out, and `Start`
-// to restart. See prism/src/board.h/board.c for the grid state and
-// match/gravity/refill logic, prism/src/cursor.h/cursor.c for the
-// cursor sprite, and prism/src/hud.h/hud.c for the score/moves display.
+// Milestone 6a - sound effects. See docs/GAMEBOY_ROADMAP.md's Phase 10
+// entry for the full milestone roadmap. Milestone 5 (scoring/move
+// budget/game-over/restart) is the first genuinely *complete* playable
+// build; this pass adds real audio feedback on top of it - see
+// prism/src/sfx.h/sfx.c for the four one-shot SFX (select/revert/match/
+// game-over) and their hook points below. See prism/src/board.h/board.c
+// for the grid state and match/gravity/refill logic, prism/src/
+// cursor.h/cursor.c for the cursor sprite, and prism/src/hud.h/hud.c
+// for the score/moves display.
 //
 // Selection is a second, small state machine alongside the cursor: `A`
 // with no active selection selects the cursor's current cell (shown by
@@ -38,6 +40,7 @@
 #include "gems.h"
 #include "grid.h"
 #include "hud.h"
+#include "sfx.h"
 
 // 20 is this build's real, shipped starting move budget - not a
 // debug/testing value (see docs/GAMEBOY_ROADMAP.md's Phase 10 Milestone
@@ -112,6 +115,7 @@ static void handle_select(uint8_t pressed_a) {
         selected_x = cx;
         selected_y = cy;
         marker_show(cx, cy);
+        sfx_play_select();
         return;
     }
 
@@ -125,10 +129,14 @@ static void handle_select(uint8_t pressed_a) {
         if (moves_remaining > 0) {
             uint16_t cleared = board_try_swap(selected_x, selected_y, cx, cy);
             if (cleared > 0) {
+                sfx_play_match();
                 score += cleared * 10;
                 moves_remaining--;
                 hud_set_score(score);
                 hud_set_moves(moves_remaining);
+                if (moves_remaining == 0) sfx_play_gameover();
+            } else {
+                sfx_play_revert();
             }
         }
         selected = 0;
@@ -157,6 +165,7 @@ static void restart_game(void) {
 void main(void) {
     initrand(DIV_REG);
 
+    sfx_init();
     set_bkg_palette(0, GEM_TYPE_COUNT, gem_palettes);
     set_bkg_data(0, GEM_TILE_COUNT, gem_tiles);
     hud_init();

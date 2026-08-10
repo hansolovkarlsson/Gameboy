@@ -55,12 +55,49 @@ the ROM's own header too, but explicit matches how the RGBDS HDMA test
 ROM is run). Opt-in, same as `gameboy-sdl` and the RGBDS targets: never
 part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 5 (scoring, move budget, game-over/restart flow)
+## Status: Milestone 6a (sound effects)
 
-The first genuinely *complete* playable build — a score, a finite move
-budget, a game-over state once it runs out, and `Start` to restart.
-Milestones 1-4 (toolchain bring-up, static grid rendering, cursor +
-input, swap/match/clear/gravity/refill) are done.
+Real audio feedback on top of Milestone 5's complete playable build —
+a score, a finite move budget, a game-over state once it runs out, and
+`Start` to restart. Milestones 1-5 (toolchain bring-up, static grid
+rendering, cursor + input, swap/match/clear/gravity/refill, scoring/
+move budget/game-over/restart) are done.
+
+GBDK-2020 has no higher-level sound API — new `src/sfx.c`/`sfx.h`
+write directly to the DMG/CGB sound registers (`gb/hardware.h`), the
+same "raw register pokes, grounded in a real primary source" approach
+used everywhere else in this project. Four one-shot triggers, each a
+single write-and-restart relying entirely on real hardware envelope/
+sweep/length-counter decay (no per-frame service loop): `sfx_play_select()`
+(channel 1, a short high blip on selecting a cell), `sfx_play_revert()`
+(channel 1, a falling pitch via a real hardware sweep, on a swap that
+creates no match), `sfx_play_match()` (channel 1, a rising pitch via
+the opposite sweep direction — deliberately the mirror image of
+`sfx_play_revert()` so the two are easy to tell apart by ear — on a
+swap that clears at least one gem), and `sfx_play_gameover()` (channel
+4 noise, a longer, lower buzz decaying via its volume envelope alone —
+a different channel and timbre, not just a different pitch, from the
+other three, so it reads as a distinct "session over" event). No sound
+on `restart_game()` this pass — a deliberate scope decision, not an
+oversight: the visual reset is enough feedback on its own.
+
+`make gameboy-prism-build` now `cmp`s a second captured artifact
+(`--wav`, `prism/reference_m6_sfx.wav`) against the same scripted input
+run used for the visual check, exercising `sfx_play_select()` and
+`sfx_play_match()`. Verified before locking in, not just "a file was
+produced": a small Python script (the `wave` module, zero-crossing
+frequency estimation per 20ms window) confirms genuine silence before
+the first scripted input event, a mid-high blip at the select frame,
+and a rising tone at the match frame. `sfx_play_revert()` and
+`sfx_play_gameover()` aren't reachable from that exact script (it never
+attempts an invalid swap, and never runs the move budget to 0), so both
+were verified the same way Milestone 5 verified game-over *logic*
+itself — a throwaway scratch capture (an extra probe swap for revert;
+`STARTING_MOVES` temporarily reduced to 1 for game-over, never
+committed at that value) confirmed each has a real, audibly distinct
+signature (revert: a clearly lower average frequency than select/match;
+game-over: a much longer, low-amplitude, broadband tail, ~720ms,
+absent from every other event) before being reverted back out.
 
 No GBDK console/font system — risk of tile-ID collision with `gems.c`'s
 own tiles `0-4` in the same VRAM bank. New `src/hud.c`/`hud.h` instead:
@@ -141,5 +178,5 @@ byte-identical output every time, confirming the render is stable well
 before `gameboy-prism-build`'s chosen frame count, not coincidentally
 stable at exactly one number.
 
-See `docs/GAMEBOY_ROADMAP.md` for Milestone 6 (stretch/polish: sound
-effects, SRAM high-score persistence, a real title screen).
+See `docs/GAMEBOY_ROADMAP.md` for the rest of Milestone 6 (stretch/
+polish: SRAM high-score persistence, a real title screen).
