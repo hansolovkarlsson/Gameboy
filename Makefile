@@ -182,12 +182,12 @@ PRISM_TITLE_OUT := $(BIN_DIR)/prism-title-output.ppm
 # Wayfarer (wayfarer/ - a second, separate original homebrew game, a
 # top-down action-adventure rather than prism/'s match-3 puzzle - see
 # wayfarer/README.md and docs/GAMEBOY_ROADMAP.md's own entry). Milestone
-# 4: player hearts (a sprite-based HUD), the enemy now damages the
-# player on contact (with brief invincibility), and one heart pickup in
-# room (1,1) that heals - hitting 0 hearts auto-respawns in room (0,0).
+# 5: a key in room (1,0) unlocks a real locked door between rooms (1,1)
+# and (0,1) - the map's own (0,0)<->(0,1) edge is permanently severed
+# so the lock actually gates progress, not a bypassable decoration.
 WAYFARER_ROM := wayfarer/bin/wayfarer.gb
-WAYFARER_SCRIPT := wayfarer/input_script_m4.txt
-WAYFARER_REF := wayfarer/reference_m4.ppm
+WAYFARER_SCRIPT := wayfarer/input_script_m5.txt
+WAYFARER_REF := wayfarer/reference_m5.ppm
 WAYFARER_OUT := $(BIN_DIR)/wayfarer-output.ppm
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
@@ -305,9 +305,9 @@ gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 
 gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	$(MAKE) -C wayfarer
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 270
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 330
 	cmp $(WAYFARER_OUT) $(WAYFARER_REF) \
-		&& echo "gameboy-wayfarer-build: OK (Milestone 4 - enemy contact costs a heart, then a heart pickup in room (1,1) heals back to full)" \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 5 - a key unlocks a real locked door, reaching a room otherwise unreachable)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)

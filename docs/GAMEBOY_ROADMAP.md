@@ -3539,8 +3539,89 @@ existing regression suite (unit tests, all visual/game/savestate
 targets, all three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed
 green throughout - this change touches only `wayfarer/`.
 
-**Next**: Milestone 5 (stretch - a locked-door-and-key puzzle room,
-sound effects, a title screen, SRAM save, a win condition) is the
-natural next step, once user-directed - the first real use for an
-actual inventory item (a key), now that health/HUD/contact-damage/one
-pickup are all in place.
+**Milestone 5 (this pass): done - locked door + key.** Roadmap
+Milestone 5 bundles five independent stretch items (locked-door-and-key
+puzzle room, sound effects, a title screen, SRAM save, a win
+condition); asked the user which to build first - locked door + key,
+the first real use for an actual inventory item.
+
+**A locked door only means something if it actually gates progress**:
+the plain 2x2 room grid Milestones 1-4 built is a full 4-room cycle
+(every room connects to both its grid neighbors), so locking just one
+of the four edges would leave the other three as a free bypass -
+decorative, not a real puzzle. This pass also permanently severs one
+*other* edge - `(0,0)`'s south side, always closed now, not key-gated,
+just different level geometry - turning the map into a genuine
+dead-end chain: `(0,0)` [start, `enemy.c`] → east → `(1,0)` [new: the
+key] → south → `(1,1)` [`pickup.c`'s heart] → **locked door** → `(0,1)`
+[new: otherwise completely unreachable]. `(0,1)`'s own north side is
+severed to match, so before the key is collected that room has *no*
+open sides at all - correctly, intentionally unreachable, not a bug.
+
+**`wayfarer/src/room.c`/`room.h`** gained a third BG tile -
+`DOOR_TILE_ID`, a hand-drawn gold fill with a dark vertical center
+seam (suggesting a pair of doors), its own second BG palette
+(`DOOR_PALETTE`) - distinct enough from the plain beveled-stone wall
+tile to read as "something that opens," not just more wall.
+`room_draw()` gained one more, purely cosmetic parameter (`door_side`,
+new `DOOR_NONE/NORTH/SOUTH/EAST/WEST` constants) that only decides
+*which tile* renders on an already-closed side - it never touches
+`has_north/south/east/west`, which are still the sole thing driving
+`room_blocks()`. This is the real design payoff of Milestone 2's own
+per-side bound design: a locked door needed **zero changes to
+collision logic at all** - it's closed because that side's `has_*`
+flag is 0 (same as any other wall), and once the key flips that flag
+to 1, it's already passable for free, reusing already-correct,
+already-tested code rather than adding a parallel "is this side
+locked" collision check that could drift out of sync with it.
+
+**`wayfarer/src/world.c`** factored `has_north/south/east/west`'s
+computation - previously duplicated between `draw_current_room()` and
+`world_update()`'s own transition check, a real pre-existing
+duplication - into one new static `compute_sides()`, now also home to
+both the permanent-sever and key-gated-lock overrides described above
+(`(1,1)`'s west and `(0,1)`'s east read `key_is_collected()` directly
+instead of their plain topological default). New `door_side_for()`
+feeds `room_draw()`'s new parameter. `go_to_room()` gained
+`key_show()`/`key_hide()` calls symmetric to the existing pickup ones.
+
+**New `wayfarer/src/key.c`/`key.h`**: a near-twin of `pickup.c` (same
+`init()`/`show()`/`hide()`/`try_collect()` shape, fixed at
+`ROOM_CENTER_X`/`Y` in room `(1,0)`) - deliberately *not* generalized
+into a shared "collectible item" base with `pickup.c`: the two behave
+differently enough (heal vs. flip a door's lock) and there are only
+two of them total, so a shared abstraction would be premature
+machinery for two call sites, not saved duplication. One new
+hand-authored 8x8 key-shape tile (ring, shaft, one tooth - not
+formulaic like a diamond/circle, drawn directly and verified by
+rendering, same discipline `heart_hud.c`'s heart used), one new OBJ
+palette (gold). Collecting the key has no immediate visible effect
+beyond the door itself the next time it's drawn - no key HUD icon this
+pass, a real, deliberate scope decision, stated plainly rather than
+silently missing (the same way a real Zelda key pickup doesn't
+announce itself beyond the door it opens).
+
+**Verified** via a new scripted `--input` sequence
+(`wayfarer/input_script_m5.txt`, replacing `input_script_m4.txt`):
+holding RIGHT through room `(1,0)` collects the key (confirmed by the
+key sprite disappearing and staying gone); a separate throwaway probe
+(not part of the committed script) confirmed the locked door in room
+`(1,1)` renders with the door texture and genuinely blocks movement -
+the player stops flush against it, no transition - before the key is
+collected. Continuing the real script south into room `(1,1)` and then
+west into the now-unlocked door successfully transitions into room
+`(0,1)`, confirmed by its own distinct wall fingerprint (only east
+open, back toward the door) - a room reachable no other way. Locked in
+as `wayfarer/reference_m5.ppm` only after confirming frame stability;
+`reference_m4.ppm`/`input_script_m4.txt` deleted once superseded (room
+`(0,0)`'s own boot-frame wall pattern changed regardless of this
+feature, since its south side is now permanently walled - a real,
+expected visual change, not a regression). Full existing regression
+suite (unit tests, all visual/game/savestate targets, all three RGBDS
+ROMs, Mooneye, `gameboy-prism-build`) stayed green throughout - this
+change touches only `wayfarer/`.
+
+**Next**: the remaining Milestone 5 stretch items - sound effects, a
+title screen, SRAM save, a win condition (now genuinely reachable:
+defeat the enemy and/or reach room `(0,1)`) - are the natural next
+steps, once user-directed.

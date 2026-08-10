@@ -44,6 +44,16 @@
 // between rooms.
 void room_init(void);
 
+// Which side, if any, should render as a door texture instead of a
+// plain wall when that side is closed (world.c's door_side_for()) -
+// purely cosmetic, does not affect collision (room_blocks() below is
+// driven entirely by the has_* flags, same as any other closed side).
+#define DOOR_NONE 0
+#define DOOR_NORTH 1
+#define DOOR_SOUTH 2
+#define DOOR_EAST 3
+#define DOOR_WEST 4
+
 // Builds and draws this room's tile map: a wall on any side whose flag
 // is 0, open floor (including straight through the true screen edge)
 // on any side whose flag is 1. A corner tile is only floor if *both*
@@ -52,7 +62,7 @@ void room_init(void);
 // a floating single-tile gap. Also stores the 4 flags for room_blocks()
 // to use. Called once at world init and again on every room
 // transition (world.c).
-void room_draw(uint8_t has_north, uint8_t has_south, uint8_t has_east, uint8_t has_west);
+void room_draw(uint8_t has_north, uint8_t has_south, uint8_t has_east, uint8_t has_west, uint8_t door_side);
 
 // Would a 16x16 sprite whose top-left corner is at (px,py) overlap a
 // wall, given the current room's open/closed sides (room_draw())? A

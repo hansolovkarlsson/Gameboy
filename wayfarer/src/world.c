@@ -1,10 +1,13 @@
-// See world.h. A 2x2 grid (GRID_W x GRID_H) - the smallest grid that
-// genuinely exercises both axes of transition (east/west and north/
-// south) in one milestone. Every room in a 2x2 grid is a corner, so
-// every room has exactly 2 open sides and 2 walled sides - a real,
-// easy-to-verify visual fingerprint per room (room (0,0): east+south
-// open; (1,0): west+south open; (0,1): east+north open; (1,1):
-// west+north open), not an artificial marker added just for testing.
+// See world.h. A 2x2 grid (GRID_W x GRID_H) of rooms, but *not* fully
+// connected as a plain grid would be: (0,0)'s south side and (0,1)'s
+// north side are permanently severed (never open, regardless of any
+// key), turning what would otherwise be a 4-room cycle into a genuine
+// dead-end chain - (0,0) -> (1,0) -> (1,1) -> (0,1) - so the one locked
+// door (between (1,1) and (0,1), Milestone 5) actually gates progress
+// instead of being a bypassable decoration. See room.c's own
+// door_side/DOOR_* for the purely-cosmetic door-texture rendering;
+// collision is still 100% driven by the has_* flags below, unchanged
+// from Milestone 2's own already-correct per-side bound logic.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
@@ -12,6 +15,7 @@
 
 #include "enemy.h"
 #include "heart_hud.h"
+#include "key.h"
 #include "pickup.h"
 #include "player.h"
 #include "room.h"
@@ -29,16 +33,46 @@
 #define PICKUP_ROOM_X 1
 #define PICKUP_ROOM_Y 1
 
+// The one key (key.c) belongs to this room only.
+#define KEY_ROOM_X 1
+#define KEY_ROOM_Y 0
+
 static uint8_t room_x;
 static uint8_t room_y;
 static uint8_t prev_joy;
 
+// Plain grid-topology defaults, then two overrides: a permanent sever
+// (the (0,0)<->(0,1) edge, never open, not key-gated - see the file
+// comment above) and a key-gated lock (the (1,1)<->(0,1) edge, open
+// only once key_is_collected()). Used by both draw_current_room() and
+// world_update()'s transition check - previously computed twice,
+// independently, a real duplication now removed rather than repeated
+// a third time for the new lock logic.
+static void compute_sides(uint8_t rx, uint8_t ry, uint8_t *has_north, uint8_t *has_south, uint8_t *has_east, uint8_t *has_west) {
+    *has_west = rx > 0;
+    *has_east = rx < GRID_W - 1;
+    *has_north = ry > 0;
+    *has_south = ry < GRID_H - 1;
+
+    if (rx == 0 && ry == 0) *has_south = 0;
+    if (rx == 0 && ry == 1) *has_north = 0;
+
+    if (rx == 1 && ry == 1) *has_west = key_is_collected();
+    if (rx == 0 && ry == 1) *has_east = key_is_collected();
+}
+
+// Which side, if any, should render as a door texture when closed -
+// purely cosmetic (room.c's own room_draw() doc comment).
+static uint8_t door_side_for(uint8_t rx, uint8_t ry) {
+    if (rx == 1 && ry == 1) return DOOR_WEST;
+    if (rx == 0 && ry == 1) return DOOR_EAST;
+    return DOOR_NONE;
+}
+
 static void draw_current_room(void) {
-    uint8_t has_west = room_x > 0;
-    uint8_t has_east = room_x < GRID_W - 1;
-    uint8_t has_north = room_y > 0;
-    uint8_t has_south = room_y < GRID_H - 1;
-    room_draw(has_north, has_south, has_east, has_west);
+    uint8_t has_north, has_south, has_east, has_west;
+    compute_sides(room_x, room_y, &has_north, &has_south, &has_east, &has_west);
+    room_draw(has_north, has_south, has_east, has_west, door_side_for(room_x, room_y));
 }
 
 static uint8_t in_enemy_room(void) {
@@ -49,19 +83,24 @@ static uint8_t in_pickup_room(void) {
     return room_x == PICKUP_ROOM_X && room_y == PICKUP_ROOM_Y;
 }
 
+static uint8_t in_key_room(void) {
+    return room_x == KEY_ROOM_X && room_y == KEY_ROOM_Y;
+}
+
 // The full room-switch sequence: a real-hardware-safe screen-off bulk
 // redraw (same category of risk as any other bulk VRAM/tilemap write
 // in this project - guarded the same way main.c's own boot sequence
 // already is), moving the player to the new room's entry point, and
-// showing/hiding the room-bound enemy/pickup sprites as appropriate.
-// Used both by the normal edge-transition path and by the on-death
-// respawn path below - a real, non-cosmetic factor-out: duplicating a
-// DISPLAY_OFF/room-redraw block between the two would be exactly the
-// kind of drift risk this project's own "guard real-hardware-safe
-// timing carefully" discipline argues against.
+// showing/hiding the room-bound enemy/pickup/key sprites as
+// appropriate. Used both by the normal edge-transition path and by
+// the on-death respawn path below - a real, non-cosmetic factor-out:
+// duplicating a DISPLAY_OFF/room-redraw block between the two would be
+// exactly the kind of drift risk this project's own "guard
+// real-hardware-safe timing carefully" discipline argues against.
 static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t entry_y) {
     uint8_t leaving_enemy_room = in_enemy_room();
     uint8_t leaving_pickup_room = in_pickup_room();
+    uint8_t leaving_key_room = in_key_room();
 
     wait_vbl_done();
     DISPLAY_OFF;
@@ -72,13 +111,15 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     player_set_position(entry_x, entry_y);
 
     // Sprites persist across a BG-only room redraw unless explicitly
-    // moved - a still-alive enemy/uncollected pickup must not linger
-    // on screen after the player leaves its room, and the pickup (no
-    // per-frame update of its own to fall back on, unlike the enemy)
-    // needs an explicit show on entry too.
+    // moved - a still-alive enemy/uncollected item must not linger on
+    // screen after the player leaves its room, and the pickup/key (no
+    // per-frame update of their own to fall back on, unlike the enemy)
+    // need an explicit show on entry too.
     if (leaving_enemy_room && !in_enemy_room()) enemy_hide();
     if (leaving_pickup_room && !in_pickup_room()) pickup_hide();
     if (!leaving_pickup_room && in_pickup_room()) pickup_show();
+    if (leaving_key_room && !in_key_room()) key_hide();
+    if (!leaving_key_room && in_key_room()) key_show();
 
     SHOW_BKG;
     DISPLAY_ON;
@@ -95,18 +136,18 @@ void world_init(void) {
     enemy_init();
     heart_hud_init();
     pickup_init();
+    key_init();
     // Correct regardless of which room the game happens to start in,
     // not just assumed safe because today it's (0,0).
     if (in_pickup_room()) pickup_show(); else pickup_hide();
+    if (in_key_room()) key_show(); else key_hide();
 }
 
 void world_update(uint8_t joy) {
     player_update(joy);
 
-    uint8_t has_west = room_x > 0;
-    uint8_t has_east = room_x < GRID_W - 1;
-    uint8_t has_north = room_y > 0;
-    uint8_t has_south = room_y < GRID_H - 1;
+    uint8_t has_north, has_south, has_east, has_west;
+    compute_sides(room_x, room_y, &has_north, &has_south, &has_east, &has_west);
 
     uint8_t px = player_get_x();
     uint8_t py = player_get_y();
@@ -174,6 +215,10 @@ void world_update(uint8_t joy) {
         if (pickup_try_collect(player_get_x(), player_get_y(), 16, 16)) {
             player_heal_full();
         }
+    }
+
+    if (in_key_room()) {
+        key_try_collect(player_get_x(), player_get_y(), 16, 16);
     }
 
     heart_hud_update();
