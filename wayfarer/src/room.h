@@ -9,6 +9,13 @@
 
 #include <stdint.h>
 
+// The plain "solid color index 0 everywhere" tile - exported so win.c
+// can reuse it directly to blank the screen under its own palette
+// (the same "one tile, palette swap" trick heart_hud.c's full/empty
+// hearts already use) rather than loading a second, identical blank
+// tile.
+#define FLOOR_TILE_ID 0
+
 // The room's playable interior on a *closed* (walled) side, in pixels -
 // the 16x16 player sprite's top-left corner must stay within
 // [ROOM_MIN_X, ROOM_MAX_X] x [ROOM_MIN_Y, ROOM_MAX_Y] on that axis to

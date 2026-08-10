@@ -182,12 +182,11 @@ PRISM_TITLE_OUT := $(BIN_DIR)/prism-title-output.ppm
 # Wayfarer (wayfarer/ - a second, separate original homebrew game, a
 # top-down action-adventure rather than prism/'s match-3 puzzle - see
 # wayfarer/README.md and docs/GAMEBOY_ROADMAP.md's own entry). Milestone
-# 5: a key in room (1,0) unlocks a real locked door between rooms (1,1)
-# and (0,1) - the map's own (0,0)<->(0,1) edge is permanently severed
-# so the lock actually gates progress, not a bypassable decoration.
+# 6: a real win condition - defeat the enemy AND reach room (0,1) (the
+# Milestone 5 locked-door goal room) to trigger a one-shot "WIN" screen.
 WAYFARER_ROM := wayfarer/bin/wayfarer.gb
-WAYFARER_SCRIPT := wayfarer/input_script_m5.txt
-WAYFARER_REF := wayfarer/reference_m5.ppm
+WAYFARER_SCRIPT := wayfarer/input_script_m6.txt
+WAYFARER_REF := wayfarer/reference_m6.ppm
 WAYFARER_OUT := $(BIN_DIR)/wayfarer-output.ppm
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
@@ -305,9 +304,9 @@ gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 
 gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	$(MAKE) -C wayfarer
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 330
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 425
 	cmp $(WAYFARER_OUT) $(WAYFARER_REF) \
-		&& echo "gameboy-wayfarer-build: OK (Milestone 5 - a key unlocks a real locked door, reaching a room otherwise unreachable)" \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 6 - defeating the enemy and reaching the goal room triggers the win screen)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)

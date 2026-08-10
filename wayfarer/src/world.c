@@ -20,6 +20,7 @@
 #include "player.h"
 #include "room.h"
 #include "sword.h"
+#include "win.h"
 #include "world.h"
 
 #define GRID_W 2
@@ -37,9 +38,16 @@
 #define KEY_ROOM_X 1
 #define KEY_ROOM_Y 0
 
+// Winning requires both defeating the enemy and reaching this room -
+// the same room Milestone 5's locked door gates, already informally
+// named "the goal room" throughout that milestone's own comments.
+#define WIN_ROOM_X 0
+#define WIN_ROOM_Y 1
+
 static uint8_t room_x;
 static uint8_t room_y;
 static uint8_t prev_joy;
+static uint8_t won;
 
 // Plain grid-topology defaults, then two overrides: a permanent sever
 // (the (0,0)<->(0,1) edge, never open, not key-gated - see the file
@@ -129,6 +137,7 @@ void world_init(void) {
     room_x = 0;
     room_y = 0;
     prev_joy = 0;
+    won = 0;
     room_init(); // one-time tile/palette load
     draw_current_room();
     player_init();
@@ -144,6 +153,13 @@ void world_init(void) {
 }
 
 void world_update(uint8_t joy) {
+    // The win screen is a one-shot, terminal state - once shown,
+    // nothing in this function runs again for the rest of the
+    // session, matching this project's own "always fully resolve, no
+    // half-finished states" style already used for the on-death
+    // respawn path.
+    if (won) return;
+
     player_update(joy);
 
     uint8_t has_north, has_south, has_east, has_west;
@@ -222,4 +238,14 @@ void world_update(uint8_t joy) {
     }
 
     heart_hud_update();
+
+    // Checked unconditionally every frame, after all the logic above,
+    // rather than only at the specific moment either condition changes
+    // - either the room-entry transition or the sword-kill earlier in
+    // this same function could be the *second* of the two conditions
+    // to become true.
+    if (!won && !enemy_is_alive() && room_x == WIN_ROOM_X && room_y == WIN_ROOM_Y) {
+        won = 1;
+        win_play();
+    }
 }

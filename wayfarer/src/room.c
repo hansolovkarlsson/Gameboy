@@ -17,7 +17,7 @@
 
 #include "room.h"
 
-#define FLOOR_TILE_ID 0
+// FLOOR_TILE_ID is defined in room.h - exported for win.c's reuse.
 #define WALL_TILE_ID 1
 #define DOOR_TILE_ID 2
 #define ROOM_TILE_COUNT 3

@@ -3621,7 +3621,65 @@ suite (unit tests, all visual/game/savestate targets, all three RGBDS
 ROMs, Mooneye, `gameboy-prism-build`) stayed green throughout - this
 change touches only `wayfarer/`.
 
-**Next**: the remaining Milestone 5 stretch items - sound effects, a
-title screen, SRAM save, a win condition (now genuinely reachable:
-defeat the enemy and/or reach room `(0,1)`) - are the natural next
-steps, once user-directed.
+**Milestone 6 (this pass): done - win condition.** Four independent
+stretch items remained (sound effects, a title screen, SRAM save, a
+win condition); asked the user which to build first - win condition:
+defeat the enemy *and* reach room `(0,1)` to end the session with a
+real win state. Recommended since it needed no new infrastructure
+category (no APU work, no SRAM) and now had a genuine payoff to
+display, Milestone 5 having made room `(0,1)` mean something.
+
+**New `wayfarer/src/win.c`/`win.h`**: a small, self-contained text
+overlay reusing the sibling `prism/` project's own `title.c` technique
+(a hand-authored 5x7 block-letter tileset, left-aligned within the
+8-bit row for consistent right-side spacing, same public-domain
+block-font convention) - but only the 3 letters "WIN" actually needs,
+not a general alphabet. `win_play()`: this project's own
+real-hardware-safe screen-off pattern
+(`wait_vbl_done(); DISPLAY_OFF;`), then `HIDE_SPRITES` (one hardware
+macro, confirmed present in the vendored GBDK headers, that turns off
+the whole OBJ layer at once - `win.c` never needs to know about or
+call into `player.c`/`sword.c`/`enemy.c`/`heart_hud.c`/`pickup.c`/
+`key.c`'s own sprite state individually, a real simplification), then
+blanks the whole 20x18 tile map by reusing `room.h`'s own
+`FLOOR_TILE_ID` (newly exported from `room.c`, where it was previously
+a private `#define`) under a new gold `WIN_PALETTE` - the same "one
+tile, palette swap" trick `heart_hud.c`'s full/empty hearts and
+`prism/`'s own clear-animation flash both already use, so no second
+blank-tile bitmap was needed - and draws "WIN" centered in that same
+palette.
+
+**`wayfarer/src/world.c`** gained a static `won` flag and, as
+`world_update()`'s very first line, `if (won) return;` - a one-shot,
+terminal freeze, the simplest correct "the game is over" state,
+matching this project's own "always fully resolve, no half-finished
+states" style already used for Milestone 4's own auto-respawn. The win
+check itself sits near the *end* of `world_update()`, after all other
+per-frame logic: `if (!won && !enemy_is_alive() && room_x == WIN_ROOM_X && room_y == WIN_ROOM_Y)`
+- checked unconditionally every frame rather than only at the specific
+moment either condition changes, since either the room-entry
+transition or the sword-kill earlier in that same function call could
+be the *second* of the two conditions to become true.
+
+**Verified** via a new scripted `--input` sequence
+(`wayfarer/input_script_m6.txt`, replacing `input_script_m5.txt`) that
+combines two earlier milestones' own already-verified timing back to
+back: Milestone 3's sword-kill sequence (still valid unchanged, since
+nothing about the enemy's deterministic patrol depends on anything
+added since), then Milestone 5's own locked-door path - confirming the
+win screen appears (clean "WIN" on a gold background, no sprites
+visible) and stays frozen many frames later (byte-identical, not
+reverting). **A real negative-case check** too, cheaper than scripting
+a second full run: running the *prior*, still-on-disk Milestone 5
+script (which reaches room `(0,1)` but never attacks the enemy)
+against this milestone's actual build showed no win screen at all -
+direct proof both conditions are genuinely required, not just the room
+transition alone. Locked in as `wayfarer/reference_m6.ppm` only after
+confirming frame stability; `reference_m5.ppm`/`input_script_m5.txt`
+deleted once superseded. Full existing regression suite (unit tests,
+all visual/game/savestate targets, all three RGBDS ROMs, Mooneye,
+`gameboy-prism-build`) stayed green throughout - this change touches
+only `wayfarer/`.
+
+**Next**: the remaining stretch items - sound effects, a title screen,
+SRAM save - are the natural next steps, once user-directed.

@@ -32,47 +32,42 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 5 (locked door + key)
+## Status: Milestone 6 (win condition)
 
 Milestones 1-4 built a small 2x2 grid of bordered rooms with a
 freely-walking, collision-checked, combat-capable player: a one-shot
 sword swing, one patrolling enemy confined to room (0,0), 3 hearts with
 a sprite-based HUD, enemy contact damage with brief invincibility, and
-one heart pickup in room (1,1) that heals.
+one heart pickup in room (1,1) that heals. Milestone 5 made room (0,1)
+a real, otherwise-unreachable goal room, gated behind a locked door
+that a key (in room (1,0)) unlocks.
 
-The remaining roadmap item bundles five independent stretch features;
-asked the user which to build first — **locked door + key**, the first
-real use for an actual inventory item. A locked door only means
-something if it actually gates progress: the plain 2x2 grid used by
-Milestones 1-4 is a full 4-room cycle, so locking just one of its four
-edges would leave the other three as a free bypass. This pass also
-permanently severs the (0,0)↔(0,1) edge (never open, not key-gated —
-just different level geometry), turning the map into a genuine
-dead-end chain: `(0,0)` [start] → `(1,0)` [**new**: the key] → `(1,1)`
-[heart pickup] → **locked door** → `(0,1)` [**new**: otherwise
-unreachable].
+The remaining roadmap item bundles four independent stretch features;
+asked the user which to build first — **win condition**: defeat the
+enemy *and* reach room (0,1) to end the session with a real win state.
+Recommended since it needed no new infrastructure category (no APU
+work, no SRAM) and now has a genuine payoff to display.
 
-`src/room.c` gained a third tile — a hand-drawn gold "door" texture
-with a dark center seam, distinct from the plain stone wall, so a
-locked door reads as *something that opens* rather than just more
-wall. Collision needed **no changes at all**: a locked door is drawn
-because that side's `has_*` flag is 0, and `room_blocks()` already
-enforces closed sides purely from that flag (Milestone 2's own logic,
-completely unchanged) — once the key flips the flag to 1, the door is
-already passable for free, the same way any other open edge already
-was. `src/key.c` is a near-twin of `src/pickup.c` (collect on contact,
-stays collected) rather than a shared "collectible" abstraction — the
-two behave differently enough, and there are only two of them, that
-sharing a base would be premature machinery. Collecting the key has no
-immediate visible effect beyond the door itself — no key HUD icon this
-pass, a real, deliberate scope decision stated plainly.
+New `src/win.c`/`win.h`: a small, self-contained text overlay reusing
+the sibling `prism/` project's own `title.c` technique (a hand-drawn
+5x7 block-letter tileset), but only the 3 letters "WIN" actually needs.
+`win_play()` uses this project's own real-hardware-safe screen-off
+pattern, `HIDE_SPRITES` (one hardware macro that turns off the whole
+OBJ layer at once, rather than `win.c` needing to know about and call
+into every other module's own sprite state), blanks the whole screen
+by reusing `room.c`'s already-loaded `FLOOR_TILE_ID` under a new gold
+palette (the same "one tile, palette swap" trick `heart_hud.c`'s
+hearts already use — no second blank-tile bitmap needed), and draws
+"WIN" centered. A one-shot, terminal screen — `src/world.c` freezes
+the whole game loop (`if (won) return;`) the instant it's shown.
 
-Verified via a scripted `--input` sequence (`input_script_m5.txt`):
-walking through room (1,0) collects the key, the door in room (1,1)
-was separately confirmed to render with the door texture and block
-movement while locked, and — with the key collected — walking into
-that same door now transitions into room (0,1), reachable no other
-way. Locked in as `reference_m5.ppm` (supersedes `reference_m4.ppm`,
-deleted once the new one was confirmed — room (0,0)'s own boot-frame
-wall pattern changed regardless of the new feature, since its south
-side is now permanently walled).
+Verified via a scripted `--input` sequence (`input_script_m6.txt`)
+that defeats the enemy (Milestone 3's own sword-kill timing) and then
+walks the Milestone 5 path to room (0,1) — confirming the win screen
+appears and stays frozen many frames later. A real negative-case check
+too: running the *prior* Milestone 5 script unchanged (reaches room
+(0,1) but never attacks the enemy) against this milestone's build
+shows no win screen at all — both conditions are genuinely required,
+not just the room transition alone. Locked in as `reference_m6.ppm`
+(supersedes `reference_m5.ppm`, deleted once the new one was
+confirmed).

@@ -1,0 +1,39 @@
+# Wayfarer Milestone 6 verification script (win.c/world.c win check).
+# Combines Milestone 3's own already-verified sword-kill timing with
+# Milestone 5's own already-verified locked-door path, back to back:
+#
+# 1. An early negative-case sword tap (facing down, nowhere near the
+#    enemy - Milestone 3's own check, still valid since nothing about
+#    the enemy's deterministic patrol has changed), then approach and
+#    land a real hit, defeating the enemy permanently.
+# 2. Continue east through room (1,0) to collect the key, south into
+#    room (1,1), then west through the now-unlocked door into room
+#    (0,1) - both win conditions (enemy defeated, in room (0,1)) are
+#    now true, triggering the win screen: HIDE_SPRITES, the whole
+#    screen blanked gold, "WIN" centered.
+#
+# Separately confirmed (not part of this committed script, since it's
+# a negative case that produces a *different*, non-terminal final
+# frame): running the prior Milestone 5 script unchanged - which also
+# reaches room (0,1), but never attacks the enemy - does NOT show the
+# win screen, confirming both conditions are genuinely required, not
+# just the room transition alone.
+#
+# Every frame number re-derived empirically (this milestone combines
+# timing from two earlier milestones' own paths, plus the sword-kill
+# happening before any of the movement legs shifts everything after it
+# later than either prior script alone), not guessed. Confirmed stable
+# (byte-identical) - the win screen is a one-shot terminal state - from
+# frame 425 onward.
+5 A down
+6 A up
+10 RIGHT down
+40 RIGHT up
+50 A down
+51 A up
+55 RIGHT down
+185 RIGHT up
+190 DOWN down
+265 DOWN up
+270 LEFT down
+420 LEFT up
