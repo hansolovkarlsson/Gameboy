@@ -198,6 +198,8 @@ void main(void) {
 
     set_bkg_palette(0, GEM_TYPE_COUNT, gem_palettes);
     set_bkg_data(0, GEM_TILE_COUNT, gem_tiles);
+    set_bkg_palette(FLASH_PALETTE, 1, flash_palette);
+    set_bkg_data(GEM_SHRINK_TILE_BASE, GEM_SHRINK_TILE_COUNT, gem_shrink_tiles);
     hud_init();
     board_init();
     hud_set_score(score);

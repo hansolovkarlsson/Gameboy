@@ -55,7 +55,7 @@ the ROM's own header too, but explicit matches how the RGBDS HDMA test
 ROM is run). Opt-in, same as `gameboy-sdl` and the RGBDS targets: never
 part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 7 (animated gem swap)
+## Status: Milestone 8 (animated gem clear)
 
 The best score ever reached, shown on the title screen and genuinely
 persisted across separate play sessions via real cartridge SRAM — not
@@ -367,6 +367,61 @@ animation. Zero regressions: the full existing suite (unit tests,
 Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%, `2048-gb`,
 `droneboy`, `tobutobugirl`, savestate round-trip, all three RGBDS
 ROMs) stayed green throughout.
+
+### Milestone 8: animated gem clear (flash + shrink)
+
+User-directed: the matched gems should also animate before they
+disappear, not just jump straight to the resolved board. True tile
+rotation isn't practical on GB hardware for this shape — no hardware
+rotation exists, and the diamond's 4 quadrants are exact bit-reversals
+of each other (established during Milestone 7), so it looks identical
+rotated 90° anyway. Confirmed the practical alternative with the user —
+a brief white flash then a 2-stage shrink to nothing — before building
+it.
+
+Two new BG tiles (`gems.c`/`gems.h`, IDs 36-37) generated via the exact
+same Manhattan-distance formula the original diamond used (`lit iff
+x+y >= K` within an 8x8 quadrant) — confirmed by first reproducing the
+*original* tile's own bytes from the formula, then raising `K` from 8
+to 10 (medium, ~60% size) and 12 (small, ~30%). Only one quadrant tile
+per stage — reused for all four corners via the CGB background
+attribute byte's own flip bits (`BKGF_XFLIP`/`BKGF_YFLIP`), the same
+"one tile, four flipped corners" technique `swapanim.c` already used on
+the sprite side. One new BG palette, `FLASH_PALETTE` (index 6), a
+bright near-white applied as an attribute-only change against the
+*existing* full-size tiles for the flash — no new tile data needed for
+that stage at all.
+
+New `board.c` static `play_clear_animation()`, called from
+`board_try_swap()`'s cascade loop right before `collapse_and_refill()`
+each pass — writes only the matched cells' own tiles through 3 stages
+(flash, medium shrink, small shrink), then lets the existing
+collapse/refill/redraw take it the rest of the way. `board_redraw()`
+moved from after the whole cascade loop to *inside* it (once per pass)
+— a real correctness fix: without it, a second cascade pass's clear
+animation would render against stale, pre-gravity art, since nothing
+would have synced the screen to the first pass's result yet.
+
+Verified by tracing actual captured frames through a real match, not
+just reasoning about the tile math — frame ~150 shows the flash,
+~154 the medium shrink, ~160 the small shrink, exactly matching the
+coded stage order.
+
+**A genuinely pleasant surprise, confirmed rather than assumed**:
+since the animation only touches the matched cells and the final
+`board_redraw()` still repaints the whole grid identically once the
+cascade resolves, `reference_m7.ppm` needed **no changes at all** — a
+frame captured at the same margined frame count (200) is still
+byte-identical, confirmed by direct `cmp`. Same for
+`reference_m6c.sav`/`reference_m6c_title.ppm`. Only
+`reference_m7_sfx.wav` needed re-locking *in place* (not renamed —
+nothing else changed), since `sfx_play_match()` still fires right
+after `board_try_swap()` returns, now ~10 frames later than before —
+the same familiar "shifts audio's sample position, not which frame
+anything lands on" category of thing. Zero regressions: the full
+existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
+`cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
+round-trip, all three RGBDS ROMs) stayed green throughout.
 
 See `docs/GAMEBOY_ROADMAP.md`'s Phase 10 entry for the full writeup
 and whatever comes next.

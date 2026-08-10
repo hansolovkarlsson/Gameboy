@@ -3108,10 +3108,87 @@ full existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
 round-trip, all three RGBDS ROMs) stayed green throughout - this change
 touches only `prism/`, nothing in the emulator core.
 
+**Milestone 8 (this pass): done.** Animated gem clear - user-directed:
+the matched gems should show "some kind of animation... rotating
+and/or exploding" before they disappear, instead of
+`collapse_and_refill()`/`board_redraw()` (`prism/src/board.c`) jumping
+straight from "just swapped" to "fully resolved" with no transition
+for the cells that actually cleared. True tile *rotation* isn't
+practical on GB hardware for this shape - no hardware rotation exists,
+and Milestone 7 already established that the diamond icon's 4
+quadrants are exact bit-reversals of each other, meaning the shape is
+symmetric under 90° rotation and would just look identical "rotated."
+Asked the user to confirm the practical GB-native alternative instead -
+a brief white flash then a 2-stage shrink to nothing, using two new,
+smaller pre-drawn diamond tiles - and whether to include the flash;
+they confirmed flash + shrink.
+
+Two new BG tiles (`prism/src/gems.c`/`gems.h`, tile IDs 36-37 - the
+next free range after `title.c`'s digit tiles, 26-35), generated via
+the exact same Manhattan-distance formula the original diamond used
+(confirmed by reproducing the original's own bytes from the formula
+before trusting it for new values) - `lit iff x+y >= K` within an 8x8
+quadrant, raised from the original `K=8` to `K=10` (medium, ~60% linear
+size) and `K=12` (small, ~30%). Only one quadrant tile per stage, not
+four - reused for all four corners via the CGB background attribute
+byte's own flip bits (`gb/hardware.h`'s `BKGF_XFLIP`/`BKGF_YFLIP`,
+confirmed to exist and mirror the `S_FLIPX`/`S_FLIPY` sprite
+equivalents `swapanim.c` already uses for the identical "one tile, four
+flipped corners" technique - just applied to the background side this
+time, which pandocs' own attribute byte layout supports too). One new
+CGB BG palette, `FLASH_PALETTE` (index 6 - `gems.c` owns 0-4, `title.c`
+owns 5), a bright near-white, applied as an attribute-only change
+against the *existing* full-size quadrant tiles for the one-frame
+flash stage - needing no new tile data of its own at all.
+
+New `board.c` static `play_clear_animation()`, called from
+`board_try_swap()`'s cascade loop right before `collapse_and_refill()`
+each pass, using the same `to_clear` grid that call already receives
+and reading each matched cell's real gem color from `grid[][]` before
+that call mutates it. Writes only the matched cells' own 2x2 tile
+blocks (not a full redraw) through 3 stages - flash (2 frames), medium
+shrink (4 frames), small shrink (4 frames) - then lets the existing
+`collapse_and_refill()`+redraw naturally take it the rest of the way to
+blank/refilled. `board_redraw()` moved from after the whole cascade
+loop to inside it (once per pass) - a real correctness fix, not just
+tidying: without it, a second cascade pass's own clear animation would
+render against stale, pre-gravity tile art, since nothing would have
+synced the screen to the first pass's `collapse_and_refill()` yet.
+
+Verified by tracing actual captured frames (zoomed crops through the
+match event), not just reasoning about the tile math: frame ~150 shows
+the flash (matched cells uniformly bright white), ~154 the medium
+shrink, ~160 the small shrink, matching the coded stage order and
+timing exactly.
+
+**A genuinely pleasant surprise found while re-verifying, not assumed**:
+because `play_clear_animation()` only touches the *matched* cells'
+tiles and the final `board_redraw()` still repaints the *entire* grid
+identically to before once the cascade fully resolves, the actual
+committed `prism/reference_m7.ppm` needed **no changes at all** - a
+frame captured at the same, already-generously-margined frame count
+(200) is still byte-*identical*, confirmed by direct `cmp`, not
+inferred. Same for `reference_m6c.sav`/`reference_m6c_title.ppm`
+(re-checked, not assumed). Only `reference_m7_sfx.wav` needed
+re-locking (in place, same filename - not renamed to a new milestone
+number, since nothing else changed), for the same by-now-familiar
+reason: `sfx_play_match()` still fires right after `board_try_swap()`
+returns, which now happens ~10 frames later than before (the new
+animation's own duration), shifting that one event's exact real-time/
+sample position without moving any vblank frame number a script event
+depends on. A small, accepted feedback-timing side effect, not asked
+about by the user and not worth new cross-module plumbing to avoid -
+`board.c` stays free of any `sfx.c` dependency, preserving its existing
+"pure grid mechanics" layering. Zero regressions: the full existing
+suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%,
+`2048-gb`, `droneboy`, `tobutobugirl`, savestate round-trip, all three
+RGBDS ROMs) stayed green throughout - this change touches only
+`prism/`, nothing in the emulator core.
+
 **Next**: Milestone 6 (stretch/polish - sound effects, a real title
-screen, SRAM high-score persistence) and Milestone 7 (animated gem
-swap) are both complete, and the PPU timing finding is resolved.
-User-directed from here: give the SDL front end's
+screen, SRAM high-score persistence), Milestone 7 (animated gem swap),
+and Milestone 8 (animated gem clear) are all complete, and the PPU
+timing finding is resolved. User-directed from here: give the SDL front end's
 write-through-on-every-cart-RAM-write option a look (a natural, easy
 enhancement flagged but deliberately not built during Milestone 6c),
 resolve the GPL-license question to add a real homebrew regression

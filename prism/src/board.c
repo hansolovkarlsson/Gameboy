@@ -120,6 +120,65 @@ static uint8_t find_matches(uint8_t to_clear[GRID_SIZE][GRID_SIZE]) {
     return count;
 }
 
+// One frame of a bright flash (2 frames), then two progressively
+// smaller shrink stages (4 frames each) - see gems.h's own note on the
+// K=10/K=12 tile generation and the flip-based single-tile-per-stage
+// reuse. Going fully blank isn't a separate stage here - the caller's
+// own collapse_and_refill()+board_redraw() right after this naturally
+// covers it.
+#define CLEAR_FLASH_FRAMES 2
+#define CLEAR_SHRINK_FRAMES 4
+
+// Writes one clear-animation stage to every cell marked in to_clear -
+// only those cells' own 2x2 tile blocks, not a full board_redraw().
+// The flash stage keeps the normal full-size quadrant tiles (0-3) and
+// forces the attribute palette to FLASH_PALETTE; a shrink stage reuses
+// one shared quadrant tile (shrink_tile_id) for all four corners via
+// the CGB background attribute byte's own flip bits, with the
+// attribute palette restored to each cell's own real gem color (read
+// from grid[][], still valid at this point - collapse_and_refill()
+// hasn't run yet).
+static void draw_clear_stage(uint8_t to_clear[GRID_SIZE][GRID_SIZE], uint8_t use_shrink_tile, uint8_t shrink_tile_id) {
+    for (uint8_t gy = 0; gy < GRID_SIZE; gy++) {
+        for (uint8_t gx = 0; gx < GRID_SIZE; gx++) {
+            if (!to_clear[gy][gx]) continue;
+
+            uint8_t tx = GRID_ORIGIN_X + gx * 2;
+            uint8_t ty = GRID_ORIGIN_Y + gy * 2;
+
+            if (!use_shrink_tile) {
+                uint8_t top_tiles[2] = { 0, 1 };
+                uint8_t bot_tiles[2] = { 2, 3 };
+                uint8_t attrs[2] = { FLASH_PALETTE, FLASH_PALETTE };
+                set_bkg_tiles(tx, ty, 2, 1, top_tiles);
+                set_bkg_attributes(tx, ty, 2, 1, attrs);
+                set_bkg_tiles(tx, ty + 1, 2, 1, bot_tiles);
+                set_bkg_attributes(tx, ty + 1, 2, 1, attrs);
+            } else {
+                uint8_t gem_type = grid[gy][gx];
+                uint8_t tiles[2] = { shrink_tile_id, shrink_tile_id };
+                uint8_t attrs_top[2] = { gem_type, (uint8_t)(gem_type | BKGF_XFLIP) };
+                uint8_t attrs_bot[2] = { (uint8_t)(gem_type | BKGF_YFLIP), (uint8_t)(gem_type | BKGF_XFLIP | BKGF_YFLIP) };
+                set_bkg_tiles(tx, ty, 2, 1, tiles);
+                set_bkg_attributes(tx, ty, 2, 1, attrs_top);
+                set_bkg_tiles(tx, ty + 1, 2, 1, tiles);
+                set_bkg_attributes(tx, ty + 1, 2, 1, attrs_bot);
+            }
+        }
+    }
+}
+
+static void play_clear_animation(uint8_t to_clear[GRID_SIZE][GRID_SIZE]) {
+    draw_clear_stage(to_clear, 0, 0);
+    for (uint8_t f = 0; f < CLEAR_FLASH_FRAMES; f++) vsync();
+
+    draw_clear_stage(to_clear, 1, GEM_SHRINK_TILE_BASE + 0);
+    for (uint8_t f = 0; f < CLEAR_SHRINK_FRAMES; f++) vsync();
+
+    draw_clear_stage(to_clear, 1, GEM_SHRINK_TILE_BASE + 1);
+    for (uint8_t f = 0; f < CLEAR_SHRINK_FRAMES; f++) vsync();
+}
+
 // Per column: compact non-cleared cells downward (gravity), then
 // refill the newly-empty top cells with fresh random values - no
 // match-avoidance here, unlike board_init()'s fill, since a refill
@@ -177,9 +236,14 @@ uint16_t board_try_swap(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2) {
     uint16_t total_cleared = 0;
     do {
         total_cleared += matched;
+        play_clear_animation(to_clear);
         collapse_and_refill(to_clear);
+        // Redrawn every pass, not just once after the loop exits - a
+        // second cascade pass's own play_clear_animation() needs the
+        // *current* (post-gravity/refill) tile art on screen to
+        // animate against, not whatever this pass left behind.
+        board_redraw();
     } while ((matched = find_matches(to_clear)) != 0);
 
-    board_redraw();
     return total_cleared;
 }
