@@ -241,45 +241,52 @@ the title screen using *that exact file* and confirms it now reads
 "HIGH 0030" instead of "HIGH 0000", `cmp`'d against a committed
 `prism/reference_m6c_title.ppm`.
 
-### Known emulator finding: a real rendering-catch-up quirk
+### Corrected finding: the "PPU rendering-catch-up quirk" was a misdiagnosis
 
-Building this milestone surfaced a genuine, reproducible timing bug in
-this emulator's own PPU — not a bug in Prism's code. Capturing a frame
-too soon after `DISPLAY_ON` can render a *stale* pre-write screen (only
-the earlier, all-red default tile-map content, or only some scanlines
-correctly showing the fresh grid while others still show stale
-content), even though the actual VRAM bytes are already fully correct
-by that point (confirmed directly via a savestate dump: the tile-map
-and CGB-attribute bytes were exactly right, and even the PPU's own
-internal `cgb_framebuffer` already held the correct pixel data — only
-the frame *captured and written out* was stale). Bisected empirically:
-reproducible even with a plain CPU busy-loop before `DISPLAY_ON` (no
-VRAM writes at all involved), so it's tied to elapsed pre-display CPU
-time in general, not specifically to how many `set_bkg_tiles` calls are
-made. For this exact ROM, frame 5 and frame 8 (partially — some
-scanlines correct, others not) were stale; frame 10 onward was
-consistently correct. `make gameboy-prism-build` uses `--frames 110`
-for generous margin, not because that specific number is meaningful.
+Every milestone since Milestone 2 carried an open note here about a
+"PPU timing bug": capturing a frame too soon after `DISPLAY_ON` could
+show stale or torn content, and it was flagged as unresolved emulator
+behavior worth a future `src/ppu.c` investigation. Investigated
+properly (user-requested) and **it was never an emulator bug** — real
+CGB hardware's boot ROM leaves the LCD *on* (`LCDC=$91`) and every
+background palette color *white* before handing off control to the
+cartridge (pandocs' `Power_Up_Sequence.md`, already correctly modeled
+in this project's own `src/cpu.c`, `gb_cpu_reset()`). Confirmed via
+direct instrumentation (a temporary `fprintf` at every `frame_ready`
+event, reverted after use): frames 1-5 were plain white (the real
+boot-ROM state - LCD on, VRAM/palette still blank), frame 6 was a
+genuinely torn frame captured *mid-write*, squarely inside
+`title_screen()`'s own `set_bkg_data`/`set_bkg_tiles`/`set_bkg_palette`
+calls, and frame 7 onward was stable once those writes finished.
 
-Not root-caused to an exact line yet, and deliberately not chased
-further as part of this rendering milestone — flagged here honestly
-(matching this project's own standing practice, e.g. `dmg-acid2`'s
-still-open small gap) as a real, valuable finding for a future,
-dedicated investigation into `src/ppu.c`'s LCD-enable/frame-timing
-path, not something to silently work around without saying so.
+The real cause: the LCD is live from the moment control passes to the
+game - never explicitly turned off - and `title_screen()` (like every
+earlier milestone's own initial `gems.c`/`hud.c`/`board.c` setup)
+wrote directly to VRAM/tilemap/palettes without first disabling the
+display. Real hardware would tear exactly the same way under identical
+code - a well-known GB homebrew gotcha (real games disable the LCD, or
+wait for VBlank, before bulk VRAM writes), not a timing defect in this
+emulator. `title_screen()` already got this right for its own
+title→game *transition* (`wait_vbl_done()`+`DISPLAY_OFF`, at its own
+end) - it just never did it for its own *initial* setup.
 
-Re-checked for Milestones 3, 4, 5, 6b, and 6c, since each one's game
-loop is genuinely dynamic in a new way (Milestone 3: real per-frame
-input; Milestone 4: a multi-step cascade resolving over an unknown
-number of internal steps; Milestone 5: HUD redraws triggered by that
-same cascade outcome; Milestone 6b: the new title-screen-to-gameplay
-transition, including its `DISPLAY_OFF`/`DISPLAY_ON` toggle; Milestone
-6c: a second, independent boot loading real SRAM content): each
-milestone's own scripted `--input` sequence captured at two different
-frame counts past its last input event produced byte-identical output
-every time, confirming the render is stable well before
-`gameboy-prism-build`'s chosen frame count, not coincidentally stable
-at exactly one number.
+**Fixed** by adding the same `wait_vbl_done();DISPLAY_OFF;` pair as
+the first two statements of `title_screen()`, before any of its setup
+writes. Verified directly, not just reasoned about: frames 1-3 are now
+plain white (LCD correctly off during setup) and frame 4 onward is the
+*complete, untorn* title screen immediately - no partial/torn frame
+ever appears at any captured frame count. A pleasant, unplanned
+consequence confirmed while re-verifying: this fix has **zero** effect
+on any of Milestone 6a/6b/6c's own committed references except the
+audio one - the `.ppm`/`.sav` outputs from the same scripted `--input`
+run are still byte-*identical* to the pre-fix references, since
+vblank-frame *numbers* (what scripted input events are keyed to) are
+completely unaffected once past the title screen's own brief setup
+window. Only `reference_m6c_sfx.wav` needed re-locking, for the same
+reason Milestone 6c's own `highscore_init()` addition once did: the
+added `wait_vbl_done()` shifts every subsequent audio event's exact
+real-time/sample position by a small, fixed amount, without shifting
+which frame number anything lands on.
 
 Milestone 6 (stretch/polish) is now complete: sound effects (6a), a
 real title screen (6b), and SRAM high-score persistence (6c). See

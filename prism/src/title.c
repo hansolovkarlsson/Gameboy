@@ -140,6 +140,19 @@ static void draw_number_centered(uint16_t value, uint8_t digits, uint8_t y) {
 }
 
 void title_screen(void) {
+    // Real CGB hardware's boot ROM leaves the LCD *on* (LCDC=$91) and
+    // every background palette color white before handing off control
+    // (pandocs' Power_Up_Sequence.md, already modeled in this project's
+    // own emulator - src/cpu.c's gb_cpu_reset()) - so without this, the
+    // writes below land on a live, actively-rendering display and can
+    // be caught mid-write (a real, well-known GB homebrew gotcha, not
+    // an emulator bug - see docs/GAMEBOY_ROADMAP.md's corrected entry).
+    // Same real-hardware-safe (VBlank-gated) LCD-disable pattern this
+    // function already uses at its own end, just applied at the start
+    // too, so every setup write below happens safely off-screen.
+    wait_vbl_done();
+    DISPLAY_OFF;
+
     set_bkg_palette(TITLE_PALETTE, 1, title_palette);
     set_bkg_data(TITLE_TILE_BASE, TITLE_TILE_COUNT, title_tiles);
     set_bkg_data(TITLE_DIGIT_TILE_BASE, HUD_DIGIT_COUNT, hud_digit_tiles);

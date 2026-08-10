@@ -2459,23 +2459,27 @@ visually confirming it by eye, same discipline as the CGB rendering
 work and the RGBDS HDMA ROM), not the Milestone 1 single-color
 assertion, which this milestone naturally outgrew.
 
-**A real, valuable emulator finding, deliberately not chased down
-within this rendering milestone**: building this exposed a genuine,
-reproducible timing bug in this project's own PPU, unrelated to
-anything Prism's code does wrong - capturing a frame too soon after
-`DISPLAY_ON` can render a stale pre-write screen (confirmed via a
-savestate dump that the actual VRAM bytes, and even the PPU's own
-internal `cgb_framebuffer`, already held the fully correct data at that
-point - only the frame captured and written out was stale), and
-bisection showed it's tied to elapsed pre-display CPU time in general
-(reproduced with a plain busy-loop, no VRAM writes at all), not to
-`set_bkg_tiles` call count specifically as first suspected. See
-`prism/README.md`'s own "Known emulator finding" section for the full
-bisection trail. Not root-caused to an exact line - flagged honestly
-or a future dedicated investigation into `src/ppu.c`'s LCD-enable/
-frame-timing path, the same "document honest findings even when not
-fully resolved" discipline `dmg-acid2`'s still-open small gap already
-established for this project. Zero regressions from Prism's own code:
+**A finding, deliberately not chased down within this rendering
+milestone - later corrected, see the dedicated entry after Milestone
+6c below**: building this exposed a reproducible timing effect,
+originally suspected as a genuine bug in this project's own PPU -
+capturing a frame too soon after `DISPLAY_ON` can render a stale
+pre-write screen (confirmed via a savestate dump that the actual VRAM
+bytes, and even the PPU's own internal `cgb_framebuffer`, already held
+the fully correct data at that point - only the frame captured and
+written out was stale), and bisection showed it's tied to elapsed
+pre-display CPU time in general (reproduced with a plain busy-loop, no
+VRAM writes at all), not to `set_bkg_tiles` call count specifically as
+first suspected. **This was later investigated properly (user-directed,
+after Milestone 6c) and found to be a misdiagnosis, not a PPU bug at
+all** - real CGB hardware's boot ROM leaves the LCD on with white
+background palettes by the time control reaches the cartridge, and
+Prism's own code was writing to VRAM/tilemap/palettes without ever
+disabling the display first, exactly the tearing real hardware would
+also show under identical code. See the "PPU rendering-catch-up
+quirk: corrected diagnosis" entry after Milestone 6c for the full,
+grounded root cause and the real fix (in `prism/src/title.c`, not the
+emulator). Zero regressions from Prism's own code:
 full existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
 `cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
 round-trip, both other RGBDS ROMs) stayed green throughout - none of
@@ -2958,13 +2962,75 @@ existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
 `cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
 round-trip, all three RGBDS ROMs) stayed green throughout.
 
-**Next**: Milestone 6 (stretch/polish) is now complete - sound effects
-(6a), a real title screen (6b), and SRAM high-score persistence (6c).
-User-directed from here: investigate the PPU timing finding above (a
-real, standalone bug worth its own dedicated session), give the SDL
-front end's new write-through-on-every-cart-RAM-write option a look (a
-natural, easy enhancement flagged but deliberately not built this
-pass), resolve the GPL-license question to add a real homebrew
-regression game, or build real networking/link infrastructure (would
-unlock both real IR communication and real link-cable multiplayer at
-once, since they're the same underlying gap).
+**PPU rendering-catch-up quirk: corrected diagnosis and fix (this
+pass).** User-directed: investigate the open PPU timing finding from
+Milestone 2, carried as unresolved through every subsequent milestone's
+own "re-checked, still consistent" note. **It was never a PPU bug.**
+Confirmed via direct instrumentation (a temporary `fprintf` at every
+`frame_ready` event in `src/main.c`, reverted after use) rather than
+further speculation:
+
+```
+frame=1    lcdc=0x91  bg_pram0=0x7FFF   boot-ROM state: LCD on, white
+frame=2-5  lcdc=0xC0  bg_pram0=0x7FFF   still white (VRAM/palette still blank)
+frame=6    lcdc=0xC0  pc=0x115B         TORN - captured mid-write, inside
+                                        title_screen()'s own set_bkg_data/
+                                        set_bkg_tiles/set_bkg_palette calls
+frame=7+   lcdc=0xC1  pc=0x01C6 (stable) writes finished, loop settled
+```
+
+Real CGB hardware's boot ROM leaves the LCD **on** (`LCDC=$91`) and
+every background palette color **white** before handing control to the
+cartridge - pandocs' own `Power_Up_Sequence.md`, already correctly
+modeled in this emulator's own `src/cpu.c` (`gb_cpu_reset()`, grounded
+there with the identical citation - this project had already gotten
+the real hardware behavior right, it just hadn't connected that fact
+to this specific finding). The LCD is therefore live from the moment
+control passes to the game - never explicitly turned off - and
+`title_screen()` (`prism/src/title.c`), like every earlier milestone's
+own initial `gems.c`/`hud.c`/`board.c` setup before it, wrote directly
+to VRAM/tilemap/palettes without disabling the display first. Real
+hardware would tear exactly the same way under identical code - a
+well-known GB homebrew gotcha (real games disable the LCD, or wait for
+VBlank, before bulk VRAM writes), not a timing defect in this
+emulator's PPU model.
+
+**Fix**: added `wait_vbl_done();DISPLAY_OFF;` as the first two
+statements of `title_screen()`, before any of its setup writes - the
+exact same real-hardware-safe pattern that function already used at
+its own *end*, for the title→game transition, just applied to its
+*start* too. Verified directly: frames 1-3 are now plain white (LCD
+correctly off during setup) and frame 4 onward is the complete, untorn
+title screen immediately - no partial/torn frame at any captured frame
+count, confirmed by rendering and reading back every early frame, not
+assumed from the mechanism alone.
+
+A genuinely pleasant, unplanned result found while re-verifying:
+turning the LCD off only pauses `frame_ready` (and therefore vblank
+*frame numbering*) for the brief span `title_screen()`'s own setup
+takes - once its own `DISPLAY_ON` fires, frame counting resumes
+completely normally. Concretely, `input_script_m6b.txt`'s existing
+scripted events (Start at frame 10, the same moves every script since
+Milestone 5 has used) needed **no changes at all**, and the resulting
+`.ppm`/`.sav` outputs from the exact same scripted run are still
+byte-*identical* to the pre-fix `reference_m6b.ppm`/`reference_m6c.sav`/
+`reference_m6c_title.ppm` - only `reference_m6c_sfx.wav` needed
+re-locking, for the same reason Milestone 6c's own `highscore_init()`
+addition once did (the added `wait_vbl_done()` shifts every subsequent
+audio event's exact real-time/sample position by a small, fixed
+amount, without shifting which frame number anything lands on).
+Zero regressions: the full existing suite (unit tests, Mooneye 80/83,
+`dmg-acid2` 100%, `cgb-acid2` 100%, `2048-gb`, `droneboy`,
+`tobutobugirl`, savestate round-trip, all three RGBDS ROMs) stayed
+green throughout - this change touches only `prism/src/title.c`,
+nothing in the emulator core.
+
+**Next**: Milestone 6 (stretch/polish) is complete - sound effects
+(6a), a real title screen (6b), and SRAM high-score persistence (6c) -
+and the PPU timing finding is resolved. User-directed from here: give
+the SDL front end's write-through-on-every-cart-RAM-write option a
+look (a natural, easy enhancement flagged but deliberately not built
+during Milestone 6c), resolve the GPL-license question to add a real
+homebrew regression game, or build real networking/link infrastructure
+(would unlock both real IR communication and real link-cable
+multiplayer at once, since they're the same underlying gap).
