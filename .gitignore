@@ -5,3 +5,5 @@ tests/__pycache__/
 .claude/
 .DS_Store
 *.state
+prism/toolchain/
+prism/bin/

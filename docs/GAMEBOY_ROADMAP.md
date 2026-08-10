@@ -146,6 +146,14 @@ IR register fidelity (real peer-to-peer IR communication is a separate,
 deliberately out-of-scope networking feature). See the Status section's
 own Phase 9 entries for the full scope and reasoning.
 
+### Phase 10: original homebrew game content ("Prism")
+
+The project's other stated long-term goal alongside CGB support, now
+that the emulator core is mature enough to be a genuinely fun target -
+`prism/`, a CGB-only grid-based color-matching puzzle written in
+GBDK-2020 (C) rather than RGBDS. See the Status section's own Phase 10
+entry for the concept, milestone roadmap, and toolchain reasoning.
+
 ## Status
 
 **Phase 1 (CPU core): functionally complete and passing its gate.**
@@ -2342,12 +2350,339 @@ locks that captured output in as the exact expected string, same
 regressions: the full existing suite, including both other RGBDS
 targets, stayed green throughout.
 
-**Next**: user-directed - all three CGB register-level follow-ups from
-Phase 9 are done (double-speed, HDMA/GDMA, infrared port), and HDMA/GDMA
-now has real-hardware-shaped validation alongside its unit tests. Open
-threads: resolving the GPL-license question to add a real homebrew
-regression game, building real networking/link infrastructure (would
+**Phase 10 (original homebrew game content): scoped, Milestone 1
+(toolchain bring-up) complete.** The other long-term goal stated at
+this project's own outset ("perhaps start making some games later on
+too"), picked up once the CGB work above made the emulator a genuinely
+capable target: full DMG, CGB color rendering, double-speed mode, HDMA
+effects, save states, a real SDL front end, and (as of the RGBDS HDMA
+ROM above) three working custom test ROMs proving the whole pipeline
+end to end.
+
+Three scoping decisions, all user-directed: written in **GBDK-2020
+(C)** rather than RGBDS (dramatically faster to write real game logic
+than hand-written SM83 assembly - real game logic, unlike the small,
+focused RGBDS test ROMs above, is the deciding factor); a **grid-based
+puzzle game** (turn-based, no real-time physics, tightest realistic
+scope for a genuine first game); targeting **CGB-only** (matches where
+this project's recent work has concentrated, no DMG fallback rendering
+path to design or maintain).
+
+**Concept**: working title "Prism" - a classic swap-adjacent-tiles
+match-3 puzzle. Deliberately not a reskin of the already-committed
+`test_roms/2048-gb`, and match-3 itself is a decades-old, generic genre
+convention, not modeled on any single trademarked property. A 6x6 grid
+of 16x16-pixel gem tiles (2x2 hardware tiles each), 4-5 distinct gem
+colors each rendered through a distinct CGB BG palette (the exact
+`BCPS`/`BCPD` palette RAM work from Phase 9), D-pad-moved cursor with
+`A` to select/swap, automatic swap-reverts-if-no-match, gravity/refill
+after a clear, chained combos from a single swap, a fixed move budget
+per session, and a game-over/restart flow. Deliberately deferred to
+later milestones: sound effects, SRAM high-score persistence, a real
+title screen - noted up front so an early build's scope stays honestly
+incomplete rather than silently so.
+
+**GBDK-2020 licensing resolved as a non-issue for this use, distinct
+from the still-open `ucity` question**: GBDK-2020 is GPLv2+LE (the
+"linking exception"). Its own `LICENSE` file, fetched and quoted
+directly rather than assumed, answers the only question that actually
+matters here: *"What license information is required when distributing
+the compiled ROM (binary) of my game? A: There is no requirement to
+include or credit any of the GBDK-2020 licenses or authors."* Using
+GBDK-2020 as a compiler/library to write this project's *own* original
+code is a fundamentally different situation from committing a *third
+party's* GPL-licensed game (`ucity`) as a test asset - the linking
+exception exists specifically so code that merely links against GBDK
+can ship under any license, the same model real commercial modern GB
+homebrew already ships under.
+
+**Toolchain**: no Homebrew formula exists for GBDK-2020; installed by
+extracting the official prebuilt release archive
+(`gbdk-macos-arm64.tar.gz`, matching this Mac's real `arm64`
+architecture, confirmed via `uname -m` rather than assumed) to
+`prism/toolchain/` (gitignored, not vendored - same "real third-party
+toolchain" precedent `rgbds/README.md` already established). New
+top-level `prism/` subproject (own `Makefile`, own `README.md`, same
+shape as `sdl/` rather than folded into the root `Makefile`'s existing
+target list the way the small RGBDS example `.asm` files are, since a
+real game will grow its own asset pipeline as later milestones land).
+Root `Makefile` gained one opt-in passthrough target,
+`gameboy-prism-build` - builds via `make -C prism`, then smoke-runs the
+result through this project's own `bin/gameboy --mode cgb` (same
+"opt-in, external dependency, never part of plain `make`/`make
+gameboy-test`" treatment `gameboy-sdl` and the RGBDS targets already
+get).
+
+**Milestone roadmap** (whole-game scope): (1) toolchain bring-up -
+this pass; (2) static 6x6 grid rendering, fixed non-random gem
+arrangement - tile/palette pipeline proof; (3) cursor movement + input
+handling; (4) swap + match detection + clear/gravity/refill - the core
+mechanic; (5) scoring, move budget, game-over/restart flow - first
+genuinely *playable* build; (6) stretch, later - sound effects, SRAM
+high-score persistence, a real title screen.
+
+**Milestone 1 (this pass): done.** `prism/src/main.c` sets CGB
+background palette 0's four entries all to the same bright cyan
+(`RGB(0,31,31)`) and enables the display - the whole screen renders
+solid cyan regardless of whatever tile data happens to be in VRAM by
+default, an unambiguous, real-hardware-shaped proof that the CGB header
+flag (`lcc -Wm-yC`), this emulator's CGB mode detection, and the real
+color palette RAM path all work together through this brand-new
+toolchain - same role `rgbds/examples/hello.asm` played for confirming
+the RGBDS round-trip. `make gameboy-prism-build` doesn't just check the
+build succeeds - it captures the rendered frame and asserts every pixel
+is exactly solid cyan (RGB888 `(0,255,255)`, the expected result of
+this emulator's own RGB555-to-RGB888 channel expansion on
+`RGB(0,31,31)`), confirmed correct on the first real run. Zero
+regressions: purely additive, touches no emulator source, full existing
+suite unaffected.
+
+**Milestone 2 (this pass): done.** A fixed, non-random 6x6 grid of
+gem-shaped icons - `prism/src/gems.c`/`gems.h` hold one shared 16x16
+diamond tile (2x2 hardware tiles, generated from a Manhattan-distance
+diamond shape by a one-off local script, not hand-typed hex) recolored
+through 5 CGB background palettes, `prism/src/main.c` builds the 12x12
+tile-ID and attribute maps and calls `set_bkg_data`/`set_bkg_tiles`/
+`set_bkg_attributes` (GBDK, `gb/gb.h`) - confirmed the CGB attribute
+byte layout these expect matches exactly what this emulator already
+implements (Phase 9). `gem_type = (row + col) % 5` - a deterministic
+diagonal five-color stripe, chosen specifically because it's visually
+unambiguous that a real 6x6 grid rendered correctly, not just "some
+tiles somewhere." A real bug found and fixed along the way: the first
+version only wrote the 12x12 grid region, leaving the rest of the
+32x32 background tile map at its uninitialized default (tile ID 0
+repeated everywhere) - fixed by explicitly filling the whole map with a
+dedicated blank tile (`BLANK_TILE_ID`) before drawing the grid.
+`make gameboy-prism-build` now `cmp`s the captured frame against a
+committed reference (`prism/reference_m2.ppm`, captured only after
+visually confirming it by eye, same discipline as the CGB rendering
+work and the RGBDS HDMA ROM), not the Milestone 1 single-color
+assertion, which this milestone naturally outgrew.
+
+**A real, valuable emulator finding, deliberately not chased down
+within this rendering milestone**: building this exposed a genuine,
+reproducible timing bug in this project's own PPU, unrelated to
+anything Prism's code does wrong - capturing a frame too soon after
+`DISPLAY_ON` can render a stale pre-write screen (confirmed via a
+savestate dump that the actual VRAM bytes, and even the PPU's own
+internal `cgb_framebuffer`, already held the fully correct data at that
+point - only the frame captured and written out was stale), and
+bisection showed it's tied to elapsed pre-display CPU time in general
+(reproduced with a plain busy-loop, no VRAM writes at all), not to
+`set_bkg_tiles` call count specifically as first suspected. See
+`prism/README.md`'s own "Known emulator finding" section for the full
+bisection trail. Not root-caused to an exact line - flagged honestly
+or a future dedicated investigation into `src/ppu.c`'s LCD-enable/
+frame-timing path, the same "document honest findings even when not
+fully resolved" discipline `dmg-acid2`'s still-open small gap already
+established for this project. Zero regressions from Prism's own code:
+full existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
+`cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
+round-trip, both other RGBDS ROMs) stayed green throughout - none of
+them capture frames within the newly-discovered stale window, so
+nothing else was affected.
+
+**Milestone 3 (this pass): done.** A real per-frame game loop - the D-pad
+now moves a visible cursor over the grid, still no `A`-button/select
+logic (deliberately deferred to Milestone 4, which needs match-
+detection-adjacent state to make sense of a selection). New
+`prism/src/cursor.c`/`cursor.h`: the cursor is a hardware sprite (OBJ),
+not a background-tile trick - the standard approach for an overlay that
+moves independently of the tile grid underneath it, and exercises this
+emulator's OAM/sprite pipeline the same way Milestone 2 exercised the
+tile/palette pipeline. One shared 8x8 "corner bracket" tile forms all
+four corners of a 16x16 highlight frame via hardware `S_FLIPX`/
+`S_FLIPY` flip flags (`gb/gb.h`), not four separate tiles. `joypad()`
+is read once per real frame and compared against the previous frame's
+reading for edge-triggered movement - the D-pad moves the cursor by
+exactly one cell on the frame a direction transitions from not-pressed
+to pressed, not every frame it's held, clamped to the grid's `0-5`
+bounds on both axes (moving past an edge is a no-op, not a wrap). New
+shared `prism/src/grid.h` holds the grid-layout constants
+(`GRID_SIZE`/`GRID_ORIGIN_X`/`GRID_ORIGIN_Y`) both `main.c` (drawing the
+gems) and `cursor.c` (positioning the highlight) need, rather than
+duplicating them.
+
+Verified via a real scripted `--input` sequence
+(`prism/input_script_m3.txt`, the same mechanism `test_roms/2048-gb`'s
+own regression test already uses) moving the cursor from `(0,0)` to
+`(1,1)` (right, right, down, left) - confirmed correct by eye before
+locking in `prism/reference_m3.ppm` (replacing `reference_m2.ppm`,
+same "capture only after visually confirming it" discipline as every
+other committed reference in this project). Explicitly re-checked
+Milestone 2's own discovered PPU timing quirk against this genuinely
+dynamic build too, not just assumed fixed: the same input sequence
+captured at frame 60 and frame 70 produced byte-identical output,
+confirming real stability rather than coincidental luck at one specific
+frame count. Zero regressions: the full existing suite (unit tests,
+Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%, `2048-gb`, `droneboy`,
+`tobutobugirl`, savestate round-trip, all three RGBDS ROMs) stayed green
+throughout.
+
+**Milestone 4 (this pass): done.** The actual match-3 mechanic - the
+first milestone that makes Prism a real playable game rather than a
+rendering/input demo. Larger than Milestones 1-3 combined, kept as one
+pass rather than split further: swap, match-check, clear, gravity,
+refill, and cascade are genuinely interdependent, and a "swap with no
+match rule" checkpoint wouldn't have been a real, independently useful
+milestone.
+
+New `prism/src/board.c`/`board.h` own the actual game state - a real
+`grid[GRID_SIZE][GRID_SIZE]` of gem types in WRAM, which the tile map
+had never held before (Milestone 2's grid was a fixed `(row+col)%5`
+formula, not real state). `board_init()` fills it with
+`rand() % GEM_TYPE_COUNT` (`rand.h`'s linear-congruential `rand()`/
+`initrand()`), re-rolling any cell that would complete an immediate
+3-in-a-row against its already-*placed* left/upward neighbors only
+(cells to the right/below aren't filled yet in row-major order - the
+standard technique). Seeded once via `initrand(DIV_REG)` at a fixed
+point in `main()`, before any input is read - since this emulator's
+boot sequence is itself fully deterministic, `DIV_REG`'s value at that
+fixed point is the same every run, so this is simultaneously "looks
+random" (`rand()`'s own output genuinely varies cell-to-cell within one
+playthrough) and fully reproducible run-to-run - exactly what a
+`cmp`-based regression reference needs, without faking the RNG.
+`board_try_swap(x1,y1,x2,y2)` swaps two cells tentatively, checks the
+whole grid for any match (row and column runs of 3+), and either
+reverts (no match - grid genuinely unchanged) or commits and loops
+clear -> gravity -> refill -> re-check-matches until a pass finds none
+- real cascades/combos fall out of that loop naturally, not a special
+case. Gravity's compaction loop deliberately uses `int8_t`, not
+`uint8_t`, for its counters - a bottom-to-top compaction naturally
+wants to decrement past 0, which wraps to 255 on an unsigned counter, a
+real and easy mistake to make here, caught during design rather than
+during testing.
+
+Selection is a second, small state machine in `main.c` alongside the
+cursor: `A` selects the cursor's current cell (a small filled-square
+marker sprite, a different CGB OBJ palette from the cursor's own
+corner brackets - caught a real bug here, `S_PALETTE` (`gb/gb.h`) is a
+plain constant for the DMG-only OBP0/OBP1 select bit, not the
+function-like macro for CGB's own 0-7 palette index; `S_PAL(n)` is the
+one that actually needs calling), `A` again on the same cell
+deselects, `A` on an *adjacent* cell attempts `board_try_swap()` and
+always deselects afterward, `A` on a non-adjacent cell just moves the
+selection there instead (forgiving UX, not an error). `cursor.h` grew
+`cursor_get_x()`/`cursor_get_y()` accessors and `cursor_update()` now
+takes the frame's `joypad()` reading as a parameter instead of reading
+it internally, so `main.c` reads it once per frame and shares it with
+the new selection logic too.
+
+**Verification went beyond "looks right by eye."** A real scripted
+`--input` sequence (`prism/input_script_m4.txt`) exercises both paths
+against the deterministic initial board: a swap with no match (confirmed
+revert), then one that does match. That second swap cascaded through a
+*second*, unplanned match - entirely from the random refill, not
+anything hand-designed - and still resolved down to a stable, match-free
+board. Rather than treating the wider-than-expected change as a red
+flag, it was verified programmatically: sampled every cell's rendered
+color from the captured frame (matching each pixel's RGB888 value back
+to its closest gem palette), confirmed zero remaining 3-in-a-rows
+anywhere in the resulting grid, and confirmed every row/column the swap
+never touched matched the pre-swap board exactly - real confirmation
+the cascade was correct game behavior, not corruption. Rebuilt from a
+clean `make clean` and re-ran to confirm the result is genuinely
+deterministic (identical output), not a stale build artifact. Re-checked
+Milestone 2/3's own discovered PPU timing quirk against this build too:
+the same sequence captured at two different frame counts past its last
+input event produced byte-identical output. `SAVESTATE_VERSION`/emulator
+source: untouched - zero regressions, the full existing suite (unit
+tests, Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%, `2048-gb`,
+`droneboy`, `tobutobugirl`, savestate round-trip, all three RGBDS ROMs)
+stayed green throughout.
+
+**Milestone 5 (this pass): done.** Scoring, a finite move budget, a
+game-over state, and `Start` to restart - the first genuinely
+*complete* playable build (a session with a real beginning and end,
+not just a grid you can swap forever).
+
+Deliberately **no GBDK console/font system** - its default font's tile
+placement isn't something to assume without real risk of colliding
+with `gems.c`'s own tile IDs `0-4` in the same VRAM bank, and this
+milestone series had already found two real surprises in GBDK/CGB
+specifics (Milestone 2's uninitialized tile map, Milestone 4's
+`S_PALETTE`/`S_PAL` mixup). Instead, new `prism/src/hud.c`/`hud.h`: a
+small custom digit tileset, ten 8x8 tiles (digits `0`-`9`, tile IDs
+`5-14`, extending `gems.c`'s existing `0-4` range) rasterized from the
+classic 7-segment-display convention (public domain, not copied art -
+a one-off script computes which of the 7 segments are lit per digit
+and fills each as a bar). `hud_init()` loads the tileset;
+`hud_set_score(uint16_t)`/`hud_set_moves(uint8_t)` redraw only their
+own fixed-width digit field (decimal digit extraction via repeated
+`%10`/`/10`), called only when the value actually changes. Both fields
+live in background row `y=0`, which the grid (`y=3-14`) never touches.
+
+Score/moves/game-over state lives in `main.c`, alongside the existing
+`selected` state - `board.c`'s job stays grid mechanics only, not
+session bookkeeping. `find_matches()` now returns a `uint8_t` *count*
+of cells marked instead of a boolean, and `board_try_swap()`'s return
+type changed from `uint8_t` (0/1) to `uint16_t`, accumulating the
+total cleared across every clear -> gravity -> refill pass in its
+cascade loop (0 still means reverted/no match). `score += cleared *
+10` on a committed swap; a reverted swap costs nothing. `STARTING_MOVES`
+(20) -> 0 enters game-over: further `A` presses on adjacent cells no
+longer call `board_try_swap()` (cursor movement and Start still work).
+`Start` always restarts - mid-game or after game-over alike, no
+separate gating - resetting score to 0, moves to `STARTING_MOVES`, and
+generating a fresh board via `board_init()`.
+
+**A real debugging trail, not a straight line.** After building this
+milestone and running an input script extended from Milestone 4's own,
+the HUD simply never updated. Two hypotheses were tested and both
+ruled out empirically rather than assumed: (1) the Milestone 2 PPU
+rendering-catch-up quirk (capturing a frame too soon after
+`DISPLAY_ON` can show stale content) - tested at frames up to 250,
+still stale; (2) real hardware's VRAM Mode 2/3 CPU-write blocking
+silently dropping writes made outside VBlank - reordered `main()`'s
+loop to call `vsync()` first, rebuilt, and the HUD *still* didn't
+update (this reordering was reverted once ruled out - it was solving a
+problem that didn't exist here). Debug instrumentation (a hardcoded
+`hud_set_score(1111)` at the top of the swap branch) confirmed the HUD
+drawing mechanism itself worked fine even mid-game, which narrowed the
+problem to `board_try_swap()` never reaching its match path at all -
+directly checking the rendered grid against both the pre-swap board and
+the Milestone 4 script's *expected* board showed they no longer
+matched **either** one. The actual root cause: adding `hud.c` (and
+`board.c`'s own growth) shifted the exact instruction/cycle count of
+code executing before `main()` calls `initrand(DIV_REG)`, which shifted
+the real-time value `DIV_REG` held at that exact moment - a genuinely
+different, but still fully deterministic-for-this-build, RNG seed. The
+Milestone 4 script's hardcoded swap coordinates simply weren't a
+match-creating swap on Milestone 5's differently-seeded board; both of
+its scripted swaps reverted with zero side effects, exactly consistent
+with an unchanged HUD and an unchanged grid (confirmed byte-for-byte).
+Not an emulator bug and not a game-logic bug - a test-script confound,
+now documented here so it doesn't get re-discovered from scratch next
+time a new source file shifts a pre-`initrand()` boot path. Fixed by
+deriving a new `prism/input_script_m5.txt` from this build's actual
+(pixel-sampled) board layout.
+
+Verified programmatically, not by eye: the new script's swap produces a
+real vertical three-match at column 0, and the resulting frame reads
+back score `"0030"` and moves `"19"` via exact 64/64-pixel digit-tile
+matching, with the rest of the grid matching the expected
+compaction/refill exactly and zero matches remaining anywhere - locked
+in as `prism/reference_m5.ppm`. Game-over and restart were verified
+separately with `STARTING_MOVES` temporarily reduced to 1 in a
+throwaway build (never committed at that value): the single move is
+consumed by a real match, a second swap attempt is confirmed to be a
+correct no-op (score/moves unchanged), and a scripted `Start` press is
+confirmed to reset score to `"0000"`, moves to `"01"` (matching the
+debug budget), and generate a fresh, valid (zero pre-existing matches)
+random board - then `STARTING_MOVES` was restored to 20 and the real
+build re-verified byte-identical against the already-locked
+`reference_m5.ppm`. Re-checked the PPU timing quirk against this build
+too (frame 90 vs 110, byte-identical). Zero regressions: the full
+existing suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%,
+`cgb-acid2` 100%, `2048-gb`, `droneboy`, `tobutobugirl`, savestate
+round-trip, all three RGBDS ROMs) stayed green throughout.
+
+**Next**: user-directed - investigate the PPU timing finding above (a
+real, standalone bug worth its own dedicated session), continue Prism's
+milestone roadmap (Milestone 6 - stretch/polish: sound effects, SRAM
+high-score persistence, a real title screen - is the natural next step,
+and would make Prism a genuinely finished game rather than just a
+playable one), resolve the GPL-license question to add a real homebrew
+regression game, or build real networking/link infrastructure (would
 unlock both real IR communication and real link-cable multiplayer at
-once, since they're the same underlying gap), or starting on original
-homebrew game content, which the user has flagged as a later goal of
-this project alongside CGB support.
+once, since they're the same underlying gap).

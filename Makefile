@@ -138,6 +138,23 @@ RGBDS_HDMA_SRC := rgbds/examples/hdma.asm
 RGBDS_HDMA_OBJ := $(BIN_DIR)/rgbds-hdma.o
 RGBDS_HDMA_ROM := $(BIN_DIR)/rgbds-hdma.gb
 
+# "Prism" (working title) - this project's first original homebrew
+# game, written in GBDK-2020 (C) rather than RGBDS - see prism/README.md
+# for the toolchain (not vendored here, same reasoning as RGBDS) and
+# docs/GAMEBOY_ROADMAP.md for the milestone roadmap. Currently
+# Milestone 5 (scoring, move budget, game-over/restart flow) - the
+# scripted --input sequence (prism/input_script_m5.txt, same mechanism
+# test_roms/2048-gb's own regression test uses) makes one real
+# match-producing swap against the deterministic initial board
+# (initrand() seeded from DIV_REG at a fixed point in an otherwise
+# deterministic boot sequence) and confirms the HUD (prism/src/hud.c)
+# reflects it: score goes 0 -> 30 (one 3-gem match * 10), moves goes
+# 20 -> 19.
+PRISM_ROM := prism/bin/prism.gb
+PRISM_SCRIPT := prism/input_script_m5.txt
+PRISM_REF := prism/reference_m5.ppm
+PRISM_OUT := $(BIN_DIR)/prism-output.ppm
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -167,7 +184,7 @@ SDL_PKGS := sdl2
 SDL_CFLAGS := $(shell pkg-config --cflags $(SDL_PKGS) 2>/dev/null) -I$(SRC_DIR)
 SDL_LIBS := $(shell pkg-config --libs $(SDL_PKGS) 2>/dev/null)
 
-.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-rgbds-hdma-test gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
+.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-rgbds-hdma-test gameboy-prism-build gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
 
 all: gameboy
 
@@ -232,6 +249,13 @@ gameboy-rgbds-hdma-test: $(TARGET) | $(BIN_DIR)
 		&& echo "gameboy-rgbds-hdma-test: OK (GDMA/HBlank-DMA/VRAM-bank-isolation all correct through real CPU+PPU timing)" \
 		|| (echo "gameboy-rgbds-hdma-test: FAIL (expected serial output not seen)"; exit 1)
 
+gameboy-prism-build: $(TARGET) | $(BIN_DIR)
+	$(MAKE) -C prism
+	./$(TARGET) $(PRISM_ROM) --mode cgb --input $(PRISM_SCRIPT) --ppm $(PRISM_OUT) --frames 90
+	cmp $(PRISM_OUT) $(PRISM_REF) \
+		&& echo "gameboy-prism-build: OK (Milestone 5 - score/moves HUD tracks a real match correctly)" \
+		|| (echo "gameboy-prism-build: FAIL (rendered frame doesn't match $(PRISM_REF))"; exit 1)
+
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
 
@@ -268,4 +292,5 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT)
+	$(MAKE) -C prism clean
