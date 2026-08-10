@@ -187,6 +187,7 @@ void player_update(uint8_t joy) {
 
 uint8_t player_get_x(void) { return player_x; }
 uint8_t player_get_y(void) { return player_y; }
+uint8_t player_get_facing(void) { return (uint8_t)facing; }
 
 void player_set_position(uint8_t x, uint8_t y) {
     player_x = x;

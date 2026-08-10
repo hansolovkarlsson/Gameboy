@@ -10,15 +10,22 @@
 #include <gb/cgb.h>
 #include <stdint.h>
 
+#include "enemy.h"
 #include "player.h"
 #include "room.h"
+#include "sword.h"
 #include "world.h"
 
 #define GRID_W 2
 #define GRID_H 2
 
+// The one enemy (enemy.c) belongs to this room only.
+#define ENEMY_ROOM_X 0
+#define ENEMY_ROOM_Y 0
+
 static uint8_t room_x;
 static uint8_t room_y;
+static uint8_t prev_joy;
 
 static void draw_current_room(void) {
     uint8_t has_west = room_x > 0;
@@ -28,12 +35,19 @@ static void draw_current_room(void) {
     room_draw(has_north, has_south, has_east, has_west);
 }
 
+static uint8_t in_enemy_room(void) {
+    return room_x == ENEMY_ROOM_X && room_y == ENEMY_ROOM_Y;
+}
+
 void world_init(void) {
     room_x = 0;
     room_y = 0;
+    prev_joy = 0;
     room_init(); // one-time tile/palette load
     draw_current_room();
     player_init();
+    sword_init();
+    enemy_init();
 }
 
 void world_update(uint8_t joy) {
@@ -76,21 +90,39 @@ void world_update(uint8_t joy) {
         transitioning = 1;
     }
 
-    if (!transitioning) return;
+    if (transitioning) {
+        uint8_t leaving_enemy_room = in_enemy_room();
 
-    // A full room-tile-map rewrite mid-gameplay is the same "bulk VRAM
-    // write while the LCD is live" risk category as any of this
-    // project's other setup writes - guarded the same real-hardware-
-    // safe way main.c's own boot sequence already is, rather than
-    // accepting a rare tear.
-    wait_vbl_done();
-    DISPLAY_OFF;
+        // A full room-tile-map rewrite mid-gameplay is the same "bulk
+        // VRAM write while the LCD is live" risk category as any of
+        // this project's other setup writes - guarded the same
+        // real-hardware-safe way main.c's own boot sequence already
+        // is, rather than accepting a rare tear.
+        wait_vbl_done();
+        DISPLAY_OFF;
 
-    room_x = new_room_x;
-    room_y = new_room_y;
-    draw_current_room();
-    player_set_position(entry_x, entry_y);
+        room_x = new_room_x;
+        room_y = new_room_y;
+        draw_current_room();
+        player_set_position(entry_x, entry_y);
 
-    SHOW_BKG;
-    DISPLAY_ON;
+        // Sprites persist across a BG-only room redraw unless
+        // explicitly moved - a still-alive enemy must not linger on
+        // screen after the player leaves its room.
+        if (leaving_enemy_room && !in_enemy_room()) enemy_hide();
+
+        SHOW_BKG;
+        DISPLAY_ON;
+    }
+
+    uint8_t pressed = (uint8_t)(joy & (uint8_t)~prev_joy);
+    prev_joy = joy;
+    sword_update(pressed & J_A);
+
+    if (in_enemy_room()) {
+        enemy_update();
+        if (sword_is_active()) {
+            enemy_try_hit(sword_get_x(), sword_get_y(), 8, 8);
+        }
+    }
 }

@@ -3378,5 +3378,83 @@ regression suite (unit tests, all visual/game/savestate targets, all
 three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed green
 throughout - this change touches only `wayfarer/`.
 
-**Next**: Milestone 3 (combat - a sword attack, one simple enemy type,
-hit detection, health) is the natural next step, once user-directed.
+**Milestone 3 (this pass): done.** User-directed: "let's build Milestone
+2 - room transitions" (prior pass), then "do next step" for this one.
+Confirmed scope up front: the sword defeats the enemy this pass, but
+the enemy cannot hurt the player yet - player health/damage/game-over
+is real, separate scope, deliberately deferred to its own later
+milestone rather than folded in here, same "one provable slice"
+discipline Milestones 1-2 both used. Enemy movement: a simple
+deterministic back-and-forth patrol, not stationary - both confirmed
+via `AskUserQuestion` rather than assumed.
+
+**`wayfarer/src/sword.c`/`sword.h`** (new): a one-shot swing,
+edge-triggered by `A` (`SWORD_FRAMES=12`, ~200ms), with no movement
+lock - the player can keep walking mid-swing, a real, deliberate scope
+decision (simplest correct behavior, not worth extra state to
+prevent). Two 8x8 sprite tiles - a vertical bar (up/down) and a
+horizontal bar (left/right); a straight bar is already symmetric under
+its own axis's flip, so unlike `player.c`'s own directional art no
+flip logic is even needed. The swing's 8x8 hitbox is recomputed from
+the player's *current* position/facing every active frame (one
+tile-width beyond whichever edge of the 16x16 player the facing points
+at, centered on the other axis) and cached in the same static fields
+`sword_get_x()`/`get_y()` return - a small, deliberate refactor during
+implementation (an earlier draft recomputed the hitbox a second time
+inside the getters via a duplicated `switch`, a real duplication risk
+where the drawn sprite and the hit-test position could silently drift
+apart; storing one copy removes the risk outright rather than trusting
+the two copies to stay in sync).
+
+**`wayfarer/src/enemy.c`/`enemy.h`** (new): one 8x8 round blob
+(circular-distance generated, same per-pixel-grid script technique as
+every tile asset in this project), deliberately smaller/simpler than
+the 16x16 player - a weaker first enemy, not a scope shortfall.
+Patrols a fixed horizontal range at a fixed `y`, 1px/frame, reversing
+at each bound - fully deterministic. Belongs to room (0,0) only (a
+single instance is enough for "one enemy type," no per-room entity
+list needed yet - genuinely future scope, not built speculatively).
+`enemy_try_hit()` is a plain AABB-overlap check against its own 8x8
+box, owns its own `alive` flag, and is the only thing that mutates it.
+
+**`wayfarer/src/world.c`** wires the two together without either
+module knowing about the other (mirrors how the sibling `prism/`
+project's own `main.c` wires `board.c`+`swapanim.c`+`sfx.c`): adds
+`sword_init()`/`enemy_init()` to `world_init()`; `world_update()` gains
+its own edge-detected `A` press (`prev_joy`, the same
+`pressed = joy & ~prev_joy` pattern `prism/`'s `cursor.c`/`main.c`
+already established, now needed here for the first time since
+Milestones 1-2 were purely level-triggered movement) forwarded to
+`sword_update()`, and - only while the current room is (0,0) - calls
+`enemy_update()` and, if `sword_is_active()`, `enemy_try_hit()`. On the
+transition branch specifically, leaving room (0,0) for anywhere else
+calls `enemy_hide()` right there, since sprites persist across a
+BG-only room redraw unless explicitly moved - confirmed for real (not
+just reasoned about): a scripted room-exit while the enemy was still
+alive showed it correctly vanish rather than follow into room (1,0).
+
+**Verified** via a new scripted `--input` sequence
+(`wayfarer/input_script_m3.txt`, replacing `input_script_m2.txt`) that
+starts with a real negative-case check - tapping `A` immediately
+(facing down, nowhere near the enemy) and confirming, several frames
+later, the enemy is provably unaffected - before holding RIGHT to
+approach and landing a real hit, confirmed by tracing individual
+frames around the swing (the enemy vanishes within a couple of frames
+of the second `A` press and never reappears). The exact tap frame for
+a landed hit needed real empirical search, not just a plausible guess:
+the enemy's continuous patrol means the same approach timing that
+worked at one absolute frame count missed when an earlier unrelated
+input (the negative-case tap) shifted every later frame number by a
+few frames - resolved by scanning candidate tap frames and visually
+confirming the actual hit, the same "derive empirically, don't assume
+timing transfers" discipline every prior milestone's own scripted
+verification has needed at least once. Locked in as
+`wayfarer/reference_m3.ppm` only after confirming frame stability;
+`reference_m2.ppm`/`input_script_m2.txt` deleted once superseded. Full
+existing regression suite (unit tests, all visual/game/savestate
+targets, all three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed
+green throughout - this change touches only `wayfarer/`.
+
+**Next**: Milestone 4 (items/inventory + HUD) is the natural next
+step, once user-directed - likely also the natural point to revisit
+the player-health/game-over scope deferred here.

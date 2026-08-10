@@ -1,0 +1,23 @@
+# Wayfarer Milestone 3 verification script (sword.c/enemy.c/world.c).
+# Starts centered in room (0,0) (72,64), where the one enemy patrols a
+# fixed horizontal range (96-128) - see enemy.c.
+#
+# 1. Tap A immediately (facing down, nowhere near the enemy) - a real
+#    negative-case check: confirms a swing that doesn't overlap the
+#    enemy does nothing to it, not just "the enemy is somewhere on
+#    screen."
+# 2. Hold RIGHT to approach - crosses into sword range while facing
+#    right.
+# 3. Tap A again once adjacent - the swing's 8x8 hitbox overlaps the
+#    enemy's own, defeating it (confirmed: the enemy disappears within
+#    a couple of frames of this press and never reappears).
+#
+# Every frame number re-derived empirically (capture/inspect candidate
+# frames, including narrowing down the exact hit frame), not guessed.
+# Confirmed stable (byte-identical) from frame 75 onward.
+5 A down
+6 A up
+10 RIGHT down
+40 RIGHT up
+50 A down
+51 A up

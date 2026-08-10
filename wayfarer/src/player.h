@@ -20,6 +20,14 @@ void player_update(uint8_t joy);
 uint8_t player_get_x(void);
 uint8_t player_get_y(void);
 
+// Matches the internal facing_t enum's own values exactly - sword.c
+// needs to know which way to swing.
+#define PLAYER_FACING_DOWN 0
+#define PLAYER_FACING_UP 1
+#define PLAYER_FACING_LEFT 2
+#define PLAYER_FACING_RIGHT 3
+uint8_t player_get_facing(void);
+
 // Repositions the player immediately (redraws the sprite the same
 // frame, not one frame stale) without going through player_update()'s
 // own movement/collision logic - used by world.c right after a room

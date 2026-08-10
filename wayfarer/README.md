@@ -32,31 +32,31 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 2 (room transitions)
+## Status: Milestone 3 (combat)
 
 Milestone 1 built one static, fully-bordered room and a 16x16
 directional player sprite that walks it freely (pixel-level, not
-grid-snapped), stopped cleanly by wall collision checked independently
-per axis (so the player can slide along a wall rather than sticking).
-Three directional art sets (down/up/one side profile, the side profile
-mirrored via hardware sprite flip for left vs right — see
-`src/player.c`) swap automatically as the D-pad is held.
+grid-snapped), stopped cleanly by wall collision. Milestone 2
+(`src/world.c`) wired a small 2x2 grid of rooms together — stepping off
+an open side's true screen edge cuts instantly to the adjacent room,
+entering from its opposite edge, while a closed side still blocks
+movement.
 
-This pass (`src/world.c`) wires a small 2x2 grid of rooms together
-(`src/room.c`'s `room_draw()` now takes which of a room's 4 sides have
-a neighbor, walling off only the sides that don't). Stepping off an
-*open* side's true screen edge cuts instantly to the adjacent room,
-entering from its opposite edge — a hard cut, not a scroll, by design.
-A closed side still blocks movement exactly like Milestone 1, now
-proven in a non-origin room too. No combat, items, or HUD yet — all
-explicitly deferred to later milestones (see
-`docs/GAMEBOY_ROADMAP.md`), not silently missing.
+This pass adds combat: `src/sword.c` is a one-shot sword swing,
+edge-triggered by `A` (movement isn't locked during a swing), an 8x8
+blade sprite held one tile-width beyond whichever edge of the player
+the current facing points at. `src/enemy.c` is one small patrolling
+enemy (a round blob, deliberately simpler/smaller than the player),
+confined to room (0,0), moving back and forth along a fixed range. A
+sword hit defeats the enemy permanently for the session — **the enemy
+cannot hurt the player yet**; player health/damage/game-over is real,
+separate scope, deliberately deferred to its own later milestone
+rather than folded in here, the same "one provable slice" discipline
+every prior milestone used.
 
-Verified via a scripted `--input` sequence (`input_script_m2.txt`)
-that crosses two chained transitions (east, then south) and confirms a
-closed north side still blocks movement in between — each room's
-distinct wall-opening pattern (every room in a 2x2 grid is a corner,
-so each has exactly 2 open sides) doubles as an easy visual fingerprint
-that the right room is on screen at each step. Locked in as
-`reference_m2.ppm` (supersedes `reference_m1.ppm`, deleted once the new
-one was confirmed).
+Verified via a scripted `--input` sequence (`input_script_m3.txt`)
+that includes a real negative-case check first — an early swing nowhere
+near the enemy provably does nothing to it — before approaching and
+landing a real hit, confirmed by the enemy disappearing and staying
+gone many frames later. Locked in as `reference_m3.ppm` (supersedes
+`reference_m2.ppm`, deleted once the new one was confirmed).
