@@ -20,6 +20,7 @@
 #include <stdint.h>
 #include <rand.h>
 
+#include "sfx.h"
 #include "world.h"
 
 void main(void) {
@@ -42,6 +43,7 @@ void main(void) {
     wait_vbl_done();
     DISPLAY_OFF;
 
+    sfx_init();
     world_init(); // loads the room/player art and draws the starting room; also enables SHOW_SPRITES
 
     SHOW_BKG;

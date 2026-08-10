@@ -19,6 +19,7 @@
 #include "pickup.h"
 #include "player.h"
 #include "room.h"
+#include "sfx.h"
 #include "sword.h"
 #include "win.h"
 #include "world.h"
@@ -203,12 +204,14 @@ void world_update(uint8_t joy) {
 
     uint8_t pressed = (uint8_t)(joy & (uint8_t)~prev_joy);
     prev_joy = joy;
+    uint8_t was_swinging = sword_is_active();
     sword_update(pressed & J_A);
+    if ((pressed & J_A) && !was_swinging) sfx_play_swing();
 
     if (in_enemy_room()) {
         enemy_update();
         if (sword_is_active()) {
-            enemy_try_hit(sword_get_x(), sword_get_y(), 8, 8);
+            if (enemy_try_hit(sword_get_x(), sword_get_y(), 8, 8)) sfx_play_hit();
         }
         if (enemy_is_alive()) {
             uint8_t ex = enemy_get_x();
@@ -218,7 +221,7 @@ void world_update(uint8_t joy) {
             uint8_t overlap_x = pcx < (uint8_t)(ex + 8) && (uint8_t)(pcx + 16) > ex;
             uint8_t overlap_y = pcy < (uint8_t)(ey + 8) && (uint8_t)(pcy + 16) > ey;
             if (overlap_x && overlap_y) {
-                player_damage(1);
+                if (player_damage(1)) sfx_play_damage();
                 if (player_get_hearts() == 0) {
                     go_to_room(ENEMY_ROOM_X, ENEMY_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
                     player_heal_full();
@@ -230,11 +233,12 @@ void world_update(uint8_t joy) {
     if (in_pickup_room()) {
         if (pickup_try_collect(player_get_x(), player_get_y(), 16, 16)) {
             player_heal_full();
+            sfx_play_pickup();
         }
     }
 
     if (in_key_room()) {
-        key_try_collect(player_get_x(), player_get_y(), 16, 16);
+        if (key_try_collect(player_get_x(), player_get_y(), 16, 16)) sfx_play_pickup();
     }
 
     heart_hud_update();
@@ -246,6 +250,7 @@ void world_update(uint8_t joy) {
     // to become true.
     if (!won && !enemy_is_alive() && room_x == WIN_ROOM_X && room_y == WIN_ROOM_Y) {
         won = 1;
+        sfx_play_win();
         win_play();
     }
 }

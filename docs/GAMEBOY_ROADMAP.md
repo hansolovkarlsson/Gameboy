@@ -3681,5 +3681,84 @@ all visual/game/savestate targets, all three RGBDS ROMs, Mooneye,
 `gameboy-prism-build`) stayed green throughout - this change touches
 only `wayfarer/`.
 
-**Next**: the remaining stretch items - sound effects, a title screen,
-SRAM save - are the natural next steps, once user-directed.
+**Milestone 7 (this pass): done - sound effects.** User-directed.
+Directly reuses the sibling `prism/` project's own `sfx.c` approach -
+raw DMG/CGB sound-register pokes (this emulator's own APU already
+fully implemented and verified, `src/apu.c`/`tests/test_apu.c`/
+`test_roms/droneboy`), no higher-level GBDK sound API, no per-frame
+service loop or tracker - grounded the same way (pandocs' own
+period-frequency formula, computed offline, not hand-derived).
+
+**New `wayfarer/src/sfx.c`/`sfx.h`**: five one-shot triggers, each a
+single write-and-restart to one channel's registers.
+`sfx_play_swing()` (channel 1, short high C6 blip, period 0x783) and
+`sfx_play_hit()` (channel 1, rising sweep from a G4 base, period
+0x6B2) are near-identical in shape to `prism/`'s own
+`sfx_play_select()`/`sfx_play_match()` - same notes, even, since both
+projects share the same "short blip for an action, rising sweep for a
+success" vocabulary. `sfx_play_pickup()` (channel 1, a distinct E6
+blip, period 0x79D) is shared by both the heart pickup and the key - a
+real, deliberate scope decision: both are "you got something," and a
+second, extremely similar trigger wasn't worth building just to tell
+them apart audibly. `sfx_play_damage()` (channel 4, noise) is
+higher-pitched and much shorter than `prism/`'s own
+`sfx_play_gameover()` (shift 5 vs. its 11, length counter left *on*
+for a firm ~74ms burst rather than a long dramatic fade) - a routine
+"you got hit," not a session-ending event. `sfx_play_win()` reuses
+`sfx_play_hit()`'s exact sweep rate and base note, just held longer
+(~203ms vs. ~148ms) - a triumphant variant rather than a fully
+distinct sound, verified safe against the sweep-overflow ceiling the
+same way `prism/`'s own `sfx_play_match()` comment already worked out
+(the longer note's rise reaches ~2052 right around its own natural
+203ms end, not a premature cutoff).
+
+**`wayfarer/src/world.c`** gained every `sfx_play_*()` call site -
+matching `prism/main.c`'s own convention exactly, none of
+`sword.c`/`enemy.c`/`pickup.c`/`key.c`/`win.c` themselves ever call
+into `sfx.c`, staying unaware audio exists at all (the same layering
+`prism/`'s `board.c`/`swapanim.c` already keep relative to its own
+`sfx.c`). The swing trigger needed one small new piece of state:
+capturing `sword_is_active()` *before* calling `sword_update()`, so a
+genuinely new swing (as opposed to an ignored repeat press mid-swing)
+can be told apart. `wayfarer/src/player.h`/`player.c`'s
+`player_damage()` changed from `void` to `uint8_t` (1 if damage was
+actually applied, 0 if it was a no-op due to invincibility) - a small,
+natural extension matching this project's own established "return
+whether something happened" convention
+(`enemy_try_hit()`/`pickup_try_collect()`/`key_try_collect()` all
+already do this) - so the damage sound plays only on a real hit, not
+every frame of a graze already blocked by invincibility.
+`wayfarer/src/main.c` gained one line, `sfx_init()`, alongside
+`world_init()`.
+
+**Verified** the same way `prism/`'s own Milestone 6a was: reused
+`wayfarer/input_script_m6.txt` **unchanged** (confirmed byte-identical
+rendered frame via direct `cmp` against `reference_m6.ppm` - sound is
+audio-only, provably can't affect it) with a new `--wav` capture
+(`--seconds 9`, comfortably past the script's last event at frame 420),
+verified programmatically (Python's `wave` module, the same
+"sample and confirm objectively" discipline every prior audio/pixel
+verification in this project has used) rather than eyeballed: silence
+before the first real event, then exactly 4 clean, correctly-timed,
+distinct events - the early negative-case swing (~0.22-0.30s), the
+real swing+hit pair when the enemy is defeated (~0.88-1.16s, the two
+close enough together to show as one continuous run), one incidental
+contact-damage hit during the approach (~2.72-2.82s, matching
+Milestone 6's own finding that hearts were already at 2/3 by the time
+the enemy died in this exact script), and the win trigger
+(~6.64-6.84s). The heart-pickup call site specifically isn't reachable
+by this script (it never walks over the heart in room `(1,1)`) -
+verified once via a separate, uncommitted probe script instead (walked
+onto the heart directly, confirmed a second `sfx_play_pickup()`-shaped
+event fired), the same asymmetric-verification precedent `prism/`'s
+own M6a used for its game-over sound. Locked in as
+`wayfarer/reference_m7_sfx.wav` (no existing wayfarer WAV reference to
+supersede). Root `Makefile`'s `gameboy-wayfarer-build` recipe extended
+with a `--wav`+`cmp` step (new `WAYFARER_WAV_OUT`/`WAYFARER_WAV_REF`
+variables), alongside the existing `--ppm` step. Full existing
+regression suite (unit tests, all visual/game/savestate targets, all
+three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed green
+throughout - this change touches only `wayfarer/`.
+
+**Next**: the remaining stretch items - a title screen, SRAM save -
+are the natural next steps, once user-directed.

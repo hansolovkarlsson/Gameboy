@@ -210,10 +210,11 @@ void player_set_position(uint8_t x, uint8_t y) {
 
 uint8_t player_get_hearts(void) { return hearts; }
 
-void player_damage(uint8_t amount) {
-    if (invincible_timer > 0) return;
+uint8_t player_damage(uint8_t amount) {
+    if (invincible_timer > 0) return 0;
     hearts = (amount >= hearts) ? 0 : (uint8_t)(hearts - amount);
     invincible_timer = INVINCIBILITY_FRAMES;
+    return 1;
 }
 
 void player_heal_full(void) {

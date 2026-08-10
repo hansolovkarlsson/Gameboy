@@ -41,8 +41,9 @@ uint8_t player_get_hearts(void);
 // Subtracts amount from hearts (clamped at 0) and starts a brief
 // invincibility window - a no-op entirely if still invincible from a
 // prior hit, so a multi-frame graze against one hazard only ever costs
-// one heart.
-void player_damage(uint8_t amount);
+// one heart. Returns 1 if damage was actually applied, 0 if it was a
+// no-op - world.c uses this to play the damage sound only on real hits.
+uint8_t player_damage(uint8_t amount);
 
 // Resets hearts to the maximum - shared by both the heart pickup and
 // the on-death respawn path (world.c).
