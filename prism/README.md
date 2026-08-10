@@ -55,13 +55,39 @@ the ROM's own header too, but explicit matches how the RGBDS HDMA test
 ROM is run). Opt-in, same as `gameboy-sdl` and the RGBDS targets: never
 part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 6a (sound effects)
+## Status: Milestone 6b (real title screen)
 
-Real audio feedback on top of Milestone 5's complete playable build —
-a score, a finite move budget, a game-over state once it runs out, and
-`Start` to restart. Milestones 1-5 (toolchain bring-up, static grid
-rendering, cursor + input, swap/match/clear/gravity/refill, scoring/
-move budget/game-over/restart) are done.
+A real "PRISM" / "PRESS START" title screen the player sees before
+gameplay begins, on top of Milestone 6a's sound effects and Milestone
+5's complete playable build (score, move budget, game-over, restart).
+Milestones 1-6a are done.
+
+New `src/title.c`/`title.h`: a small custom letter tileset (same
+reasoning as `hud.c`'s digits — not GBDK's console/font system, to
+avoid tile-ID collision), just the 8 distinct letters actually needed
+across "PRISM" and "PRESS START" (P, R, I, S, M, E, T, A) plus a blank
+tile, tile IDs `15-23` right after `hud.c`'s digit range. Each
+letterform is the standard 5x7 dot-matrix block-letter shape, rendered
+and read back (`Read`-ing the converted PNG) to confirm both lines are
+actually legible before locking anything in — text is exactly the kind
+of thing this project's "look at it before asserting correctness"
+precedent (`gems.c`, `dmg-acid2`) exists for. `title_screen()` shows
+the screen and blocks on an edge-triggered `Start` press, then
+`wait_vbl_done()`+`DISPLAY_OFF` before returning — a clean,
+real-hardware-safe handoff so the tilemap is never caught pointing at
+a title-tile ID mid-overwrite with fresh gem/digit bitmap data.
+
+Two design points worth calling out explicitly: `initrand(DIV_REG)`
+stays the literal first line of `main()`, with `title_screen()` called
+*after* it — the title screen's wait-for-Start loop is the first
+genuinely player-paced (unbounded real time) delay in Prism's boot
+sequence, and the RNG seed has to be sampled before any such wait or
+the random board would depend on how long the player lingered on the
+title screen. And the main gameplay loop's `prev_joy` is now seeded
+from the real `joypad()` state at loop entry, not hardcoded `0` — a
+player still physically holding Start (the same button that just
+dismissed the title screen) would otherwise read as a fresh edge on the
+very first iteration and silently trigger an extra `restart_game()`.
 
 GBDK-2020 has no higher-level sound API — new `src/sfx.c`/`sfx.h`
 write directly to the DMG/CGB sound registers (`gb/hardware.h`), the
@@ -82,7 +108,7 @@ on `restart_game()` this pass — a deliberate scope decision, not an
 oversight: the visual reset is enough feedback on its own.
 
 `make gameboy-prism-build` now `cmp`s a second captured artifact
-(`--wav`, `prism/reference_m6_sfx.wav`) against the same scripted input
+(`--wav`, `prism/reference_m6b_sfx.wav`) against the same scripted input
 run used for the visual check, exercising `sfx_play_select()` and
 `sfx_play_match()`. Verified before locking in, not just "a file was
 produced": a small Python script (the `wave` module, zero-crossing
@@ -118,14 +144,19 @@ after game-over alike — resetting score/moves and generating a fresh
 board.
 
 `make gameboy-prism-build` drives a real scripted input sequence
-(`--input prism/input_script_m5.txt`) that produces a genuine
-match-creating swap against the build's deterministic initial board,
-verified programmatically (not by eye): the resulting frame's score/
-moves digit tiles are sampled back and matched exact-pixel against the
-known digit bitmaps (`"0030"`/`"19"`), and the rest of the grid is
-confirmed to match the expected compaction/refill with zero remaining
-matches anywhere. `cmp`s against a committed reference
-(`prism/reference_m5.ppm`). Game-over and restart were verified
+(`--input prism/input_script_m6b.txt`, which presses Start to dismiss
+the title screen first, then the same relative moves as Milestone 5's
+own script) that produces a genuine match-creating swap against the
+build's deterministic initial board, verified programmatically (not by
+eye): the resulting frame's score/moves digit tiles are sampled back
+and matched exact-pixel against the known digit bitmaps (`"0030"`/
+`"19"`), and the rest of the grid is confirmed to match the expected
+compaction/refill with zero remaining matches anywhere. Confirmed the
+title screen change didn't perturb the deterministic board at all — the
+Milestone 6b capture is byte-identical to the old, pre-title-screen
+Milestone 5 reference frame, exactly as the `initrand(DIV_REG)`
+placement above was designed to guarantee. `cmp`s against a committed
+reference (`prism/reference_m6b.ppm`). Game-over and restart were verified
 separately in a throwaway build (`STARTING_MOVES` temporarily reduced
 to 1, never committed at that value) — see
 `docs/GAMEBOY_ROADMAP.md`'s Phase 10 Milestone 5 entry for the full
@@ -158,8 +189,8 @@ VRAM writes at all involved), so it's tied to elapsed pre-display CPU
 time in general, not specifically to how many `set_bkg_tiles` calls are
 made. For this exact ROM, frame 5 and frame 8 (partially — some
 scanlines correct, others not) were stale; frame 10 onward was
-consistently correct. `make gameboy-prism-build` uses `--frames 90` for
-generous margin, not because that specific number is meaningful.
+consistently correct. `make gameboy-prism-build` uses `--frames 110`
+for generous margin, not because that specific number is meaningful.
 
 Not root-caused to an exact line yet, and deliberately not chased
 further as part of this rendering milestone — flagged here honestly
@@ -168,15 +199,16 @@ still-open small gap) as a real, valuable finding for a future,
 dedicated investigation into `src/ppu.c`'s LCD-enable/frame-timing
 path, not something to silently work around without saying so.
 
-Re-checked for Milestones 3, 4, and 5, since each milestone's game loop
-is genuinely dynamic in a new way (Milestone 3: real per-frame input;
+Re-checked for Milestones 3, 4, 5, and 6b, since each one's game loop is
+genuinely dynamic in a new way (Milestone 3: real per-frame input;
 Milestone 4: a multi-step cascade resolving over an unknown number of
 internal steps; Milestone 5: HUD redraws triggered by that same cascade
-outcome): each milestone's own scripted `--input` sequence captured at
-two different frame counts past its last input event produced
-byte-identical output every time, confirming the render is stable well
-before `gameboy-prism-build`'s chosen frame count, not coincidentally
-stable at exactly one number.
+outcome; Milestone 6b: the new title-screen-to-gameplay transition,
+including its `DISPLAY_OFF`/`DISPLAY_ON` toggle): each milestone's own
+scripted `--input` sequence captured at two different frame counts past
+its last input event produced byte-identical output every time,
+confirming the render is stable well before `gameboy-prism-build`'s
+chosen frame count, not coincidentally stable at exactly one number.
 
 See `docs/GAMEBOY_ROADMAP.md` for the rest of Milestone 6 (stretch/
-polish: SRAM high-score persistence, a real title screen).
+polish: SRAM high-score persistence).

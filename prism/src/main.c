@@ -1,10 +1,12 @@
-// Milestone 6a - sound effects. See docs/GAMEBOY_ROADMAP.md's Phase 10
-// entry for the full milestone roadmap. Milestone 5 (scoring/move
-// budget/game-over/restart) is the first genuinely *complete* playable
-// build; this pass adds real audio feedback on top of it - see
-// prism/src/sfx.h/sfx.c for the four one-shot SFX (select/revert/match/
-// game-over) and their hook points below. See prism/src/board.h/board.c
-// for the grid state and match/gravity/refill logic, prism/src/
+// Milestone 6b - real title screen. See docs/GAMEBOY_ROADMAP.md's Phase
+// 10 entry for the full milestone roadmap. Milestone 6a (sound effects,
+// on top of Milestone 5's scoring/move budget/game-over/restart) added
+// real audio feedback; this pass adds a real "PRISM" / "PRESS START"
+// title screen (prism/src/title.h/title.c) the player sees before
+// gameplay begins, instead of dropping straight into a fresh board.
+// See prism/src/sfx.h/sfx.c for the four one-shot SFX (select/revert/
+// match/game-over) and their hook points below, prism/src/board.h/
+// board.c for the grid state and match/gravity/refill logic, prism/src/
 // cursor.h/cursor.c for the cursor sprite, and prism/src/hud.h/hud.c
 // for the score/moves display.
 //
@@ -41,6 +43,7 @@
 #include "grid.h"
 #include "hud.h"
 #include "sfx.h"
+#include "title.h"
 
 // 20 is this build's real, shipped starting move budget - not a
 // debug/testing value (see docs/GAMEBOY_ROADMAP.md's Phase 10 Milestone
@@ -163,9 +166,17 @@ static void restart_game(void) {
 }
 
 void main(void) {
+    // initrand(DIV_REG) must stay the very first line here, before
+    // title_screen()'s own real, player-paced wait-for-Start loop -
+    // the RNG seed has to be sampled before any unbounded wall-clock
+    // delay, or the random board would depend on how long the player
+    // lingered on the title screen (see prism/src/title.c and
+    // docs/GAMEBOY_ROADMAP.md's Phase 10 Milestone 6b entry).
     initrand(DIV_REG);
 
     sfx_init();
+    title_screen();
+
     set_bkg_palette(0, GEM_TYPE_COUNT, gem_palettes);
     set_bkg_data(0, GEM_TILE_COUNT, gem_tiles);
     hud_init();
@@ -179,7 +190,14 @@ void main(void) {
     cursor_init(); // also enables SHOW_SPRITES
     marker_init();
 
-    uint8_t prev_joy = 0;
+    // Seeded from the real current joypad state, not hardcoded 0 - if
+    // the player is still physically holding Start (the same button
+    // that just dismissed the title screen) when gameplay begins, a
+    // hardcoded 0 would see that held Start as a *new* edge on the
+    // very first iteration below and immediately call restart_game(),
+    // silently consuming an extra rand() draw and regenerating the
+    // board the player just saw appear.
+    uint8_t prev_joy = joypad();
     while (1) {
         uint8_t joy = joypad();
         uint8_t pressed = (uint8_t)(joy & (uint8_t)~prev_joy);

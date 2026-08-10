@@ -142,20 +142,22 @@ RGBDS_HDMA_ROM := $(BIN_DIR)/rgbds-hdma.gb
 # game, written in GBDK-2020 (C) rather than RGBDS - see prism/README.md
 # for the toolchain (not vendored here, same reasoning as RGBDS) and
 # docs/GAMEBOY_ROADMAP.md for the milestone roadmap. Currently
-# Milestone 6a (sound effects, on top of Milestone 5's scoring/move
-# budget/game-over/restart) - the same scripted --input sequence
-# (prism/input_script_m5.txt, same mechanism test_roms/2048-gb's own
-# regression test uses) makes one real match-producing swap against the
-# deterministic initial board (initrand() seeded from DIV_REG at a
-# fixed point in an otherwise deterministic boot sequence) and confirms
+# Milestone 6b (a real title screen, on top of Milestone 6a's sound
+# effects and Milestone 5's scoring/move budget/game-over/restart) - the
+# scripted --input sequence (prism/input_script_m6b.txt, same mechanism
+# test_roms/2048-gb's own regression test uses) presses Start to
+# dismiss the title screen (prism/src/title.c), then makes the same
+# real match-producing swap against the deterministic initial board
+# (initrand() seeded from DIV_REG *before* title_screen()'s own
+# player-paced wait, so the board is unaffected by it) and confirms
 # both the HUD (prism/src/hud.c: score 0 -> 30, moves 20 -> 19) and the
 # select/match sound effects (prism/src/sfx.c) via a second, audio
 # capture of the same run.
 PRISM_ROM := prism/bin/prism.gb
-PRISM_SCRIPT := prism/input_script_m5.txt
-PRISM_REF := prism/reference_m5.ppm
+PRISM_SCRIPT := prism/input_script_m6b.txt
+PRISM_REF := prism/reference_m6b.ppm
 PRISM_OUT := $(BIN_DIR)/prism-output.ppm
-PRISM_WAV_REF := prism/reference_m6_sfx.wav
+PRISM_WAV_REF := prism/reference_m6b_sfx.wav
 PRISM_WAV_OUT := $(BIN_DIR)/prism-sfx-output.wav
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
@@ -254,9 +256,9 @@ gameboy-rgbds-hdma-test: $(TARGET) | $(BIN_DIR)
 
 gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 	$(MAKE) -C prism
-	./$(TARGET) $(PRISM_ROM) --mode cgb --input $(PRISM_SCRIPT) --ppm $(PRISM_OUT) --frames 90
+	./$(TARGET) $(PRISM_ROM) --mode cgb --input $(PRISM_SCRIPT) --ppm $(PRISM_OUT) --frames 110
 	cmp $(PRISM_OUT) $(PRISM_REF) \
-		&& echo "gameboy-prism-build: OK (Milestone 5 - score/moves HUD tracks a real match correctly)" \
+		&& echo "gameboy-prism-build: OK (Milestone 6b - title screen -> Start -> score/moves HUD tracks a real match correctly)" \
 		|| (echo "gameboy-prism-build: FAIL (rendered frame doesn't match $(PRISM_REF))"; exit 1)
 	./$(TARGET) $(PRISM_ROM) --mode cgb --input $(PRISM_SCRIPT) --wav $(PRISM_WAV_OUT) --seconds 3
 	cmp $(PRISM_WAV_OUT) $(PRISM_WAV_REF) \

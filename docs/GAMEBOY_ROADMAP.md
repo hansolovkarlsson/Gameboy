@@ -2751,12 +2751,91 @@ suite (unit tests, Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%,
 `2048-gb`, `droneboy`, `tobutobugirl`, savestate round-trip, all three
 RGBDS ROMs) stayed green throughout.
 
+**Milestone 6b (this pass): done.** A real title screen - asked the user
+which of Milestone 6's two remaining stretch items (SRAM high-score
+persistence, a real title screen) to build next; the title screen won
+on lower technical risk (reuses the existing tile-rendering pattern
+rather than needing a cartridge header/MBC change) and because it's a
+natural place to later show a persisted high score, so building it
+first means 6c (SRAM) only has to add a number to an existing screen,
+not build the screen too. SRAM persistence stays on the roadmap as 6c.
+
+New `prism/src/title.c`/`title.h`: a small custom letter tileset - not
+GBDK's console/font system, the same tile-ID-collision reasoning
+Milestone 5 already established for `hud.c`'s digits - covering only
+the 8 distinct letters actually needed across "PRISM" and "PRESS START"
+(P, R, I, S, M, E, T, A) plus a blank tile, tile IDs `15-23` right
+after `hud.c`'s digit range (`5-14`). Each letterform is the standard,
+widely-known 5x7 dot-matrix block-letter shape (public domain - the
+same convention as the 7-segment digits, not copied art), each row's
+5-bit pattern shifted into an 8-bit tile byte via a one-off Python
+calculation, duplicated per row for the same 2-color (0/3) scheme
+`gems.c`/`hud.c` already use. Rendered and read back (`Read`-ing the
+converted PNG) before locking anything in - both lines came out legible
+and correctly centered on the first real render, confirmed by eye the
+same way `gems.c`'s diamond and `dmg-acid2`'s reference frame were.
+`title_screen()` loads a dedicated CGB BG palette (index 5 - gems use
+`0-4`) and the tileset, blanks the whole map, draws "PRISM" and "PRESS
+START" centered, `SHOW_BKG`/`DISPLAY_ON`, then loops on an
+edge-triggered `Start` press; on press, `wait_vbl_done()` then
+`DISPLAY_OFF` (real-hardware-safe LCD-disable timing, matching this
+project's own Phase 8 LCD-enable/disable timing work) before returning,
+so `main()`'s own gem/HUD tile-data load never has a frame where the
+tilemap points at title-tile IDs mid-overwrite with fresh bitmap data.
+
+**Two design points were deliberate, not incidental.** `initrand(DIV_REG)`
+stays the literal first line of `main()`, with `title_screen()` called
+*after* it: the title screen's wait-for-Start loop is the first
+genuinely player-paced (unbounded real-time) delay anywhere in Prism's
+boot sequence, and the RNG seed has to be sampled before any such wait
+- sampling it after would make the random board depend on how long the
+player lingered on the title screen, destroying the exact
+build-to-build determinism `initrand(DIV_REG)`'s placement was
+originally engineered (Milestone 4) to guarantee. And the main gameplay
+loop's `prev_joy` is now seeded from the real `joypad()` state at loop
+entry (`uint8_t prev_joy = joypad();`), not hardcoded `0` - a real,
+easy-to-miss bug caught during design rather than after a confusing
+test failure: a player still physically holding Start (the same button
+that just dismissed the title screen) would otherwise read as a fresh
+edge on the very first game-loop iteration and silently trigger an
+extra `restart_game()`, consuming an unplanned `rand()` draw and
+regenerating the board the player just saw appear.
+
+**Verification required superseding, not reusing, the existing
+Milestone 5/6a script and references** - a real, worth-stating-plainly
+consequence of this design: `input_script_m5.txt`'s frame numbers count
+vblank frames from power-on, and the title screen now renders an
+unknown number of frames before gameplay starts, shifting every
+subsequent frame number - the same category of thing Milestone 5's own
+debugging saga already found once (new code shifting frame-relative
+assumptions). Probed empirically rather than guessed: with a `Start`
+press scripted at frame 10/11, the game grid was already fully rendered
+and stable by frame 15 (confirmed via `cmp` across frames 15/20/30/50,
+all byte-identical) - a fast, clean transition, no re-emergence of the
+Milestone 2 PPU rendering-catch-up quirk in this new shape of
+transition either. New `prism/input_script_m6b.txt` scripts that same
+`Start` press, then the identical relative cursor/select/swap sequence
+`input_script_m5.txt` used, with every frame number shifted +20 for
+generous margin past the confirmed-stable frame 15. The result:
+captured at frame 110, the new script's output is **byte-identical** to
+the old, pre-title-screen `reference_m5.ppm` - direct, strong
+confirmation that `initrand(DIV_REG)`'s placement above works exactly
+as designed, not just plausibly. New `prism/reference_m6b.ppm` and
+`prism/reference_m6b_sfx.wav` (replacing `reference_m5.ppm`/
+`reference_m6_sfx.wav`, same "supersede, don't accumulate" pattern
+every prior milestone transition already used; confirmed stable at
+frame 130 too before locking in) and `gameboy-prism-build`'s
+`PRISM_SCRIPT`/`PRISM_REF`/`PRISM_WAV_REF` variables and `--frames`
+value updated accordingly. Zero regressions: the full existing suite
+(unit tests, Mooneye 80/83, `dmg-acid2` 100%, `cgb-acid2` 100%,
+`2048-gb`, `droneboy`, `tobutobugirl`, savestate round-trip, all three
+RGBDS ROMs) stayed green throughout.
+
 **Next**: user-directed - investigate the PPU timing finding above (a
 real, standalone bug worth its own dedicated session), continue Prism's
-milestone roadmap (Milestone 6b/6c - SRAM high-score persistence and a
-real title screen are the remaining stretch/polish items, and together
-would make Prism a genuinely finished game rather than just a playable
-one), resolve the GPL-license question to add a real homebrew
+milestone roadmap (Milestone 6c - SRAM high-score persistence is the
+one remaining stretch/polish item, and now has a title screen ready to
+display it on), resolve the GPL-license question to add a real homebrew
 regression game, or build real networking/link infrastructure (would
 unlock both real IR communication and real link-cable multiplayer at
 once, since they're the same underlying gap).
