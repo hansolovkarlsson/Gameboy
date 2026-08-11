@@ -32,4 +32,10 @@ uint8_t enemy_get_x(void);
 uint8_t enemy_get_y(void);
 uint8_t enemy_is_alive(void);
 
+// Directly overrides the alive state (hiding the sprite if loading as
+// already-defeated) - used once at boot to restore a persisted save
+// (world.c/sram.c), bypassing enemy_try_hit()'s own AABB check
+// entirely since this is a state load, not a gameplay event.
+void enemy_load_defeated(uint8_t defeated);
+
 #endif

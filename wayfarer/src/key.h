@@ -25,4 +25,10 @@ uint8_t key_try_collect(uint8_t hx, uint8_t hy, uint8_t hw, uint8_t hh);
 // sides read this directly.
 uint8_t key_is_collected(void);
 
+// Directly overrides the collected state (hiding the sprite if already
+// collected) - used once at boot to restore a persisted save
+// (world.c/sram.c), bypassing key_try_collect()'s own AABB check
+// entirely since this is a state load, not a gameplay event.
+void key_load_collected(uint8_t collected);
+
 #endif

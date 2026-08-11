@@ -23,10 +23,16 @@ OBJS := $(patsubst $(SRC_DIR)/%.c,$(BIN_DIR)/%.o,$(SRCS))
 # prism/Makefile's own use of the same flag - this project's own
 # gb_resolve_cgb_mode() (src/cart.c) would run it in CGB mode
 # regardless via --mode cgb, but the ROM's own header should tell the
-# truth too. No MBC/battery flags yet (unlike prism/Makefile's
-# -Wl-yt0x03/-Wm-ya1) - no cartridge RAM is needed until a later
-# save-data milestone.
-LCCFLAGS := -Wm-yC
+# truth too.
+# -Wl-yt0x03: cartridge type MBC1+RAM+BATTERY (confirmed against this
+# project's own src/cart.c header-parsing switch, already proven
+# working there and by test_roms/2048-gb's own real MBC1+battery ROM) -
+# Milestone 9's own SRAM save (src/sram.c) needs real, persistent
+# cartridge RAM.
+# -Wm-ya1: 1 cart RAM bank (8 KiB) - GBDK's smallest selectable unit,
+# far more than the 2 bytes sram.c actually needs. Same flags
+# prism/Makefile already uses for its own highscore.c.
+LCCFLAGS := -Wm-yC -Wl-yt0x03 -Wm-ya1
 
 all: $(BINS)
 

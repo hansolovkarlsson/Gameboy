@@ -1,0 +1,7 @@
+# Wayfarer Milestone 9 verification script - just a START press. Start
+# must still be pressed to dismiss the title screen (the title screen
+# itself doesn't depend on any persisted save state), but nothing else
+# is scripted - used to confirm a loaded "won" save shows the win
+# screen immediately after the title, not a fresh room.
+10 START down
+11 START up

@@ -41,3 +41,8 @@ uint8_t pickup_try_collect(uint8_t hx, uint8_t hy, uint8_t hw, uint8_t hh) {
     pickup_hide();
     return 1;
 }
+
+void pickup_load_collected(uint8_t collected) {
+    alive = !collected;
+    if (collected) pickup_hide();
+}

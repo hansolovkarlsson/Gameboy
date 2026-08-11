@@ -83,3 +83,8 @@ uint8_t enemy_try_hit(uint8_t hx, uint8_t hy, uint8_t hw, uint8_t hh) {
 uint8_t enemy_get_x(void) { return enemy_x; }
 uint8_t enemy_get_y(void) { return ENEMY_Y; }
 uint8_t enemy_is_alive(void) { return alive; }
+
+void enemy_load_defeated(uint8_t defeated) {
+    alive = !defeated;
+    if (defeated) enemy_hide();
+}

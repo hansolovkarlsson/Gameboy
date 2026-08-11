@@ -3835,7 +3835,97 @@ all visual/game/savestate targets, all three RGBDS ROMs, Mooneye,
 `gameboy-prism-build`) stayed green throughout - this change touches
 only `wayfarer/`.
 
-**Next**: SRAM save (persisting key/pickup/enemy-defeated/win state
-across power cycles, reusing this emulator's now-proven
-`gb_cart_load_ram_file()` pattern from `prism/`'s own Milestone 6c) is
-the one remaining stretch item, once user-directed.
+**Milestone 9 (this pass): done - SRAM save. Roadmap stretch list now
+fully complete.** User-directed. Reuses this emulator's own
+already-proven battery-backed SRAM persistence (`src/cart.c`'s
+`gb_cart_load_ram_file()`/`gb_cart_save_ram_file()`, the CLI's `--sav`
+flag) and the sibling `prism/` project's own `highscore.c` register-
+level pattern (`ENABLE_RAM`/`DISABLE_RAM`-gated `_SRAM[]` access, a
+magic byte guarding against a genuinely fresh/uninitialized cart) -
+**no emulator core changes at all**, purely a `wayfarer/` build-config
++ game-code addition, exactly like Prism's own Milestone 6c.
+
+**Scope decision**: only the 4 permanent, one-way progress flags
+persist - key collected, heart pickup collected, enemy defeated, game
+won - not transient state (player position, current room, current
+hearts). A fresh boot always starts at room `(0,0)` with full hearts; a
+loaded save just means already-collected items stay collected, and an
+already-won game shows the win screen again immediately. A real,
+deliberate, appropriately-scoped decision for a stretch item, not full
+state serialization.
+
+**`wayfarer/Makefile`** gained `-Wl-yt0x03`/`-Wm-ya1` (MBC1+RAM+
+BATTERY, 1 SRAM bank) - the exact same flags `prism/Makefile` already
+uses, confirmed against this emulator's own `src/cart.c` header-parsing
+switch (already proven working there, and by `test_roms/2048-gb`'s own
+real MBC1+battery ROM). **New `wayfarer/src/sram.c`/`sram.h`**: one
+magic byte plus a single state byte, 4 bits (one per flag) - the
+natural fit for 4 independent booleans, and smaller than `prism/`'s
+own 3-byte high score (a `uint16_t`). Same `ENABLE_RAM`/magic-check/
+`DISABLE_RAM` shape as `prism/highscore.c`'s own `highscore_init()`;
+each `sram_set_*()` writes immediately (same "save as soon as it
+happens, more crash-resilient" reasoning `highscore_maybe_update()`
+already established). `key.c`/`pickup.c`/`enemy.c` each gained one
+small `_load_*()` setter - restores state directly at boot, bypassing
+the normal `_try_collect()`/`_try_hit()` AABB-check flow entirely
+(a state load, not a gameplay event, so no sound effect fires for it).
+`world_init()` calls `sram_init()` first, then each module's own
+`_load_*()` right after its normal `_init()`; if the loaded state says
+`won`, it calls `win_play()` directly - `win_play()`'s own
+`DISPLAY_OFF`/`SHOW_BKG`/`DISPLAY_ON` sequence simply overdraws the
+room content already prepared (never yet displayed - the screen is
+still off from `title_screen()`'s own closing `DISPLAY_OFF`) before the
+display ever turns on, so there's no flicker of a fresh room first.
+
+**A real, unanticipated finding, corrected rather than left standing**:
+the plan predicted a build-config-only change couldn't affect existing
+timing. True at the video-frame level (`reference_m8.ppm` needed no
+changes at all, confirmed by direct `cmp`, not assumed) - but *not* at
+the audio-sample level. The new SRAM instructions (`ENABLE_RAM`/
+`DISABLE_RAM` and the extra function calls) consume real CPU cycles,
+shifting exactly *when* each sound trigger's register writes land
+relative to the audio sample clock by a few samples, without moving
+any video frame boundary - the same "real code changes shift exact
+sample position, not frame timing" category of finding this project's
+own history (both `prism/`'s and this project's own Milestone 8) has
+already hit more than once, just not anticipated for a change that
+looked purely configuration-level up front. `reference_m8_sfx.wav`
+needed re-locking in place (same filename - `prism/`'s own established
+convention for "nothing else changed, only the exact sample position
+did") - confirmed via the same programmatic `wave`-module check
+Milestone 7 used: the same 4 events, at the same approximate
+timestamps, still cleanly distinct.
+
+**Verified** the same way `prism/`'s own Milestone 6c was: two real,
+separate process invocations sharing one `.sav` file.
+`wayfarer/input_script_m8.txt` run with `--sav` (fresh start, no prior
+save) produces a save reflecting exactly what that script's own known
+path does - key collected, enemy defeated, won (it doesn't walk over
+the heart pickup, confirmed during Milestone 6's own derivation, so
+that flag honestly stays 0 rather than being forced true) - locked in
+as `wayfarer/reference_m8.sav`. A second invocation loading that save
+fresh, with a new `wayfarer/input_script_m9_start.txt` (just a `START`
+press - the title screen itself doesn't depend on any persisted state,
+but still has to be dismissed), shows the win screen immediately,
+confirmed stable - locked in as `wayfarer/reference_m9_won.ppm`. The
+other 3 flags loading correctly *individually* (not just the all-true
+case above) was verified once via a separate, uncommitted probe -
+collect only the key (a short custom script), save, reload fresh with
+no scripted movement at all, confirm the key sprite is already absent
+and the enemy/heart pickup are correctly untouched - the same
+asymmetric-verification precedent this project has used repeatedly
+(`prism/`'s own game-over sound, this project's own Milestone 7
+heart-pickup probe). Full existing regression suite (unit tests, all
+visual/game/savestate targets, all three RGBDS ROMs, Mooneye,
+`gameboy-prism-build` - critically including `gameboy-2048-test`, a
+real MBC1+battery ROM, confirming zero interference) stayed green
+throughout - this change touches only `wayfarer/`.
+
+**Next**: Wayfarer's roadmap stretch list is now fully built out - a
+locked-door-and-key puzzle, sound effects, a title screen, and SRAM
+save are all done, alongside the core milestones (movement, room
+transitions, combat, health/items, a win condition). The game is
+genuinely complete and playable end to end. Further work here is
+open-ended (more rooms, more enemy types, a fuller inventory, deeper
+audio) rather than following a fixed list - the natural point to pause
+and let the user direct whatever comes next, on Wayfarer or elsewhere.

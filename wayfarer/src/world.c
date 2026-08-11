@@ -20,6 +20,7 @@
 #include "player.h"
 #include "room.h"
 #include "sfx.h"
+#include "sram.h"
 #include "sword.h"
 #include "win.h"
 #include "world.h"
@@ -139,18 +140,34 @@ void world_init(void) {
     room_y = 0;
     prev_joy = 0;
     won = 0;
+
+    sram_init();
+
     room_init(); // one-time tile/palette load
     draw_current_room();
     player_init();
     sword_init();
     enemy_init();
+    enemy_load_defeated(sram_get_enemy_defeated());
     heart_hud_init();
     pickup_init();
+    pickup_load_collected(sram_get_pickup_collected());
     key_init();
+    key_load_collected(sram_get_key_collected());
     // Correct regardless of which room the game happens to start in,
     // not just assumed safe because today it's (0,0).
     if (in_pickup_room()) pickup_show(); else pickup_hide();
     if (in_key_room()) key_show(); else key_hide();
+
+    // A loaded "already won" save shows the win screen immediately -
+    // win_play()'s own DISPLAY_OFF/SHOW_BKG/DISPLAY_ON sequence simply
+    // overdraws the room content prepared above before the display
+    // ever turns on (still off from title_screen()'s own closing
+    // DISPLAY_OFF), so there's no flicker of the fresh room first.
+    if (sram_get_won()) {
+        won = 1;
+        win_play();
+    }
 }
 
 void world_update(uint8_t joy) {
@@ -211,7 +228,10 @@ void world_update(uint8_t joy) {
     if (in_enemy_room()) {
         enemy_update();
         if (sword_is_active()) {
-            if (enemy_try_hit(sword_get_x(), sword_get_y(), 8, 8)) sfx_play_hit();
+            if (enemy_try_hit(sword_get_x(), sword_get_y(), 8, 8)) {
+                sfx_play_hit();
+                sram_set_enemy_defeated();
+            }
         }
         if (enemy_is_alive()) {
             uint8_t ex = enemy_get_x();
@@ -234,11 +254,15 @@ void world_update(uint8_t joy) {
         if (pickup_try_collect(player_get_x(), player_get_y(), 16, 16)) {
             player_heal_full();
             sfx_play_pickup();
+            sram_set_pickup_collected();
         }
     }
 
     if (in_key_room()) {
-        if (key_try_collect(player_get_x(), player_get_y(), 16, 16)) sfx_play_pickup();
+        if (key_try_collect(player_get_x(), player_get_y(), 16, 16)) {
+            sfx_play_pickup();
+            sram_set_key_collected();
+        }
     }
 
     heart_hud_update();
@@ -252,5 +276,6 @@ void world_update(uint8_t joy) {
         won = 1;
         sfx_play_win();
         win_play();
+        sram_set_won();
     }
 }

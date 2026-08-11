@@ -182,15 +182,20 @@ PRISM_TITLE_OUT := $(BIN_DIR)/prism-title-output.ppm
 # Wayfarer (wayfarer/ - a second, separate original homebrew game, a
 # top-down action-adventure rather than prism/'s match-3 puzzle - see
 # wayfarer/README.md and docs/GAMEBOY_ROADMAP.md's own entry). Milestone
-# 8: a "WAYFARER"/"PRESS START" title screen before gameplay begins -
-# every scripted frame number re-derived from scratch, since the title
-# screen's own real, player-paced wait shifts everything after it.
+# 9: real battery-backed SRAM save (src/sram.c) - the 4 permanent
+# progress flags (key/pickup/enemy-defeated/won) persist across power
+# cycles; a loaded "won" save shows the win screen immediately.
 WAYFARER_ROM := wayfarer/bin/wayfarer.gb
 WAYFARER_SCRIPT := wayfarer/input_script_m8.txt
 WAYFARER_REF := wayfarer/reference_m8.ppm
 WAYFARER_OUT := $(BIN_DIR)/wayfarer-output.ppm
 WAYFARER_WAV_REF := wayfarer/reference_m8_sfx.wav
 WAYFARER_WAV_OUT := $(BIN_DIR)/wayfarer-sfx-output.wav
+WAYFARER_SAV_REF := wayfarer/reference_m8.sav
+WAYFARER_SAV_OUT := $(BIN_DIR)/wayfarer-output.sav
+WAYFARER_WON_SCRIPT := wayfarer/input_script_m9_start.txt
+WAYFARER_WON_REF := wayfarer/reference_m9_won.ppm
+WAYFARER_WON_OUT := $(BIN_DIR)/wayfarer-won-output.ppm
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
@@ -307,7 +312,8 @@ gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 
 gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	$(MAKE) -C wayfarer
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 441
+	rm -f $(WAYFARER_SAV_OUT)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --sav $(WAYFARER_SAV_OUT) --ppm $(WAYFARER_OUT) --frames 441
 	cmp $(WAYFARER_OUT) $(WAYFARER_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 8 - title screen -> Start -> defeating the enemy and reaching the goal room triggers the win screen)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_REF))"; exit 1)
@@ -315,6 +321,13 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_WAV_OUT) $(WAYFARER_WAV_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 7 - swing/hit/damage/win sound effects match a real captured reference)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (captured audio doesn't match $(WAYFARER_WAV_REF))"; exit 1)
+	cmp $(WAYFARER_SAV_OUT) $(WAYFARER_SAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 9 - defeating the enemy, collecting the key, and winning persists to cart RAM)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_SAV_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --sav $(WAYFARER_SAV_OUT) --input $(WAYFARER_WON_SCRIPT) --ppm $(WAYFARER_WON_OUT) --frames 15
+	cmp $(WAYFARER_WON_OUT) $(WAYFARER_WON_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 9 - a fresh boot loading a won save shows the win screen immediately after the title)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_WON_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -352,6 +365,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean

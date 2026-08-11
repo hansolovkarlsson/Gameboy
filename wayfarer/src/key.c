@@ -58,3 +58,8 @@ uint8_t key_try_collect(uint8_t hx, uint8_t hy, uint8_t hw, uint8_t hh) {
 }
 
 uint8_t key_is_collected(void) { return collected; }
+
+void key_load_collected(uint8_t loaded_collected) {
+    collected = loaded_collected;
+    if (collected) key_hide();
+}

@@ -21,4 +21,10 @@ void pickup_hide(void);
 // otherwise returns 0 and changes nothing.
 uint8_t pickup_try_collect(uint8_t hx, uint8_t hy, uint8_t hw, uint8_t hh);
 
+// Directly overrides the collected state (hiding the sprite if already
+// collected) - used once at boot to restore a persisted save
+// (world.c/sram.c), bypassing pickup_try_collect()'s own AABB check
+// entirely since this is a state load, not a gameplay event.
+void pickup_load_collected(uint8_t collected);
+
 #endif
