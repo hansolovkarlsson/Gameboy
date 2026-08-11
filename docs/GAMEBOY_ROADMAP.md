@@ -4046,6 +4046,45 @@ visual/game/savestate targets, all three RGBDS ROMs, Mooneye,
 `gameboy-prism-build`) stayed green throughout - this change touches
 only `wayfarer/`.
 
+**Milestone 11 follow-up (this pass): done - "PRESS START" text on the
+win screen.** Real usability gap surfaced immediately after playing the
+restart feature above: the win screen said only "WIN", with nothing
+telling the player that pressing `Start` does anything at all - the
+new restart worked, but was undiscoverable without already knowing it
+existed.
+
+**`wayfarer/src/win.c`**: extended `win.c`'s own small hand-authored
+5x7 block-letter tileset (previously just W/I/N) with the six letters
+"PRESS START" additionally needs (P, R, E, S, T, A) - reusing the
+*exact same bytes* `title.c`'s own P/R/E/S/T/A tiles already use, not
+redrawn independently, since they're the identical font. Added a
+`glyph_tile()`/`draw_centered()` pair mirroring `title.c`'s own
+same-named helpers (a string, drawn horizontally centered on one
+background row) - `win.c`'s version maps an unrecognized character
+(space) to `FLOOR_TILE_ID` rather than a dedicated blank tile, since
+the whole screen is already filled with that exact tile/palette
+combination before any text is drawn, so a "space" is genuinely
+invisible for free. `win_play()` now calls `draw_centered("PRESS
+START", 11, 11)` beneath the existing "WIN" line.
+
+**Verified**: rebuilding regenerated `wayfarer/reference_m9_won.ppm`
+(the frozen won-reload win-screen frame) by design - the win screen's
+actual pixel content changed on purpose, not a regression - confirmed
+visually (a cropped, upscaled PNG render) before relocking the
+reference. `reference_m11_sfx.wav` needed the same re-lock the last
+two milestones both already needed: `win_play()` doing slightly more
+work shifts later audio events' exact sample position (not their
+timing or count - `analyze_sfx.py` confirmed the same 6 detected
+events at the same approximate timestamps in both the old and new
+capture) - the same "real code change shifts exact sample position,
+not frame timing" finding as Milestones 9 and 10. `reference_m11.ppm`/
+`.sav` (the mid-restart gameplay frame and the post-restart fresh save)
+were unaffected, since that state is reached only *after* `win_play()`
+has already finished and been superseded by ordinary gameplay
+rendering. Full regression suite (unit tests, all visual/game/
+savestate targets, all three RGBDS ROMs, `gameboy-prism-build`) stayed
+green - this change touches only `wayfarer/`.
+
 **Next**: further Wayfarer work is open-ended (more rooms, a new enemy
 in the expanded space, a fuller inventory, deeper audio) rather than
 following a fixed list, once user-directed.

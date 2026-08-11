@@ -77,3 +77,15 @@ works rather than just that in-memory state looked right. The existing
 "a won save shows the win screen" behavior (Milestone 9) is untouched
 and still separately verified — restart only adds an exit from it, not
 a replacement for it.
+
+**Follow-up**: the win screen originally said only "WIN", with nothing
+telling the player `Start` does anything — the restart worked but was
+undiscoverable. `src/win.c` now draws "PRESS START" beneath it, reusing
+`title.c`'s own P/R/E/S/T/A letter tiles (same font, same bytes) and a
+`draw_centered()` helper mirroring `title.c`'s own. Verified visually
+(the win screen's reference frame was intentionally regenerated) and
+re-locked the SFX reference after confirming — via `analyze_sfx.py` —
+that the same events still occur at the same approximate timestamps,
+just at a slightly shifted exact sample position (the same "real code
+change shifts sample position, not frame timing" finding as the last
+two milestones).
