@@ -13,8 +13,7 @@
 #include "player.h"
 #include "sword.h"
 
-#define TILE_VERTICAL 12 // player.c owns sprite tile IDs 0-11
-#define TILE_HORIZONTAL 13
+#define TILE_HORIZONTAL 13 // TILE_VERTICAL is sword.h's own public SWORD_TILE_ID (12)
 #define SWORD_TILE_COUNT 2
 
 static const uint8_t sword_tiles[SWORD_TILE_COUNT * 16] = {
@@ -26,9 +25,9 @@ static const uint8_t sword_tiles[SWORD_TILE_COUNT * 16] = {
     0xFE, 0xFE, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
 };
 
-// OBJ palette 1 - player.c owns 0. Bright silver, distinct from the
-// player's own blue/tan/brown and (later) the enemy's red.
-#define SWORD_PALETTE 1
+// Bright silver, distinct from the player's own blue/tan/brown and
+// (later) the enemy's red. Palette index itself is sword.h's own
+// public SWORD_OBJ_PALETTE (1) - player.c owns 0.
 static const palette_color_t sword_palette[4] = {
     RGB(0, 0, 0), RGB(20, 20, 22), RGB(26, 26, 28), RGB(31, 31, 31),
 };
@@ -60,7 +59,7 @@ static void position_sword(void) {
         case PLAYER_FACING_UP:
             hitbox_x = (uint8_t)(px + 4);
             hitbox_y = (uint8_t)(py - 8);
-            tile = TILE_VERTICAL;
+            tile = SWORD_TILE_ID;
             break;
         case PLAYER_FACING_LEFT:
             hitbox_x = (uint8_t)(px - 8);
@@ -76,7 +75,7 @@ static void position_sword(void) {
         default:
             hitbox_x = (uint8_t)(px + 4);
             hitbox_y = (uint8_t)(py + 16);
-            tile = TILE_VERTICAL;
+            tile = SWORD_TILE_ID;
             break;
     }
 
@@ -89,9 +88,9 @@ static void hide_sword(void) {
 }
 
 void sword_init(void) {
-    set_sprite_palette(SWORD_PALETTE, 1, sword_palette);
-    set_sprite_data(TILE_VERTICAL, SWORD_TILE_COUNT, sword_tiles);
-    set_sprite_prop(SWORD_SPRITE, S_PAL(SWORD_PALETTE));
+    set_sprite_palette(SWORD_OBJ_PALETTE, 1, sword_palette);
+    set_sprite_data(SWORD_TILE_ID, SWORD_TILE_COUNT, sword_tiles);
+    set_sprite_prop(SWORD_SPRITE, S_PAL(SWORD_OBJ_PALETTE));
     timer = 0;
     hide_sword();
 }

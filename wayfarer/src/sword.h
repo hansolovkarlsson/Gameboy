@@ -7,6 +7,13 @@
 
 #include <stdint.h>
 
+// The vertical-blade tile ID and OBJ palette index - exported (the
+// single source of truth; sword.c itself uses these same constants
+// rather than a second, private copy) so sword_pickup.c can draw the
+// exact same art as a static on-ground icon, not a redrawn duplicate.
+#define SWORD_TILE_ID 12 // player.c owns sprite tile IDs 0-11
+#define SWORD_OBJ_PALETTE 1 // player.c owns 0
+
 void sword_init(void);
 
 // pressed_a: A's edge-triggered (newly-pressed-this-frame) state, not

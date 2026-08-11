@@ -359,12 +359,12 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_WON_OUT) $(WAYFARER_WON_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 9 - a fresh boot loading a won save shows the win screen immediately after the title)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_WON_REF))"; exit 1)
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --ppm $(WAYFARER_BRUTE_ALIVE_OUT) --frames 1000
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --ppm $(WAYFARER_BRUTE_ALIVE_OUT) --frames 1015
 	cmp $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_BRUTE_ALIVE_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - the brute's own 4 quadrant tiles render correctly while alive, no tile ID collision)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_BRUTE_ALIVE_REF))"; exit 1)
 	rm -f $(WAYFARER_BRUTE_SAV_OUT)
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --sav $(WAYFARER_BRUTE_SAV_OUT) --ppm $(WAYFARER_BRUTE_OUT) --frames 1060
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --sav $(WAYFARER_BRUTE_SAV_OUT) --ppm $(WAYFARER_BRUTE_OUT) --frames 1076
 	cmp $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - the brute takes two hits to die, sitting in optional room (2,1))" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_BRUTE_REF))"; exit 1)

@@ -4221,6 +4221,97 @@ gap - a real regression test for this exact bug, not just a fix.
 (expected, given the bug was invisible in that post-defeat frame to
 begin with). Full regression suite stayed green.
 
+**Milestone 13 (this pass): done - the player starts without a
+sword.** Real feature request: previously the player was armed from
+the very first frame. Now `A` does nothing at all - no blade sprite,
+no sound - until the sword itself is found as a real, room-bound
+pickup, the same shape every other collectible in this project already
+uses.
+
+**`wayfarer/src/sword_pickup.c`/`.h`** (new): mirrors `key.c`/`key.h`'s
+shape closely (`_init()`, `_show()`/`_hide()` called explicitly by
+`world.c` on room entry/exit since it has no per-frame update of its
+own, `_try_collect()`, `_is_collected()`, `_load_collected()` for save
+restore). **Claims zero new sprite tile or palette IDs** - it draws
+the *exact same* blade art `sword.c` already owns, now exported as
+`SWORD_TILE_ID`/`SWORD_OBJ_PALETTE` in `sword.h` (the single source of
+truth; `sword.c` itself was updated to reference these instead of its
+own former private `TILE_VERTICAL`/`SWORD_PALETTE` `#define`s) rather
+than a second, duplicate copy of the same constants - a deliberate
+choice to structurally avoid repeating the exact class of mistake the
+Milestone 12 follow-up above just fixed, not merely a stylistic
+preference. Needs exactly one new sprite OAM slot (15, the true
+next-free one, re-confirmed directly against every source file's own
+registry before claiming it).
+
+**Placement**: room (0,0), the same room the original enemy already
+patrols, at a fixed (88,64) - deliberately *on* `input_script_m8.txt`'s
+own already-scripted rightward walk from spawn toward the enemy, just
+short of its 96-128 patrol range. This was a deliberate design choice,
+not a coincidence: placing it anywhere else would have forced every
+existing combat-verification script to grow a brand new detour leg.
+
+**`wayfarer/src/world.c`**: the entire swing trigger
+(`sword_update()`/`sfx_play_swing()`) is now gated behind
+`sword_pickup_is_collected()`. Nothing in `enemy.c`/`brute.c` needed
+any change at all - `sword_is_active()` already reads false forever
+until the first real `sword_update()` call ever happens, so their
+existing `if (sword_is_active()) {...}` hit-test blocks are already
+correctly inert while unarmed. A new SRAM `BIT_SWORD` flag persists
+collection, same shape as the existing five flags; `sram_reset()`
+needed no change (already zeroes the whole byte).
+
+**Verified - and this is where the real scope of this milestone
+actually was**: gating combat behind a pickup is a global behavior
+change, since every existing script that ever swings a sword assumed
+the player already had one.
+- `wayfarer/input_script_m8.txt` and `wayfarer/input_script_m11.txt`
+  (which extends it as a literal shared prefix) needed **zero
+  frame-number changes** - confirmed by actually rebuilding and
+  running them, not assumed from the placement reasoning above. The
+  existing frame-16 "negative-case swing, nowhere near the enemy" is
+  now an even more meaningful negative case (proves `A` truly does
+  nothing pre-pickup), and the existing frames-21-51 walk already
+  crosses (88,64) before the frame-56 kill swing - confirmed via the
+  produced `.sav`'s own state byte (`0x0D` -> `0x2D`, the exact same
+  key/enemy/won bits plus the new `BIT_SWORD`, proving the kill swing
+  still landed with zero timing drift).
+- `wayfarer/input_script_m9_start.txt` untouched (no combat of its
+  own); `reference_m9_won.ppm` re-`cmp`'d and confirmed unchanged.
+- `wayfarer/input_script_m12_brute.txt` **did** need a real new
+  detour - its own path deliberately avoids row y=64 entirely (an
+  unrelated Milestone 12 contact-damage fix), so it never crosses
+  (88,64). A short RIGHT hold added at the very start (spawn -> x=88,
+  before pivoting to the existing up-and-away path) collects the sword
+  first. Per this project's own established rule, the shift wasn't
+  assumed to carry over to the two empirically-found combat hit
+  frames - they were **re-scanned from scratch** against the real
+  build (reusing the same temporary serial-instrumentation technique
+  from Milestone 12: a one-off byte written to `SB_REG`/`SC_REG` on
+  each hit, read back via this project's own `gb_serial_output_hook`,
+  removed again once confirmed). The result: 1015/1035 became
+  1030/1050 - close to the naive +16 guess, but *not* exactly, a real
+  confirmed instance of "a uniform shift works for movement legs, not
+  for combat timing," not just a theoretical caveat.
+- `reference_m8.sav`/`reference_m12_brute.sav` both gained a new
+  `BIT_SWORD` bit on top of their existing flags (`0x0D`->`0x2D`,
+  `0x10`->`0x30`); `reference_m11.sav` (expected all-zero after a
+  restart) instead gained `BIT_SWORD` *alone* (`0x00`->`0x20`) - a
+  real, correct consequence of `input_script_m11.txt`'s own final
+  movement leg re-crossing (88,64) a second time post-restart, proving
+  the restart genuinely re-armed nothing while otherwise wiping
+  everything else. `reference_m12_brute.ppm`/`_alive.ppm` needed no
+  pixel changes at all (regenerated and `cmp`-verified byte-identical
+  regardless, not assumed). `reference_m11_sfx.wav`/
+  `reference_m12_brute_sfx.wav` both shifted (a new pickup sound and
+  the usual code-size/cycle-count drift) - verified via
+  `analyze_sfx.py` (same real events, one genuinely new expected pickup
+  event in the brute script) and re-locked in place.
+- Full regression suite (unit tests, all visual/game/savestate
+  targets, all three RGBDS ROMs, `gameboy-prism-build`) stayed green
+  throughout, confirmed via a full `make clean` rebuild - this change
+  touches only `wayfarer/`.
+
 **Next**: further Wayfarer work is open-ended (more rooms, a fuller
 inventory, deeper audio) rather than following a fixed list, once
 user-directed.

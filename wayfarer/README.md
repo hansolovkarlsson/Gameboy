@@ -32,7 +32,7 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 12 (a second, optional enemy - "the brute")
+## Status: Milestone 13 (the player starts without a sword)
 
 Milestones 1-4 built a small bordered-room grid with a freely-walking,
 collision-checked, combat-capable player: a one-shot sword swing, one
@@ -47,7 +47,9 @@ screen. Milestone 9 added real battery-backed SRAM save. Milestone 10
 grew the map to a 3x2 grid with an explorable loop. Milestone 11 added
 a way to restart from the win screen (with a "PRESS START" hint added
 just after). Milestone 12 populated one of Milestone 10's two empty
-rooms with a second, optional enemy.
+rooms with a second, optional enemy (and fixed a real sprite-tile-ID
+bug found right after). Milestone 13 makes the sword itself a pickup —
+the player starts unarmed.
 
 **Real bug report**: Milestone 9's SRAM save meant a `won` save loaded
 straight back into the win screen (by design) — but there was never a
@@ -139,3 +141,35 @@ Invisible in the existing post-defeat reference frame, so never
 caught. Fixed by moving the brute to its true next-free tile range
 (17-20); a new reference frame captured while the brute is still
 alive closes the actual test-coverage gap.
+
+**Milestone 13**: the player now starts every session unarmed — `A`
+does nothing at all until the sword itself is found as a real pickup
+in room (0,0), sitting on the same walking line to the original enemy
+the player was already taking. `src/sword_pickup.c`/`.h` mirror
+`key.c`'s shape closely, and deliberately claim **zero new sprite tile
+or palette IDs** — they draw the exact same blade art `sword.c` already
+owns (now exported as `SWORD_TILE_ID`/`SWORD_OBJ_PALETTE` in `sword.h`,
+the single source of truth, rather than a second private copy of the
+same constants) rather than repeat the exact class of mistake the
+Milestone 12 follow-up above just fixed. `world.c` gates the entire
+swing trigger behind `sword_pickup_is_collected()`; nothing in
+`enemy.c`/`brute.c` needed to change at all, since `sword_is_active()`
+already reads false forever until the first real swing happens.
+
+Gating combat behind a pickup is a real, global behavior change —
+every existing script that swings assumed the player already had a
+sword. Placing the pickup exactly on `input_script_m8.txt`'s own
+already-scripted walking path meant that script (and `input_script_m11.txt`,
+which extends it as a literal prefix) needed **zero frame-number
+changes** — confirmed by actually rebuilding and running them, not
+assumed. `input_script_m12_brute.txt`'s own path deliberately avoids
+that exact row for unrelated reasons, so it needed a real new detour;
+its two combat hit frames were re-scanned from scratch against the
+real build rather than assumed to shift by the same fixed offset (they
+didn't, quite — a real, confirmed instance of this project's own
+"don't trust a uniform shift for combat timing" rule). `reference_m8.sav`/
+`reference_m11.sav`/`reference_m12_brute.sav` all gained a new
+`BIT_SWORD` bit (or, for the brute's own reference, needed regenerating
+along with its WAV for the new detour); `reference_m11_sfx.wav`/
+`reference_m12_brute_sfx.wav` both needed re-locking, one more real
+instance of "any code-size change can shift exact sample timing."

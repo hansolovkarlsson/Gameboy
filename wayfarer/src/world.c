@@ -30,6 +30,7 @@
 #include "sfx.h"
 #include "sram.h"
 #include "sword.h"
+#include "sword_pickup.h"
 #include "win.h"
 #include "world.h"
 
@@ -39,6 +40,14 @@
 // The one enemy (enemy.c) belongs to this room only.
 #define ENEMY_ROOM_X 0
 #define ENEMY_ROOM_Y 0
+
+// The sword pickup (sword_pickup.c) belongs to this same room -
+// currently identical to ENEMY_ROOM_X/Y, but kept as its own named
+// constant/helper rather than silently reusing in_enemy_room(): an
+// explicit, separately-checked room membership can't silently break if
+// either room is ever moved independently later.
+#define SWORD_PICKUP_ROOM_X 0
+#define SWORD_PICKUP_ROOM_Y 0
 
 // The brute (brute.c) belongs to this room only - one of the two empty
 // rooms Milestone 10 added. Deliberately optional: defeating it is not
@@ -104,6 +113,10 @@ static uint8_t in_enemy_room(void) {
     return room_x == ENEMY_ROOM_X && room_y == ENEMY_ROOM_Y;
 }
 
+static uint8_t in_sword_pickup_room(void) {
+    return room_x == SWORD_PICKUP_ROOM_X && room_y == SWORD_PICKUP_ROOM_Y;
+}
+
 static uint8_t in_brute_room(void) {
     return room_x == BRUTE_ROOM_X && room_y == BRUTE_ROOM_Y;
 }
@@ -129,6 +142,7 @@ static uint8_t in_key_room(void) {
 static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t entry_y) {
     uint8_t leaving_enemy_room = in_enemy_room();
     uint8_t leaving_brute_room = in_brute_room();
+    uint8_t leaving_sword_pickup_room = in_sword_pickup_room();
     uint8_t leaving_pickup_room = in_pickup_room();
     uint8_t leaving_key_room = in_key_room();
 
@@ -147,6 +161,8 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     // need an explicit show on entry too.
     if (leaving_enemy_room && !in_enemy_room()) enemy_hide();
     if (leaving_brute_room && !in_brute_room()) brute_hide();
+    if (leaving_sword_pickup_room && !in_sword_pickup_room()) sword_pickup_hide();
+    if (!leaving_sword_pickup_room && in_sword_pickup_room()) sword_pickup_show();
     if (leaving_pickup_room && !in_pickup_room()) pickup_hide();
     if (!leaving_pickup_room && in_pickup_room()) pickup_show();
     if (leaving_key_room && !in_key_room()) key_hide();
@@ -178,6 +194,10 @@ static void reset_world(void) {
     draw_current_room();
     player_init();
     sword_init();
+    // Depends on sword_init() having already loaded the tile/palette
+    // data this reuses - must run after it.
+    sword_pickup_init();
+    sword_pickup_load_collected(sram_get_sword_collected());
     enemy_init();
     enemy_load_defeated(sram_get_enemy_defeated());
     brute_init();
@@ -189,6 +209,7 @@ static void reset_world(void) {
     key_load_collected(sram_get_key_collected());
     // Correct regardless of which room the game happens to start in,
     // not just assumed safe because today it's (0,0).
+    if (in_sword_pickup_room()) sword_pickup_show(); else sword_pickup_hide();
     if (in_pickup_room()) pickup_show(); else pickup_hide();
     if (in_key_room()) key_show(); else key_hide();
 
@@ -288,9 +309,22 @@ void world_update(uint8_t joy) {
 
     uint8_t pressed = (uint8_t)(joy & (uint8_t)~prev_joy);
     prev_joy = joy;
-    uint8_t was_swinging = sword_is_active();
-    sword_update(pressed & J_A);
-    if ((pressed & J_A) && !was_swinging) sfx_play_swing();
+    // Before the sword is collected, A does nothing at all - no blade
+    // sprite, no sound - rather than swinging an empty hand. sword.c's
+    // own timer simply never starts, so sword_is_active() already
+    // reads false everywhere else below with zero changes needed there.
+    if (sword_pickup_is_collected()) {
+        uint8_t was_swinging = sword_is_active();
+        sword_update(pressed & J_A);
+        if ((pressed & J_A) && !was_swinging) sfx_play_swing();
+    }
+
+    if (in_sword_pickup_room() && !sword_pickup_is_collected()) {
+        if (sword_pickup_try_collect(player_get_x(), player_get_y(), 16, 16)) {
+            sfx_play_pickup();
+            sram_set_sword_collected();
+        }
+    }
 
     if (in_enemy_room()) {
         enemy_update();
