@@ -141,10 +141,20 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     DISPLAY_ON;
 }
 
-void world_init(void) {
+// Everything needed to (re)start a session from room (0,0): resets
+// every module's own state (via each one's normal _init()), loads
+// whatever's currently in SRAM (a genuinely fresh cart's defaults on
+// first boot, or real progress on a later one), and shows the win
+// screen immediately if that state says the game's already been won.
+// Shared by world_init() (the real first boot) and restart_game()
+// (Milestone 11 - escaping a `won` save) rather than duplicated
+// between them, since a second, drifting copy of this sequence would
+// be exactly the kind of risk this project's own "guard real-
+// hardware-safe timing carefully" discipline already argues against
+// elsewhere.
+static void reset_world(void) {
     room_x = 0;
     room_y = 0;
-    prev_joy = 0;
     won = 0;
 
     sram_init();
@@ -169,20 +179,54 @@ void world_init(void) {
     // win_play()'s own DISPLAY_OFF/SHOW_BKG/DISPLAY_ON sequence simply
     // overdraws the room content prepared above before the display
     // ever turns on (still off from title_screen()'s own closing
-    // DISPLAY_OFF), so there's no flicker of the fresh room first.
+    // DISPLAY_OFF, or restart_game()'s own just-issued DISPLAY_OFF),
+    // so there's no flicker of the fresh room first.
     if (sram_get_won()) {
         won = 1;
         win_play();
     }
 }
 
+void world_init(void) {
+    prev_joy = 0;
+    reset_world();
+}
+
+// The only escape from a `won` state (Milestone 11) - wipes the
+// persisted save back to fresh, then reruns the exact same setup a
+// real first boot uses. Wrapped in the same real-hardware-safe
+// screen-off pattern go_to_room()/win_play() already use, since this
+// is a bulk visual reset happening mid-session (while the win screen
+// is live), not at boot where the display is already off.
+static void restart_game(void) {
+    sram_reset();
+
+    wait_vbl_done();
+    DISPLAY_OFF;
+
+    reset_world();
+
+    SHOW_BKG;
+    DISPLAY_ON;
+}
+
 void world_update(uint8_t joy) {
-    // The win screen is a one-shot, terminal state - once shown,
-    // nothing in this function runs again for the rest of the
-    // session, matching this project's own "always fully resolve, no
-    // half-finished states" style already used for the on-death
-    // respawn path.
-    if (won) return;
+    // The win screen is otherwise a one-shot, terminal state - the
+    // rest of this function never runs again once shown, matching
+    // this project's own "always fully resolve, no half-finished
+    // states" style already used for the on-death respawn path. The
+    // one way out (Milestone 11): a Start press restarts a fresh
+    // session. Scoped deliberately narrow to the actual reported
+    // problem (being permanently stuck after winning and saving) -
+    // not a general "Start restarts anytime" button during normal
+    // play, unlike the sibling prism/ project's own always-available
+    // restart.
+    if (won) {
+        uint8_t pressed = (uint8_t)(joy & (uint8_t)~prev_joy);
+        prev_joy = joy;
+        if (pressed & J_START) restart_game();
+        return;
+    }
 
     player_update(joy);
 

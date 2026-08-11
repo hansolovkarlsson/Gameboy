@@ -1,0 +1,38 @@
+# Wayfarer Milestone 11 verification script (world.c's restart_game()).
+# Extends input_script_m8.txt's own known-working win path (unchanged,
+# still used on its own to feed the separate won-reload check) with
+# the actual new behavior: continue past the win screen with a START
+# press, then hold RIGHT briefly to prove gameplay genuinely resumed,
+# not just that the screen changed.
+#
+# Sequence: (input_script_m8.txt's own path) -> win screen shown ->
+# START -> restart_game() wipes the save and resets every module back
+# to a fresh session at room (0,0) -> hold RIGHT to confirm the player
+# can move again and the enemy is patrolling fresh.
+#
+# The win screen itself is frozen (confirmed in Milestone 6/8's own
+# verification), but *this* script's own final state is active,
+# continuously-animating gameplay (the enemy keeps patrolling every
+# frame) - there is no "settled" frame the way a frozen screen has, so
+# stability here means true determinism instead: running this exact
+# script to this exact frame count twice produces byte-identical
+# output, confirmed directly rather than by comparing neighboring
+# frames.
+10 START down
+11 START up
+16 A down
+17 A up
+21 RIGHT down
+51 RIGHT up
+56 A down
+57 A up
+61 RIGHT down
+191 RIGHT up
+196 DOWN down
+271 DOWN up
+276 LEFT down
+426 LEFT up
+435 START down
+436 START up
+440 RIGHT down
+470 RIGHT up

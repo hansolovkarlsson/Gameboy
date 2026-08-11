@@ -27,4 +27,10 @@ void sram_set_pickup_collected(void);
 void sram_set_enemy_defeated(void);
 void sram_set_won(void);
 
+// Wipes the persisted save back to "nothing collected, enemy alive,
+// not won" - the same state a genuinely fresh cartridge already
+// starts from. Used by world.c's restart_game() to escape a `won`
+// save's own "always shows the win screen" behavior.
+void sram_reset(void);
+
 #endif

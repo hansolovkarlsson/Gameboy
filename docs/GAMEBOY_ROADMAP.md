@@ -3972,6 +3972,80 @@ regression suite (unit tests, all visual/game/savestate targets, all
 three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed green
 throughout - this change touches only `wayfarer/src/world.c`.
 
+**Milestone 11 (this pass): done - restart from the win screen.** Real
+bug report, not a feature request: Milestone 9's SRAM save meant a
+`won` save loaded straight back into the win screen (by design), but
+there was never a way *out* - once won and saved, the game was
+permanently stuck showing "WIN" on every future boot, a real gap
+Milestone 9's own plan had explicitly flagged ("no 'new game' reset UI
+this pass") but not closed.
+
+**`wayfarer/src/world.c`**: the existing `world_init()` body (room/
+player/sword/enemy/heart-HUD/pickup/key init, the `_load_*()` calls,
+the pickup/key show-or-hide-by-room check, the "show the win screen
+immediately if already won" check) was factored into a new static
+`reset_world()` - `world_init()` becomes just `prev_joy = 0;
+reset_world();`. A real, non-cosmetic factor-out: the new restart path
+needs the *exact* same sequence, and a second, copy-pasted copy would
+be precisely the kind of drift risk this project's own "guard real-
+hardware-safe timing carefully" discipline already argues against
+elsewhere. New static `restart_game()`: `sram_reset()` (new
+`wayfarer/src/sram.c` function - writes magic + an all-zero state
+byte, the same "wipe back to what a genuinely fresh cartridge already
+starts from" shape `sram_init()`'s own mismatch-handling already
+uses) first, then the same `wait_vbl_done(); DISPLAY_OFF; ...;
+SHOW_BKG; DISPLAY_ON;` wrapper `go_to_room()`/`win_play()` already use
+around `reset_world()` - a bulk visual reset mid-session is the same
+"guard the live display" risk category as any other bulk redraw here.
+`world_update()`'s own `if (won) return;` short-circuit now reads
+`joypad()` first and checks for an edge-triggered `Start` press,
+calling `restart_game()` on one, before still returning either way -
+the win screen stays frozen every frame it isn't dismissed, exactly as
+before.
+
+**Scope decision, matching the actual reported problem**: restart is
+reachable only from the win screen, not a general "`Start` restarts
+anytime" button during normal play the way the sibling `prism/`
+project's own `restart_game()` works - the report was specifically
+about being permanently stuck after winning, not a request for a
+mid-game reset control. Restart goes straight back into fresh gameplay
+at room `(0,0)`, not back through `title_screen()` again - matches
+`prism/`'s own restart precedent exactly, and avoids restructuring
+`main.c`'s control flow to re-enter a blocking wait-loop from inside a
+per-frame `world_update()` call.
+
+**Verified** across two separate, real process invocations (the same
+discipline `prism/`'s own Milestone 6c SRAM verification and this
+project's own Milestone 9 both already used): a new
+`wayfarer/input_script_m11.txt` (extending the unchanged
+`input_script_m8.txt`'s own known win path with a trailing `Start`
+press plus a little more movement) confirms gameplay resumes for real
+after the restart - fresh hearts, the enemy patrolling again, the key/
+pickup back in their rooms - and that the resulting `.sav` reads back
+genuinely fresh (magic + all-zero, not `won`). A *second*, independent
+process loading that freshly-reset `.sav` confirms an ordinary boot
+with no immediate win screen - the real end-to-end proof, not just
+that in-memory state looked right within one process. **A real
+methodology note**: this script's own final state is continuously-
+animating live gameplay (the enemy keeps patrolling every frame), not
+a frozen screen the way every prior visual reference here was - so
+"stability" meant confirming true determinism (the same script run
+twice to the same frame count produces byte-identical output) rather
+than comparing neighboring frames, which don't match by design once
+something's genuinely moving every frame. `input_script_m8.txt`/
+`reference_m8.sav`/`input_script_m9_start.txt`/`reference_m9_won.ppm`
+all stay, unchanged - Milestone 9's own "a won save shows the win
+screen" behavior isn't going anywhere, restart just adds an exit from
+it; the Makefile recipe now produces `input_script_m8.txt`'s own `.sav`
+under its own distinct output path so it can't collide with `m11`'s
+own restart-produced one. `reference_m8.ppm`/`.sav`/`_sfx.wav`
+deleted, superseded by `reference_m11.ppm`/`.sav`/`_sfx.wav` (`m11`'s
+own script covers the identical win path as a strict prefix before
+going further). Full existing regression suite (unit tests, all
+visual/game/savestate targets, all three RGBDS ROMs, Mooneye,
+`gameboy-prism-build`) stayed green throughout - this change touches
+only `wayfarer/`.
+
 **Next**: further Wayfarer work is open-ended (more rooms, a new enemy
 in the expanded space, a fuller inventory, deeper audio) rather than
 following a fixed list, once user-directed.

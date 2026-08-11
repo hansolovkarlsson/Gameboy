@@ -32,7 +32,7 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 10 (a bigger map)
+## Status: Milestone 11 (restart from the win screen)
 
 Milestones 1-4 built a small bordered-room grid with a freely-walking,
 collision-checked, combat-capable player: a one-shot sword swing, one
@@ -43,26 +43,37 @@ unreachable goal room, gated behind a locked door that a key unlocks.
 Milestone 6 added a real win condition — defeat the enemy *and* reach
 the goal room for a one-shot "WIN" screen. Milestone 7 added five
 sound effects. Milestone 8 added a "WAYFARER" / "PRESS START" title
-screen. Milestone 9 added real battery-backed SRAM save (key/pickup/
-enemy-defeated/won state persists across power cycles) — completing
-the roadmap's original stretch list.
+screen. Milestone 9 added real battery-backed SRAM save. Milestone 10
+grew the map to a 3x2 grid with an explorable loop.
 
-User-directed next step: add more rooms to the map. Grew from the
-original 2x2 grid to 3x2 — two new, empty rooms at (2,0) and (2,1).
-**The entire code change was one constant**, `GRID_W` 2 → 3 in
-`src/world.c`: `compute_sides()`'s per-side logic, `room.c`'s
-per-cell wall/corner/door rendering, and `room_blocks()`'s collision
-were all already general enough to grow the grid with no other
-changes — confirmed by re-reading the code fresh, not assumed. The two
-new rooms open naturally off the existing key room (1,0) and heart
-pickup room (1,1) (previously dead-end walls on their east sides),
-forming a real explorable loop alongside the existing linear critical
-path to the win room, rather than a dead-end appendage — verified by
-walking the full loop and confirming each room's own wall-opening
-fingerprint. The critical path itself (the severed edge, the key lock,
-the win condition) is untouched; the existing win-condition script's
-own final frame, audio, and save file were all reconfirmed unaffected
-via direct `cmp` before locking in — except the audio, which needed
-re-locking in place again: even this one-constant change measurably
-shifted exact sample-level SFX timing (not frame timing), the same
-category of finding Milestone 9 already hit once.
+**Real bug report**: Milestone 9's SRAM save meant a `won` save loaded
+straight back into the win screen (by design) — but there was never a
+way *out*. Once you'd won and saved, the game was permanently stuck
+showing "WIN" on every future boot, a real gap Milestone 9's own plan
+had flagged but not closed.
+
+`src/world.c`'s existing `world_init()` body was factored into a new
+`reset_world()` — the exact same setup sequence a fresh boot already
+used, now shared rather than duplicated by a new `restart_game()`
+(new `sram_reset()` in `src/sram.c` wipes the save back to fresh
+first, wrapped in the same real-hardware-safe screen-off pattern
+`go_to_room()`/`win_play()` already use, since this is a bulk visual
+reset happening mid-session). While the win screen is showing, a
+`Start` press now triggers it — **scoped deliberately narrow to the
+actual reported problem**: restart is only reachable from the win
+screen, not a general "restart anytime" button during normal play
+(unlike the sibling `prism/` project's own always-available restart),
+and goes straight back into fresh gameplay at room (0,0) rather than
+through the title screen again, matching `prism/`'s own
+`restart_game()` precedent.
+
+Verified end to end across two separate process invocations: playing
+to a win and pressing `Start` resumes real gameplay (fresh hearts, the
+enemy patrolling again, the key/pickup back in their rooms) and leaves
+behind a genuinely fresh `.sav` (magic + all-zero, not `won`) — then a
+*second*, independent process loading that fresh save confirms a
+normal boot with no immediate win screen, the real proof the fix
+works rather than just that in-memory state looked right. The existing
+"a won save shows the win screen" behavior (Milestone 9) is untouched
+and still separately verified — restart only adds an exit from it, not
+a replacement for it.

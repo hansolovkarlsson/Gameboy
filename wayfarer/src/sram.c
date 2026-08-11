@@ -54,3 +54,8 @@ void sram_set_key_collected(void) { state |= BIT_KEY; save(); }
 void sram_set_pickup_collected(void) { state |= BIT_PICKUP; save(); }
 void sram_set_enemy_defeated(void) { state |= BIT_ENEMY; save(); }
 void sram_set_won(void) { state |= BIT_WON; save(); }
+
+void sram_reset(void) {
+    state = 0;
+    save();
+}
