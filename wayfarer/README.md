@@ -128,3 +128,14 @@ reference's exact sample timing (the new channel routing runs before
 any other sound) — confirmed via `analyze_sfx.py` that the same events
 still land at the same approximate timestamps, then re-locked in
 place, the same treatment the last three milestones all needed.
+
+**Bug fix, found right after**: the brute's own 4 tile IDs (15-18)
+collided with `heart_hud.c`'s tile 15 and `key.c`'s tile 16 - since
+`reset_world()` initializes those two modules *after* the brute, their
+own tile data silently overwrote 2 of the brute's 4 quadrants (a heart
+and a key silhouette rendered in its own violet palette, in place of
+its actual blob shape) whenever the brute was alive and visible.
+Invisible in the existing post-defeat reference frame, so never
+caught. Fixed by moving the brute to its true next-free tile range
+(17-20); a new reference frame captured while the brute is still
+alive closes the actual test-coverage gap.

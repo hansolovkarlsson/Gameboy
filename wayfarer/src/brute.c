@@ -14,10 +14,10 @@
 
 #include "brute.h"
 
-#define BRUTE_TILE_TL 15 // player.c owns 0-11, sword.c owns 12-13, enemy.c owns 14
-#define BRUTE_TILE_TR 16
-#define BRUTE_TILE_BL 17
-#define BRUTE_TILE_BR 18
+#define BRUTE_TILE_TL 17 // player.c owns 0-11, sword.c owns 12-13, enemy.c owns 14, heart_hud.c owns 15, key.c owns 16
+#define BRUTE_TILE_TR 18
+#define BRUTE_TILE_BL 19
+#define BRUTE_TILE_BR 20
 #define BRUTE_TILE_COUNT 4
 
 static const uint8_t brute_tiles[BRUTE_TILE_COUNT * 16] = {

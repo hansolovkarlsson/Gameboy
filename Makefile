@@ -214,6 +214,14 @@ WAYFARER_BRUTE_WAV_REF := wayfarer/reference_m12_brute_sfx.wav
 WAYFARER_BRUTE_WAV_OUT := $(BIN_DIR)/wayfarer-brute-sfx-output.wav
 WAYFARER_BRUTE_SAV_REF := wayfarer/reference_m12_brute.sav
 WAYFARER_BRUTE_SAV_OUT := $(BIN_DIR)/wayfarer-brute-output.sav
+# Captured mid-fight (frame 1000, brute still alive) rather than only
+# post-defeat - a real gap the post-defeat-only frame above left open:
+# a tile ID collision once corrupted 2 of the brute's 4 quadrant tiles
+# (heart_hud.c's and key.c's own sprite tile IDs), invisible in the
+# post-defeat frame (the brute is hidden by then) but plainly visible
+# while alive. This check is what would have actually caught it.
+WAYFARER_BRUTE_ALIVE_REF := wayfarer/reference_m12_brute_alive.ppm
+WAYFARER_BRUTE_ALIVE_OUT := $(BIN_DIR)/wayfarer-brute-alive-output.ppm
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
@@ -351,6 +359,10 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_WON_OUT) $(WAYFARER_WON_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 9 - a fresh boot loading a won save shows the win screen immediately after the title)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_WON_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --ppm $(WAYFARER_BRUTE_ALIVE_OUT) --frames 1000
+	cmp $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_BRUTE_ALIVE_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - the brute's own 4 quadrant tiles render correctly while alive, no tile ID collision)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_BRUTE_ALIVE_REF))"; exit 1)
 	rm -f $(WAYFARER_BRUTE_SAV_OUT)
 	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --sav $(WAYFARER_BRUTE_SAV_OUT) --ppm $(WAYFARER_BRUTE_OUT) --frames 1060
 	cmp $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_REF) \
@@ -400,6 +412,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean

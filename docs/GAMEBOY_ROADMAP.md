@@ -4190,6 +4190,37 @@ suite (unit tests, all visual/game/savestate targets, all three RGBDS
 ROMs, `gameboy-prism-build`) stayed green - this change touches only
 `wayfarer/`.
 
+**Milestone 12 follow-up (this pass): done - fixed a real sprite tile
+ID collision in the brute's own art.** Found while investigating the
+next feature (a sword pickup), not reported by a user: `brute.c`'s 4
+quadrant tiles were assigned IDs 15-18, but `heart_hud.c` already owns
+tile 15 (`HEART_TILE_ID`) and `key.c` already owns tile 16
+(`KEY_TILE_ID`) - a real registry mistake in Milestone 12's own commit,
+not caught at the time. Because `reset_world()` calls `brute_init()`
+*before* `heart_hud_init()`/`key_init()`, those two later calls
+silently overwrote the brute's own top-left and top-right tile pattern
+data with the heart and key shapes - the brute's sprites still pointed
+at tile IDs 15/16, so its top-left corner rendered as a heart
+silhouette and its top-right corner as a key silhouette (colored in
+the brute's own violet palette), while its bottom two corners stayed
+correct. Confirmed visually (a cropped, heavily-upscaled render of the
+brute mid-fight) before touching any code.
+
+**Root cause, and why the existing Milestone 12 reference never caught
+it**: `reference_m12_brute.ppm` was captured *after* the brute is
+already defeated and hidden (`brute_hide()`), so the corrupted tiles
+were never actually on screen in that specific locked frame - a real
+gap in test coverage, not a false pass. Fixed by moving the brute's
+tile IDs to 17-20 (the true next-free range, past `key.c`'s own 16) in
+`wayfarer/src/brute.c`; the tile *art* itself was already correct, only
+the ID constants were wrong. New `wayfarer/reference_m12_brute_alive.ppm`
+(frame 1000 of the same script, the brute still alive and fully
+visible, confirmed deterministic by running twice) closes the actual
+gap - a real regression test for this exact bug, not just a fix.
+`reference_m12_brute.ppm`/`.sav`/`_sfx.wav` stayed byte-identical
+(expected, given the bug was invisible in that post-defeat frame to
+begin with). Full regression suite stayed green.
+
 **Next**: further Wayfarer work is open-ended (more rooms, a fuller
 inventory, deeper audio) rather than following a fixed list, once
 user-directed.
