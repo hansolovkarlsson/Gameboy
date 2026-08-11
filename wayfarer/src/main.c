@@ -3,17 +3,14 @@
 // action-adventure in the tradition of the original Zelda (1986) -
 // free pixel-level movement around bordered rooms, viewed from above.
 // See docs/GAMEBOY_ROADMAP.md's own entry for the whole milestone
-// roadmap. Milestone 1 built one static bordered room with wall
-// collision; this pass (Milestone 2) wires a small 2x2 grid of rooms
-// together, cutting instantly to the adjacent room when the player
-// steps off an open (neighbor-having) edge of the screen
-// (world.h/world.c). No combat, items, or HUD yet - all explicitly
-// deferred to later milestones, not silently missing.
+// roadmap. This pass (Milestone 8) adds a "WAYFARER" / "PRESS START"
+// title screen (title.h/title.c) before gameplay begins.
 //
 // See room.h/room.c for a room's own tile/palette data and per-side
 // wall bounds, player.h/player.c for the directional sprite and
 // movement/collision, world.h/world.c for the grid position and
-// transition logic.
+// transition logic, sfx.h/sfx.c for the sword/hit/pickup/damage/win
+// sound effects.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
@@ -21,29 +18,21 @@
 #include <rand.h>
 
 #include "sfx.h"
+#include "title.h"
 #include "world.h"
 
 void main(void) {
-    // Seeded now even though nothing's randomized yet this milestone -
-    // matches prism/'s own initrand(DIV_REG)-as-first-line convention,
-    // already in place for whenever a later milestone needs real
-    // randomness (e.g. enemy spawn/behavior).
+    // Seeded now even though nothing's randomized yet - matches
+    // prism/'s own initrand(DIV_REG)-as-first-line convention: the RNG
+    // seed must be sampled before title_screen()'s own real,
+    // player-paced wait-for-Start loop (an unbounded wall-clock delay),
+    // the same reasoning prism/'s own Milestone 6b already established
+    // for its own title screen.
     initrand(DIV_REG);
 
-    // Real CGB hardware's boot ROM leaves the LCD *on* (LCDC=$91) with
-    // every background palette color white before handing off control
-    // (pandocs' Power_Up_Sequence.md) - disabling the display before
-    // any bulk VRAM/tilemap/palette write below avoids a real,
-    // well-known GB homebrew gotcha (a live LCD catching a write
-    // mid-flight, producing a torn frame) that the sibling prism/
-    // project's own title.c hit and documented
-    // (docs/GAMEBOY_ROADMAP.md's corrected "PPU rendering-catch-up
-    // quirk" entry) - same real-hardware-safe (VBlank-gated)
-    // LCD-disable pattern applied here from the very start.
-    wait_vbl_done();
-    DISPLAY_OFF;
-
     sfx_init();
+    title_screen(); // handles its own real-hardware-safe LCD-disable timing at both ends
+
     world_init(); // loads the room/player art and draws the starting room; also enables SHOW_SPRITES
 
     SHOW_BKG;

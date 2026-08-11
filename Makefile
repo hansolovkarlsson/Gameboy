@@ -182,14 +182,14 @@ PRISM_TITLE_OUT := $(BIN_DIR)/prism-title-output.ppm
 # Wayfarer (wayfarer/ - a second, separate original homebrew game, a
 # top-down action-adventure rather than prism/'s match-3 puzzle - see
 # wayfarer/README.md and docs/GAMEBOY_ROADMAP.md's own entry). Milestone
-# 7: five one-shot sound effects (swing/hit/pickup/damage/win), direct
-# DMG/CGB register pokes, same input_script_m6.txt (rendered frame is
-# provably unaffected - sound is audio-only) with a new --wav check.
+# 8: a "WAYFARER"/"PRESS START" title screen before gameplay begins -
+# every scripted frame number re-derived from scratch, since the title
+# screen's own real, player-paced wait shifts everything after it.
 WAYFARER_ROM := wayfarer/bin/wayfarer.gb
-WAYFARER_SCRIPT := wayfarer/input_script_m6.txt
-WAYFARER_REF := wayfarer/reference_m6.ppm
+WAYFARER_SCRIPT := wayfarer/input_script_m8.txt
+WAYFARER_REF := wayfarer/reference_m8.ppm
 WAYFARER_OUT := $(BIN_DIR)/wayfarer-output.ppm
-WAYFARER_WAV_REF := wayfarer/reference_m7_sfx.wav
+WAYFARER_WAV_REF := wayfarer/reference_m8_sfx.wav
 WAYFARER_WAV_OUT := $(BIN_DIR)/wayfarer-sfx-output.wav
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
@@ -307,11 +307,11 @@ gameboy-prism-build: $(TARGET) | $(BIN_DIR)
 
 gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	$(MAKE) -C wayfarer
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 425
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --ppm $(WAYFARER_OUT) --frames 441
 	cmp $(WAYFARER_OUT) $(WAYFARER_REF) \
-		&& echo "gameboy-wayfarer-build: OK (Milestone 6 - defeating the enemy and reaching the goal room triggers the win screen)" \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 8 - title screen -> Start -> defeating the enemy and reaching the goal room triggers the win screen)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_REF))"; exit 1)
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --wav $(WAYFARER_WAV_OUT) --seconds 9
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SCRIPT) --wav $(WAYFARER_WAV_OUT) --seconds 8
 	cmp $(WAYFARER_WAV_OUT) $(WAYFARER_WAV_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 7 - swing/hit/damage/win sound effects match a real captured reference)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (captured audio doesn't match $(WAYFARER_WAV_REF))"; exit 1)

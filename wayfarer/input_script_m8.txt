@@ -1,0 +1,40 @@
+# Wayfarer Milestone 8 verification script (title.c). Re-derived from
+# scratch from input_script_m6.txt's own known-working relative
+# sequence (defeat the enemy in room (0,0), collect the key in room
+# (1,0), cross into room (1,1), unlock and cross the door into room
+# (0,1) - triggering the Milestone 6 win screen), now with a leading
+# START press to dismiss the new title screen first.
+#
+# Every frame number was re-probed empirically, not assumed to shift
+# by a fixed offset from input_script_m6.txt's own numbers - confirmed
+# necessary, not just cautious: movement-duration legs (RIGHT/DOWN/
+# LEFT holds) turned out to be shift-invariant (a 30-frame hold always
+# moves 30px regardless of when gameplay actually started), but the
+# sword-kill's own precise timing was not - scanning candidate frames
+# found the working hit at frame 56, five frames earlier than a naive
+# uniform-shift guess of 61 would have predicted, confirming a uniform
+# shift assumption would have produced a same-looking-but-wrong script
+# (the enemy would have still been alive at the scripted swing).
+#
+# Sequence: START (dismiss title) -> a negative-case sword swing,
+# facing down, nowhere near the enemy -> approach and land the real
+# kill -> continue east through room (1,0), collecting the key ->
+# south into room (1,1) -> west through the now-unlocked door into
+# room (0,1), where both win conditions are already true, triggering
+# the win screen. Confirmed stable (byte-identical) from frame 400
+# onward (the win screen was already showing well before the scripted
+# input even finishes).
+10 START down
+11 START up
+16 A down
+17 A up
+21 RIGHT down
+51 RIGHT up
+56 A down
+57 A up
+61 RIGHT down
+191 RIGHT up
+196 DOWN down
+271 DOWN up
+276 LEFT down
+426 LEFT up

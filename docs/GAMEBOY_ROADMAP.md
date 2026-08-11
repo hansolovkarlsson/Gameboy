@@ -3760,5 +3760,82 @@ regression suite (unit tests, all visual/game/savestate targets, all
 three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed green
 throughout - this change touches only `wayfarer/`.
 
-**Next**: the remaining stretch items - a title screen, SRAM save -
-are the natural next steps, once user-directed.
+**Milestone 8 (this pass): done - title screen.** User-directed,
+between the two remaining stretch items (title screen, SRAM save).
+Directly reuses the sibling `prism/` project's own `title.c` technique
+- a hand-authored 5x7 block-letter tileset, real-hardware-safe
+LCD-disable timing at both the start and end of the screen - a
+technique this project's own Milestone 6 (`win.c`) already reused once
+for its "WIN" screen, so this is the third application of the same
+proven pattern, not a new one.
+
+**New `wayfarer/src/title.c`/`title.h`**: its own, non-overlapping BG
+tile range (`TITLE_TILE_BASE = 6` - `room.c` owns 0-2, `win.c` owns
+3-5), matching `prism/`'s own precedent of giving `title.c` a fresh
+range rather than reusing `hud.c`'s, even though they're temporally
+exclusive, for simplicity/safety. Only the 9 letters actually needed
+for "WAYFARER"/"PRESS START" (`W,A,Y,F,R,E,P,S,T`) plus a blank -
+independently derived but confirmed to match `prism/title.c`'s own
+`P/R/E/S/T/A` bytes and this project's own `win.c`'s `W` bytes exactly
+(the same standard block-font convention, not copied art). Its own
+private blank tile, *not* reusing `room.h`'s `FLOOR_TILE_ID` the way
+`win.c` safely does - `title_screen()` runs *before* `room_init()`
+ever loads that tile's real data, so reusing it here would render
+undefined VRAM content; `prism/title.c` has this exact same constraint
+and handles it the same way. `title_screen()`'s own structure mirrors
+`prism/title.c` line for line: `wait_vbl_done(); DISPLAY_OFF;` first
+(the boot ROM leaves the LCD on with white palettes), draw, `SHOW_BKG;
+DISPLAY_ON;`, an edge-triggered wait-for-`Start` loop, then
+`wait_vbl_done(); DISPLAY_OFF;` again before returning so
+`world_init()`'s own tile loading never lands on a live display.
+`wayfarer/src/main.c` simplified: its own explicit boot-time
+`wait_vbl_done(); DISPLAY_OFF;` block is now `title_screen()`'s
+responsibility. Unlike `prism/`'s own Milestone 6b, no `prev_joy`-
+seeding concern was found or needed - Wayfarer doesn't bind `Start` to
+anything during gameplay, so a phantom edge from a still-held button
+has no behavior to guard against here.
+
+**A real, unavoidable consequence, not an oversight**: the title
+screen is a genuine player-paced wait, so every existing scripted frame
+number needed re-deriving - the same category of thing `prism/`'s own
+Milestone 6b hit. **A real, worth-stating finding came out of this**:
+probing confirmed the movement-duration legs (`RIGHT`/`DOWN`/`LEFT`
+held for N frames) are shift-invariant - an N-frame hold always moves
+the player N pixels, regardless of what absolute frame gameplay
+actually started on, since it only depends on frames-since-input, not
+frames-since-power-on. But the sword-kill's own precise hit-window
+timing is *not* shift-invariant in the same simple way: a naive
+uniform-shift guess (add a fixed delta to every old frame number)
+predicted the kill would land at frame 61; scanning nearby candidate
+frames instead found the real working hit at frame 56 - five frames
+earlier. Had the uniform-shift assumption been trusted instead of
+verified, the resulting script would have looked plausible (correctly
+shaped, right button sequence) while being silently wrong (the enemy
+would still have been alive at the scripted swing, and the whole
+downstream win-condition chain would never trigger) - exactly the
+failure mode this project's own "derive empirically, don't assume
+timing transfers" discipline exists to catch, confirmed here rather
+than just reasoned about.
+
+**Verified** via a new scripted `--input` sequence
+(`wayfarer/input_script_m8.txt`, replacing `input_script_m6.txt`) that
+re-derives the complete path from a fresh title-screen boot: `START`
+to dismiss, a negative-case sword swing, the real sword-kill (at the
+empirically-confirmed frame 56), collecting the key in room `(1,0)`,
+crossing into room `(1,1)`, and unlocking/crossing the door into room
+`(0,1)` - confirming the Milestone 6 win screen still triggers
+correctly end to end. A new `--wav` capture over the same script
+confirmed the same 4 distinct, correctly-timed sound events Milestone
+7 already established, just at their own newly-shifted sample
+positions. Locked in as `wayfarer/reference_m8.ppm`/
+`reference_m8_sfx.wav` only after confirming frame stability;
+`reference_m6.ppm`/`reference_m7_sfx.wav`/`input_script_m6.txt`
+deleted once superseded. Full existing regression suite (unit tests,
+all visual/game/savestate targets, all three RGBDS ROMs, Mooneye,
+`gameboy-prism-build`) stayed green throughout - this change touches
+only `wayfarer/`.
+
+**Next**: SRAM save (persisting key/pickup/enemy-defeated/win state
+across power cycles, reusing this emulator's now-proven
+`gb_cart_load_ram_file()` pattern from `prism/`'s own Milestone 6c) is
+the one remaining stretch item, once user-directed.
