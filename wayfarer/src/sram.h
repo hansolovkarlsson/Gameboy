@@ -1,10 +1,10 @@
-// Persists the 4 permanent, one-way progress flags (key collected,
-// heart pickup collected, enemy defeated, game won) to real
-// battery-backed cartridge RAM - not transient state (player position,
-// current room, current hearts). A fresh boot always starts at room
-// (0,0) with full hearts; a loaded save just means already-collected
-// items stay collected and an already-won game shows the win screen
-// again immediately. See sram.c.
+// Persists the 5 permanent, one-way progress flags (key collected,
+// heart pickup collected, enemy defeated, game won, brute defeated) to
+// real battery-backed cartridge RAM - not transient state (player
+// position, current room, current hearts). A fresh boot always starts
+// at room (0,0) with full hearts; a loaded save just means already-
+// collected items stay collected and an already-won game shows the
+// win screen again immediately. See sram.c.
 
 #ifndef WAYFARER_SRAM_H
 #define WAYFARER_SRAM_H
@@ -17,6 +17,7 @@ uint8_t sram_get_key_collected(void);
 uint8_t sram_get_pickup_collected(void);
 uint8_t sram_get_enemy_defeated(void);
 uint8_t sram_get_won(void);
+uint8_t sram_get_brute_defeated(void);
 
 // Each sets the corresponding flag and writes it to SRAM immediately -
 // saved as soon as it happens, more crash-resilient than waiting for a
@@ -26,6 +27,7 @@ void sram_set_key_collected(void);
 void sram_set_pickup_collected(void);
 void sram_set_enemy_defeated(void);
 void sram_set_won(void);
+void sram_set_brute_defeated(void);
 
 // Wipes the persisted save back to "nothing collected, enemy alive,
 // not won" - the same state a genuinely fresh cartridge already

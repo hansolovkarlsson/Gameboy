@@ -32,7 +32,7 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 11 (restart from the win screen)
+## Status: Milestone 12 (a second, optional enemy - "the brute")
 
 Milestones 1-4 built a small bordered-room grid with a freely-walking,
 collision-checked, combat-capable player: a one-shot sword swing, one
@@ -44,7 +44,10 @@ Milestone 6 added a real win condition — defeat the enemy *and* reach
 the goal room for a one-shot "WIN" screen. Milestone 7 added five
 sound effects. Milestone 8 added a "WAYFARER" / "PRESS START" title
 screen. Milestone 9 added real battery-backed SRAM save. Milestone 10
-grew the map to a 3x2 grid with an explorable loop.
+grew the map to a 3x2 grid with an explorable loop. Milestone 11 added
+a way to restart from the win screen (with a "PRESS START" hint added
+just after). Milestone 12 populated one of Milestone 10's two empty
+rooms with a second, optional enemy.
 
 **Real bug report**: Milestone 9's SRAM save meant a `won` save loaded
 straight back into the win screen (by design) — but there was never a
@@ -89,3 +92,39 @@ that the same events still occur at the same approximate timestamps,
 just at a slightly shifted exact sample position (the same "real code
 change shifts sample position, not frame timing" finding as the last
 two milestones).
+
+**Milestone 12**: room (2,1), one of the two rooms Milestone 10 left as
+empty exploration space, now holds "the brute" — a bigger (16x16 vs.
+the original enemy's 8x8), violet-colored enemy that patrols
+vertically and takes two hits to kill. Deliberately **optional**: the
+win condition still only requires defeating the original enemy and
+reaching the goal room, so this is pure extra content, not a harder
+required path.
+
+`src/brute.c`/`brute.h` mirror `enemy.c`/`enemy.h`'s shape: a 2x2
+metasprite (four 8x8 tiles instead of one), its own OBJ palette, and a
+new post-hit cooldown (`BRUTE_HIT_COOLDOWN_FRAMES`, comfortably longer
+than the sword's own 12-frame active window) — without it, a single
+sword swing would register as several hits in a row, since `world.c`
+re-checks the hit-test every frame the blade is out. `brute_try_hit()`
+returns a 3-state result (no hit / hit-but-alive / hit-and-defeated) so
+`world.c` can play a new, distinct sound (`sfx_play_brute_hit()`,
+channel 2 — previously entirely silent, now routed via `sfx_init()`'s
+`NR51_REG`) on the first hit, and reuse the existing `sfx_play_hit()`
+on the second, lethal one. A new `BIT_BRUTE` SRAM flag persists
+defeat, same shape as the original enemy's own flag.
+
+Verified with a scripted playthrough that deliberately routes around
+the *original* enemy's own patrol row (so this test's own contact-
+damage exposure is only ever from the brute) before crossing into room
+(2,1) and landing two real swings — the exact working frames found by
+scanning against the actual build (temporarily instrumented with a
+one-off serial print, removed once confirmed), not computed by hand.
+The script also includes a deliberate extra swing *inside* the
+cooldown window, confirmed to be a genuine no-op, proving the double-
+hit guard actually works rather than assuming it does. As predicted,
+touching `sfx_init()` shifted the existing main-script audio
+reference's exact sample timing (the new channel routing runs before
+any other sound) — confirmed via `analyze_sfx.py` that the same events
+still land at the same approximate timestamps, then re-locked in
+place, the same treatment the last three milestones all needed.

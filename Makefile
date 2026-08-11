@@ -202,6 +202,18 @@ WAYFARER_WON_SAV_OUT := $(BIN_DIR)/wayfarer-won-input.sav
 WAYFARER_WON_SCRIPT := wayfarer/input_script_m9_start.txt
 WAYFARER_WON_REF := wayfarer/reference_m9_won.ppm
 WAYFARER_WON_OUT := $(BIN_DIR)/wayfarer-won-output.ppm
+# Milestone 12: a second, optional enemy - "the brute" (brute.c), a
+# bigger (16x16 vs. the original 8x8) two-hit enemy in room (2,1), one
+# of the two empty rooms Milestone 10 added. Not required to win - the
+# win-condition check never consults it - so all the existing win-path
+# references above stay completely untouched.
+WAYFARER_BRUTE_SCRIPT := wayfarer/input_script_m12_brute.txt
+WAYFARER_BRUTE_REF := wayfarer/reference_m12_brute.ppm
+WAYFARER_BRUTE_OUT := $(BIN_DIR)/wayfarer-brute-output.ppm
+WAYFARER_BRUTE_WAV_REF := wayfarer/reference_m12_brute_sfx.wav
+WAYFARER_BRUTE_WAV_OUT := $(BIN_DIR)/wayfarer-brute-sfx-output.wav
+WAYFARER_BRUTE_SAV_REF := wayfarer/reference_m12_brute.sav
+WAYFARER_BRUTE_SAV_OUT := $(BIN_DIR)/wayfarer-brute-output.sav
 
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
@@ -339,6 +351,18 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_WON_OUT) $(WAYFARER_WON_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 9 - a fresh boot loading a won save shows the win screen immediately after the title)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_WON_REF))"; exit 1)
+	rm -f $(WAYFARER_BRUTE_SAV_OUT)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --sav $(WAYFARER_BRUTE_SAV_OUT) --ppm $(WAYFARER_BRUTE_OUT) --frames 1060
+	cmp $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - the brute takes two hits to die, sitting in optional room (2,1))" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_BRUTE_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --wav $(WAYFARER_BRUTE_WAV_OUT) --seconds 19
+	cmp $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_WAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - the new channel-2 brute-hit thud on hit 1, the existing hit sfx on hit 2)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (captured audio doesn't match $(WAYFARER_BRUTE_WAV_REF))"; exit 1)
+	cmp $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_SAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - defeating the brute persists BIT_BRUTE to cart RAM)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_BRUTE_SAV_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -376,6 +400,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean

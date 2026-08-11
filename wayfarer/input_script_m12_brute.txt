@@ -1,0 +1,46 @@
+# Wayfarer Milestone 12 verification script (brute.c's two-hit brute,
+# room (2,1)).
+#
+# Sequence: dismiss the title screen -> move up and away from the
+# original enemy's own y=64 patrol row before crossing room (0,0), so
+# this script's own contact-damage exposure comes only from the brute
+# itself, not incidentally from Milestone 6's enemy -> cross east
+# through (0,0) and (1,0) into (2,0) (held well past the real
+# transition frame - room (2,0)'s own north/east walls safely pin the
+# player there, no overshoot risk) -> cross south into (2,1) (same
+# safe-pin-at-the-wall technique against (2,1)'s own south/east walls)
+# -> approach the brute's vertical patrol column (BRUTE_X=64) and face
+# right -> swing (frame 1015, the real, empirically-found first
+# overlap - scanned directly against the built ROM, not hand-computed
+# from patrol math, same methodology input_script_m8.txt's own comments
+# already document) for the first, non-lethal hit -> swing again at
+# frame 1025, deliberately only 10 frames later (inside
+# BRUTE_HIT_COOLDOWN_FRAMES's own 20-frame window) - confirmed a
+# genuine no-op (the brute stays at 1 HP, not defeated) - before the
+# real second, lethal swing at frame 1035 (20 frames after the first
+# real hit, right at the cooldown's own edge) actually defeats it.
+#
+# The exact working hit frames were found by an isolated per-frame
+# scan against the real build (temporarily instrumented with a serial
+# byte on each hit, removed again once the frames were confirmed) -
+# not derived from BRUTE_MIN_Y/MAX_Y/BRUTE_HIT_COOLDOWN_FRAMES by hand.
+10 START down
+11 START up
+20 UP down
+100 UP up
+100 RIGHT down
+550 RIGHT up
+550 DOWN down
+850 DOWN up
+850 LEFT down
+930 LEFT up
+930 UP down
+990 UP up
+990 RIGHT down
+991 RIGHT up
+1015 A down
+1016 A up
+1025 A down
+1026 A up
+1035 A down
+1036 A up

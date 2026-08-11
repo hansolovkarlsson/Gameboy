@@ -20,7 +20,8 @@
 
 void sfx_init(void) {
     NR52_REG = AUDENA_ON;
-    NR51_REG = AUDTERM_1_LEFT | AUDTERM_1_RIGHT | AUDTERM_4_LEFT | AUDTERM_4_RIGHT;
+    NR51_REG = AUDTERM_1_LEFT | AUDTERM_1_RIGHT | AUDTERM_2_LEFT | AUDTERM_2_RIGHT
+             | AUDTERM_4_LEFT | AUDTERM_4_RIGHT;
     NR50_REG = AUDVOL_VOL_LEFT(7) | AUDVOL_VOL_RIGHT(7);
 }
 
@@ -90,4 +91,23 @@ void sfx_play_win(void) {
     NR12_REG = (uint8_t)(AUDENV_VOL(15) | AUDENV_DOWN | AUDENV_LENGTH(3));
     NR13_REG = 0xB2;
     NR14_REG = AUDHIGH_RESTART | AUDHIGH_LENGTH_ON | 0x06;
+}
+
+// Channel 2 - entirely unused until now (channel 1 already carries the
+// four tones above, channel 4 carries sfx_play_damage()), so a genuine
+// second pulse channel keeps this unmistakably distinct without
+// touching any existing channel's behavior. The brute's own first
+// (non-lethal) hit - a lower, more percussive "thud" than any channel
+// 1 tone: a lower duty cycle (12.5% vs. channel 1's 50%), no sweep,
+// and the fastest possible envelope decay (AUDENV_LENGTH(1)) cut short
+// by a brief length counter, so only ~2-3 volume steps happen before
+// the note cuts off - a sharp hit, not a musical blip.
+// G3 (196.00 Hz) - exactly one octave below sfx_play_hit()'s own G4
+// base note, a deliberate "lesser hit vs. lethal hit" relationship:
+// period = round(2048 - 131072/196.00) = 1379 (0x563)
+void sfx_play_brute_hit(void) {
+    NR21_REG = AUDLEN_DUTY_12_5 | AUDLEN_LENGTH(54);
+    NR22_REG = (uint8_t)(AUDENV_VOL(15) | AUDENV_DOWN | AUDENV_LENGTH(1));
+    NR23_REG = 0x63;
+    NR24_REG = AUDHIGH_RESTART | AUDHIGH_LENGTH_ON | 0x05;
 }

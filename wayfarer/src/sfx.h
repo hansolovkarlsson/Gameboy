@@ -1,4 +1,4 @@
-// Five one-shot sound effects, each a single write-and-restart to one
+// Six one-shot sound effects, each a single write-and-restart to one
 // channel's registers - real GB hardware envelope/sweep/length-counter
 // decay does the rest, no per-frame service loop needed. Direct DMG/
 // CGB sound-register pokes, same approach as the sibling prism/
@@ -9,10 +9,11 @@
 
 void sfx_init(void);
 
-void sfx_play_swing(void);   // the sword swing itself - fires on every attempt, hit or miss
-void sfx_play_hit(void);     // the sword actually connecting with the enemy
-void sfx_play_pickup(void);  // the heart pickup or the key collected
-void sfx_play_damage(void);  // the player actually took damage (not a no-op invincible graze)
-void sfx_play_win(void);     // the win condition triggered
+void sfx_play_swing(void);      // the sword swing itself - fires on every attempt, hit or miss
+void sfx_play_hit(void);        // the sword connecting with the (one-hit) enemy, or the brute's second/lethal hit
+void sfx_play_pickup(void);     // the heart pickup or the key collected
+void sfx_play_damage(void);     // the player actually took damage (not a no-op invincible graze)
+void sfx_play_win(void);        // the win condition triggered
+void sfx_play_brute_hit(void);  // the brute's own first, non-lethal hit
 
 #endif

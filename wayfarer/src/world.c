@@ -7,18 +7,20 @@
 // Milestone 10 rooms (2,0)/(2,1)) stay plainly, fully connected -
 // (1,0)'s and (1,1)'s own east sides open onto (2,0)/(2,1), forming a
 // real explorable loop ((1,0)-(2,0)-(2,1)-(1,1)-(1,0)) alongside the
-// linear critical path, rather than a dead-end appendage. (2,0)/(2,1)
-// are empty exploration space - no enemy/pickup/key lives there. See
-// room.c's own door_side/DOOR_* for the purely-cosmetic door-texture
-// rendering; collision is still 100% driven by the has_* flags below,
-// unchanged from Milestone 2's own already-correct per-side bound
-// logic - confirmed general enough to grow the grid with zero other
-// changes, not assumed.
+// linear critical path, rather than a dead-end appendage. (2,0) is
+// still empty exploration space; (2,1) holds the brute (brute.c,
+// Milestone 12) - a deliberately optional second enemy, not required
+// to win. See room.c's own door_side/DOOR_* for the purely-cosmetic
+// door-texture rendering; collision is still 100% driven by the has_*
+// flags below, unchanged from Milestone 2's own already-correct
+// per-side bound logic - confirmed general enough to grow the grid
+// with zero other changes, not assumed.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
 #include <stdint.h>
 
+#include "brute.h"
 #include "enemy.h"
 #include "heart_hud.h"
 #include "key.h"
@@ -37,6 +39,13 @@
 // The one enemy (enemy.c) belongs to this room only.
 #define ENEMY_ROOM_X 0
 #define ENEMY_ROOM_Y 0
+
+// The brute (brute.c) belongs to this room only - one of the two empty
+// rooms Milestone 10 added. Deliberately optional: defeating it is not
+// required to win (the win-condition check at the end of
+// world_update() never consults it).
+#define BRUTE_ROOM_X 2
+#define BRUTE_ROOM_Y 1
 
 // The one heart pickup (pickup.c) belongs to this room only.
 #define PICKUP_ROOM_X 1
@@ -95,6 +104,10 @@ static uint8_t in_enemy_room(void) {
     return room_x == ENEMY_ROOM_X && room_y == ENEMY_ROOM_Y;
 }
 
+static uint8_t in_brute_room(void) {
+    return room_x == BRUTE_ROOM_X && room_y == BRUTE_ROOM_Y;
+}
+
 static uint8_t in_pickup_room(void) {
     return room_x == PICKUP_ROOM_X && room_y == PICKUP_ROOM_Y;
 }
@@ -115,6 +128,7 @@ static uint8_t in_key_room(void) {
 // real-hardware-safe timing carefully" discipline argues against.
 static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t entry_y) {
     uint8_t leaving_enemy_room = in_enemy_room();
+    uint8_t leaving_brute_room = in_brute_room();
     uint8_t leaving_pickup_room = in_pickup_room();
     uint8_t leaving_key_room = in_key_room();
 
@@ -132,6 +146,7 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     // per-frame update of their own to fall back on, unlike the enemy)
     // need an explicit show on entry too.
     if (leaving_enemy_room && !in_enemy_room()) enemy_hide();
+    if (leaving_brute_room && !in_brute_room()) brute_hide();
     if (leaving_pickup_room && !in_pickup_room()) pickup_hide();
     if (!leaving_pickup_room && in_pickup_room()) pickup_show();
     if (leaving_key_room && !in_key_room()) key_hide();
@@ -165,6 +180,8 @@ static void reset_world(void) {
     sword_init();
     enemy_init();
     enemy_load_defeated(sram_get_enemy_defeated());
+    brute_init();
+    brute_load_defeated(sram_get_brute_defeated());
     heart_hud_init();
     pickup_init();
     pickup_load_collected(sram_get_pickup_collected());
@@ -294,6 +311,37 @@ void world_update(uint8_t joy) {
                 if (player_damage(1)) sfx_play_damage();
                 if (player_get_hearts() == 0) {
                     go_to_room(ENEMY_ROOM_X, ENEMY_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
+                    player_heal_full();
+                }
+            }
+        }
+    }
+
+    if (in_brute_room()) {
+        brute_update();
+        if (sword_is_active()) {
+            uint8_t hit = brute_try_hit(sword_get_x(), sword_get_y(), 8, 8);
+            if (hit == 1) {
+                sfx_play_brute_hit();
+            } else if (hit == 2) {
+                sfx_play_hit();
+                sram_set_brute_defeated();
+            }
+        }
+        if (brute_is_alive()) {
+            uint8_t bx = brute_get_x();
+            uint8_t by = brute_get_y();
+            uint8_t pcx = player_get_x();
+            uint8_t pcy = player_get_y();
+            // 16x16 brute vs. 16x16 player - a plain symmetric AABB,
+            // unlike the enemy block's own +8/+16 asymmetry (that
+            // enemy is only 8x8).
+            uint8_t overlap_x = pcx < (uint8_t)(bx + 16) && (uint8_t)(pcx + 16) > bx;
+            uint8_t overlap_y = pcy < (uint8_t)(by + 16) && (uint8_t)(pcy + 16) > by;
+            if (overlap_x && overlap_y) {
+                if (player_damage(1)) sfx_play_damage();
+                if (player_get_hearts() == 0) {
+                    go_to_room(BRUTE_ROOM_X, BRUTE_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
                     player_heal_full();
                 }
             }

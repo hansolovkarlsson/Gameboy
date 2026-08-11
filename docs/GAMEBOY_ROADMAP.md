@@ -4085,6 +4085,111 @@ rendering. Full regression suite (unit tests, all visual/game/
 savestate targets, all three RGBDS ROMs, `gameboy-prism-build`) stayed
 green - this change touches only `wayfarer/`.
 
-**Next**: further Wayfarer work is open-ended (more rooms, a new enemy
-in the expanded space, a fuller inventory, deeper audio) rather than
-following a fixed list, once user-directed.
+**Milestone 12 (this pass): done - a second, optional enemy ("the
+brute").** Populates room (2,1), one of the two rooms Milestone 10 left
+as empty exploration space, with a bigger, tougher enemy: 16x16 (vs.
+the original enemy's 8x8), takes two hits to kill, and plays a
+distinct sound on each hit. Deliberately **optional** - the win
+condition (checked at the very end of `world_update()`) still only
+consults the original enemy and the goal room, unchanged, so this is
+pure additional content, not a harder required path; the existing
+win-path references (`reference_m11.ppm`, `reference_m8.sav`,
+`reference_m9_won.ppm`) all stayed byte-identical, the real proof of
+that.
+
+**`wayfarer/src/brute.c`/`brute.h`** (new): mirrors `enemy.c`/
+`enemy.h`'s shape closely, with three real differences. **Bigger**: a
+16x16, 2x2-metasprite circular blob (4 quadrant tiles, generated via
+the same per-pixel circular-distance-from-center technique `enemy.c`
+already documents, just at double the radius - rendered and visually
+verified before being transcribed into the source), its own OBJ
+palette (a violet/purple ramp, distinct from the original enemy's red/
+orange "danger" coding), patrolling *vertically* in room (2,1) (the
+original patrols horizontally - free visual variety from a one-axis
+swap). **Two hits to kill, with a post-hit cooldown**: the sword stays
+active for `SWORD_FRAMES` (12 frames, `sword.c`) and `world.c`
+re-checks the hit-test every one of those frames - without a cooldown,
+one held swing would register as several hits in a row, defeating "two
+hits" entirely. `BRUTE_HIT_COOLDOWN_FRAMES` (20) is comfortably longer
+than 12 so a single swing can never double-count, but short enough a
+real follow-up swing still lands at a natural pace. **A 3-state
+`brute_try_hit()` return** (0 = no hit, 1 = hit but still alive, 2 =
+hit and defeated, documented in the header since it's a real departure
+from `enemy_try_hit()`'s plain boolean) lets `world.c` choose which
+sound to play.
+
+**`wayfarer/src/sram.c`/`sram.h`**: a new `BIT_BRUTE` flag +
+`sram_get_brute_defeated()`/`sram_set_brute_defeated()`, the same
+getter/setter-saves-immediately shape the existing four flags already
+use.
+
+**`wayfarer/src/sfx.c`/`sfx.h`**: a required fix, not just an addition
+- `sfx_init()`'s `NR51_REG` previously only routed channels 1 and 4 to
+output; a new channel-2 sound would have been silent without also
+adding `AUDTERM_2_LEFT`/`AUDTERM_2_RIGHT`. The new
+`sfx_play_brute_hit()` lands on channel 2 (entirely unused until now -
+channel 1 already carries four tones, channel 4 carries damage), G3
+(196.00 Hz, exactly one octave below `sfx_play_hit()`'s own G4 base
+note - a deliberate "lesser hit vs. lethal hit" relationship), a lower
+duty cycle and the fastest possible envelope decay for a sharp,
+percussive "thud" rather than a musical blip. The brute's *second*
+(lethal) hit reuses the existing `sfx_play_hit()` unchanged -
+deliberately shared "this defeated something" language, the same
+reasoning `sfx_play_pickup()` already gets for both the heart pickup
+and the key.
+
+**`wayfarer/src/world.c`**: `BRUTE_ROOM_X`/`BRUTE_ROOM_Y` (2,1),
+`in_brute_room()`, the same asymmetric hide-on-leave tracking the
+original enemy gets in `go_to_room()` (no explicit show needed -
+`brute_update()` repositions every frame once in-room, same mechanism
+the original enemy relies on), `reset_world()`'s `brute_init()`/
+`brute_load_defeated()` calls, and a new `if (in_brute_room())` block
+in `world_update()` - deliberately placed alongside, not factored with,
+the existing enemy block (this project's own "three similar lines is
+better than a premature abstraction" style already keeps the pickup/
+key/enemy blocks independent despite real similarity). Contact damage
+against the player reuses the existing `player_damage()`/
+`sfx_play_damage()`/on-death-respawn pattern, with the AABB math
+updated for a 16x16 (not 8x8) body and the respawn point targeting the
+brute's own room, not hardcoded to the original enemy's.
+
+**Verified** with a real scripted playthrough
+(`wayfarer/input_script_m12_brute.txt`): deliberately routes *up and
+away* from the original enemy's own y=64 patrol row before crossing
+room (0,0), so this script's own contact-damage exposure comes only
+from the brute itself, not incidentally from Milestone 6's enemy (an
+early version of this script that crossed straight through both
+enemies' rows ran the player out of hearts and triggered an unrelated
+mid-fight respawn, corrupting the test - re-routed once diagnosed, a
+real methodology finding worth recording, not just a fixed bug). The
+two real hit frames were found by an isolated per-candidate-frame scan
+directly against the built ROM (temporarily instrumenting
+`brute_try_hit()` with a one-off serial byte on each hit, read back via
+this project's own existing `gb_serial_output_hook` - the same
+mechanism the RGBDS Blargg-style tests already rely on - then removed
+again once the two real frames were confirmed and a clean rebuild
+reproduced the identical result), not computed by hand from the patrol
+constants - the same "scan the real build, don't hand-derive" 5-frame
+lesson `input_script_m8.txt`'s own comments already documented. The
+script also deliberately includes a third swing *inside* the 20-frame
+cooldown window between the two real hits, confirmed to be a genuine
+no-op (verified directly via the serial instrumentation before it was
+removed) - real proof the double-hit guard works, not an assumption.
+
+As predicted going in, touching `sfx_init()`'s `NR51_REG` (a new
+channel routed, on top of the usual code-size/cycle-count risk) shifted
+`reference_m11_sfx.wav`'s exact sample timing even though no existing
+sound's own logic changed - confirmed via `analyze_sfx.py` that the
+same 6 events still land at the same approximate timestamps, then
+re-locked in place, the same treatment Milestones 9, 10, and the
+Milestone 11 follow-up all already needed. `reference_m12_brute.ppm`/
+`.sav`/`_sfx.wav` are new; three new checks were appended to
+`gameboy-wayfarer-build` (frame, WAV, `.sav` - confirming `BIT_BRUTE`)
+following the exact shape of the existing checks. Full regression
+suite (unit tests, all visual/game/savestate targets, all three RGBDS
+ROMs, `gameboy-prism-build`) stayed green - this change touches only
+`wayfarer/`.
+
+**Next**: further Wayfarer work is open-ended (more rooms, a fuller
+inventory, deeper audio) rather than following a fixed list, once
+user-directed.
