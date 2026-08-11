@@ -25,6 +25,7 @@
 #define BIT_WON 0x08
 #define BIT_BRUTE 0x10
 #define BIT_SWORD 0x20
+#define BIT_SHIELD 0x40
 
 static uint8_t state;
 
@@ -46,6 +47,7 @@ uint8_t sram_get_enemy_defeated(void) { return (state & BIT_ENEMY) != 0; }
 uint8_t sram_get_won(void) { return (state & BIT_WON) != 0; }
 uint8_t sram_get_brute_defeated(void) { return (state & BIT_BRUTE) != 0; }
 uint8_t sram_get_sword_collected(void) { return (state & BIT_SWORD) != 0; }
+uint8_t sram_get_shield_collected(void) { return (state & BIT_SHIELD) != 0; }
 
 static void save(void) {
     ENABLE_RAM;
@@ -60,6 +62,7 @@ void sram_set_enemy_defeated(void) { state |= BIT_ENEMY; save(); }
 void sram_set_won(void) { state |= BIT_WON; save(); }
 void sram_set_brute_defeated(void) { state |= BIT_BRUTE; save(); }
 void sram_set_sword_collected(void) { state |= BIT_SWORD; save(); }
+void sram_set_shield_collected(void) { state |= BIT_SHIELD; save(); }
 
 void sram_reset(void) {
     state = 0;

@@ -28,6 +28,7 @@
 #include "player.h"
 #include "room.h"
 #include "sfx.h"
+#include "shield.h"
 #include "sram.h"
 #include "sword.h"
 #include "sword_pickup.h"
@@ -48,6 +49,11 @@
 // either room is ever moved independently later.
 #define SWORD_PICKUP_ROOM_X 0
 #define SWORD_PICKUP_ROOM_Y 0
+
+// The shield (shield.c) belongs to this room only - the last of the
+// two rooms Milestone 10 left as empty exploration space.
+#define SHIELD_ROOM_X 2
+#define SHIELD_ROOM_Y 0
 
 // The brute (brute.c) belongs to this room only - one of the two empty
 // rooms Milestone 10 added. Deliberately optional: defeating it is not
@@ -74,6 +80,15 @@ static uint8_t room_x;
 static uint8_t room_y;
 static uint8_t prev_joy;
 static uint8_t won;
+// Edge-triggered block sfx - a block has no invincibility timer of its
+// own to naturally gate repeat frames the way an unblocked hit already
+// gets for free from player_damage()'s own invincible_timer, so these
+// mirror the same "was_swinging" idiom this file already uses for the
+// swing sfx. Kept independent, not shared, matching this project's own
+// "don't factor two similar-but-independent blocks together" style
+// already established for the enemy/brute contact blocks themselves.
+static uint8_t was_blocking_enemy;
+static uint8_t was_blocking_brute;
 
 // Plain grid-topology defaults, then two overrides: a permanent sever
 // (the (0,0)<->(0,1) edge, never open, not key-gated - see the file
@@ -117,6 +132,10 @@ static uint8_t in_sword_pickup_room(void) {
     return room_x == SWORD_PICKUP_ROOM_X && room_y == SWORD_PICKUP_ROOM_Y;
 }
 
+static uint8_t in_shield_room(void) {
+    return room_x == SHIELD_ROOM_X && room_y == SHIELD_ROOM_Y;
+}
+
 static uint8_t in_brute_room(void) {
     return room_x == BRUTE_ROOM_X && room_y == BRUTE_ROOM_Y;
 }
@@ -143,6 +162,7 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     uint8_t leaving_enemy_room = in_enemy_room();
     uint8_t leaving_brute_room = in_brute_room();
     uint8_t leaving_sword_pickup_room = in_sword_pickup_room();
+    uint8_t leaving_shield_room = in_shield_room();
     uint8_t leaving_pickup_room = in_pickup_room();
     uint8_t leaving_key_room = in_key_room();
 
@@ -163,6 +183,8 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     if (leaving_brute_room && !in_brute_room()) brute_hide();
     if (leaving_sword_pickup_room && !in_sword_pickup_room()) sword_pickup_hide();
     if (!leaving_sword_pickup_room && in_sword_pickup_room()) sword_pickup_show();
+    if (leaving_shield_room && !in_shield_room()) shield_hide();
+    if (!leaving_shield_room && in_shield_room()) shield_show();
     if (leaving_pickup_room && !in_pickup_room()) pickup_hide();
     if (!leaving_pickup_room && in_pickup_room()) pickup_show();
     if (leaving_key_room && !in_key_room()) key_hide();
@@ -198,6 +220,8 @@ static void reset_world(void) {
     // data this reuses - must run after it.
     sword_pickup_init();
     sword_pickup_load_collected(sram_get_sword_collected());
+    shield_init();
+    shield_load_collected(sram_get_shield_collected());
     enemy_init();
     enemy_load_defeated(sram_get_enemy_defeated());
     brute_init();
@@ -210,6 +234,7 @@ static void reset_world(void) {
     // Correct regardless of which room the game happens to start in,
     // not just assumed safe because today it's (0,0).
     if (in_sword_pickup_room()) sword_pickup_show(); else sword_pickup_hide();
+    if (in_shield_room()) shield_show(); else shield_hide();
     if (in_pickup_room()) pickup_show(); else pickup_hide();
     if (in_key_room()) key_show(); else key_hide();
 
@@ -326,6 +351,13 @@ void world_update(uint8_t joy) {
         }
     }
 
+    if (in_shield_room() && !shield_is_collected()) {
+        if (shield_try_collect(player_get_x(), player_get_y(), 16, 16)) {
+            sfx_play_pickup();
+            sram_set_shield_collected();
+        }
+    }
+
     if (in_enemy_room()) {
         enemy_update();
         if (sword_is_active()) {
@@ -342,11 +374,19 @@ void world_update(uint8_t joy) {
             uint8_t overlap_x = pcx < (uint8_t)(ex + 8) && (uint8_t)(pcx + 16) > ex;
             uint8_t overlap_y = pcy < (uint8_t)(ey + 8) && (uint8_t)(pcy + 16) > ey;
             if (overlap_x && overlap_y) {
-                if (player_damage(1)) sfx_play_damage();
-                if (player_get_hearts() == 0) {
-                    go_to_room(ENEMY_ROOM_X, ENEMY_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
-                    player_heal_full();
+                uint8_t blocking = shield_blocks(pcx, pcy, 16, 16, ex, ey, 8, 8, player_get_facing());
+                if (blocking) {
+                    if (!was_blocking_enemy) sfx_play_block();
+                } else {
+                    if (player_damage(1)) sfx_play_damage();
+                    if (player_get_hearts() == 0) {
+                        go_to_room(ENEMY_ROOM_X, ENEMY_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
+                        player_heal_full();
+                    }
                 }
+                was_blocking_enemy = blocking;
+            } else {
+                was_blocking_enemy = 0;
             }
         }
     }
@@ -373,11 +413,19 @@ void world_update(uint8_t joy) {
             uint8_t overlap_x = pcx < (uint8_t)(bx + 16) && (uint8_t)(pcx + 16) > bx;
             uint8_t overlap_y = pcy < (uint8_t)(by + 16) && (uint8_t)(pcy + 16) > by;
             if (overlap_x && overlap_y) {
-                if (player_damage(1)) sfx_play_damage();
-                if (player_get_hearts() == 0) {
-                    go_to_room(BRUTE_ROOM_X, BRUTE_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
-                    player_heal_full();
+                uint8_t blocking = shield_blocks(pcx, pcy, 16, 16, bx, by, 16, 16, player_get_facing());
+                if (blocking) {
+                    if (!was_blocking_brute) sfx_play_block();
+                } else {
+                    if (player_damage(1)) sfx_play_damage();
+                    if (player_get_hearts() == 0) {
+                        go_to_room(BRUTE_ROOM_X, BRUTE_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
+                        player_heal_full();
+                    }
                 }
+                was_blocking_brute = blocking;
+            } else {
+                was_blocking_brute = 0;
             }
         }
     }

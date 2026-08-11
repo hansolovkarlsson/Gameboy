@@ -32,7 +32,7 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 13 (the player starts without a sword)
+## Status: Milestone 14 (a shield pickup - directional blocking)
 
 Milestones 1-4 built a small bordered-room grid with a freely-walking,
 collision-checked, combat-capable player: a one-shot sword swing, one
@@ -49,7 +49,9 @@ a way to restart from the win screen (with a "PRESS START" hint added
 just after). Milestone 12 populated one of Milestone 10's two empty
 rooms with a second, optional enemy (and fixed a real sprite-tile-ID
 bug found right after). Milestone 13 makes the sword itself a pickup —
-the player starts unarmed.
+the player starts unarmed. Milestone 14 adds a shield pickup with real
+directional blocking, closing out the last of Milestone 10's two empty
+rooms.
 
 **Real bug report**: Milestone 9's SRAM save meant a `won` save loaded
 straight back into the win screen (by design) — but there was never a
@@ -173,3 +175,42 @@ didn't, quite — a real, confirmed instance of this project's own
 along with its WAV for the new detour); `reference_m11_sfx.wav`/
 `reference_m12_brute_sfx.wav` both needed re-locking, one more real
 instance of "any code-size change can shift exact sample timing."
+
+**Milestone 14**: a shield pickup in room (2,0), the last of the two
+rooms Milestone 10 left empty. Blocks contact damage - but only
+*directionally*, a real skill element (classic Zelda-style blocking):
+`shield_blocks()` compares the box centers of the player and the
+threat, picks the dominant axis (the larger of the x/y distance, ties
+favoring horizontal), and requires the player's current facing to
+point at that same side - not merely "shield equipped." `shield.c`
+claims **zero new sprite tile/palette IDs** (a real, new hand-drawn
+heater-shield tile, but reusing the sprite-ID-registry discipline the
+Milestone 12 follow-up established) and needs just one new OAM slot.
+Both existing contact-damage sites (the enemy and the brute) route
+through this same check now; a new edge-triggered `sfx_play_block()`
+(channel 2, a bright "ting" distinct from the brute's own low "thud")
+plays once per block, mirroring the existing `was_swinging` idiom
+since a block has no invincibility timer of its own to naturally gate
+repeat frames.
+
+Verified against the brute (closer to the new pickup than the
+original enemy, so the round trip is far shorter) with a real,
+un-scripted demonstration of the mechanic's own directional nature:
+walking straight at it (facing matches its position) blocks contact
+correctly, then - without any extra scripting - the brute's own
+continuous patrol carries it out of the faced direction mid-contact,
+and blocking correctly stops, taking exactly one real hit. Confirmed
+directly via a temporary serial-instrumented probe before it was
+removed, plus 10 hardcoded synthetic geometry cases covering all 4
+directions and the horizontal-wins-tie edge case (SDCC's optimizer
+flags this function with a well-known, unrelated false-positive
+warning - verified benign against the real build, documented inline
+rather than silenced). Two locked references mirror Milestone 12's own
+"alive" + "defeated" two-checkpoint shape: still-blocked (2 hearts)
+and post-transition (1 heart) - real regression coverage for both
+states, not just the net result. `reference_m11_sfx.wav`/
+`reference_m12_brute_sfx.wav` both needed re-locking again (same
+"any code-size change can shift exact sample timing" finding, a fourth
+time now); `input_script_m8.txt`/`m11.txt`/`m12_brute.txt` themselves
+needed no changes at all, since the shield's own room placement was
+chosen off every existing script's own walked path.

@@ -4312,6 +4312,97 @@ the player already had one.
   throughout, confirmed via a full `make clean` rebuild - this change
   touches only `wayfarer/`.
 
+**Milestone 14 (this pass): done - a shield pickup with real
+directional blocking.** Following the sword pickup, the user asked for
+a shield: a second equipment pickup blocking contact damage, but only
+while the player actively faces the threat - a real skill element
+(classic Zelda-style blocking), confirmed with the user directly over
+the alternative (flat damage immunity). Also closes out room (2,0),
+the last of the two rooms Milestone 10 left as empty exploration space
+(Milestone 12 already populated the other, (2,1), with the brute).
+
+**`wayfarer/src/shield.c`/`.h`** (new): mirrors `sword_pickup.c`'s
+shape (a stationary room-bound collectible, no per-frame update of its
+own), plus the actual point of the milestone:
+```c
+uint8_t shield_blocks(uint8_t px, uint8_t py, uint8_t pw, uint8_t ph,
+                       uint8_t tx, uint8_t ty, uint8_t tw, uint8_t th,
+                       uint8_t facing);
+```
+Compares box centers (player vs. threat), picks the dominant axis by
+distance (the larger of the x/y gap, a tie favoring horizontal - the
+same "fixed, documented tie-break" style `world.c`'s own room-
+transition checking order already uses), and requires `facing` to
+point at that same side - not merely "shield equipped." Implemented
+entirely in unsigned `uint8_t` arithmetic (direction and distance
+computed as two separate plain comparisons, not a single signed
+subtraction) after an earlier `int16_t` draft triggered SDCC's own
+`warning 110: conditional flow changed by optimizer: so said EVELYN
+the modified DOG` - a real, if famously oddly-worded, SDCC quirk.
+Rewriting to unsigned-only arithmetic didn't clear the warning either
+(it persisted at the same source lines regardless of the surrounding
+logic's shape), so rather than keep guessing at what the optimizer
+diagnostic actually meant, correctness was confirmed directly: 10
+hardcoded geometry cases (all 4 directions plus the horizontal-wins-tie
+edge case, 2 facings each) emitted via a temporary serial hook and
+diffed against hand-computed expected results, all matching exactly.
+Documented inline in `shield.c` rather than silenced or worked around
+further - a real, verified-benign compiler quirk, not a correctness
+bug, and worth being honest about rather than pretending it never
+happened.
+
+**IDs**: a real new hand-drawn 8x8 tile (a rounded-top, pointed-bottom
+heater-shield silhouette, generated the same "draw directly, verify by
+rendering" way `heart_hud.c`'s heart and `key.c`'s key already were)
+and a new blue/silver palette, but the full sprite-tile/OAM/palette
+registry was re-confirmed directly against every source file before
+claiming any of them - the exact discipline the Milestone 12 follow-up
+above established after getting burned once already.
+
+**`wayfarer/src/world.c`**: both existing contact-damage sites (the
+enemy and the brute) now route through `shield_blocks()` instead of an
+unconditional hit; a new edge-triggered `sfx_play_block()` (channel 2,
+a bright "ting," distinct from the brute's own low channel-2 "thud")
+fires once per block via the same `was_swinging`-style idiom already
+used for the swing sfx - needed because a block has no invincibility
+timer of its own to naturally gate repeat frames the way an unblocked
+hit already gets for free.
+
+**Verified** against the brute rather than the original enemy (much
+closer to the shield's own room, so the round trip is far shorter) -
+and not with a contrived facing-change step, but by simply walking
+straight at it and continuing to hold that direction. This produced a
+genuine, real demonstration of the mechanic's own directional nature
+without any extra scripting: contact starts out correctly blocked
+(the brute is below the player, matching its own vertical patrol and
+the player's own facing), then - as the brute's continuous patrol
+carries it level with and past the stationary-facing player - the
+geometry legitimately shifts (the shrinking y-distance drops below the
+small x-offset, flipping the dominant axis) and blocking correctly
+stops, taking exactly one real hit. Confirmed directly via a temporary
+serial-instrumented probe (`shield_is_collected()`/facing/
+`shield_blocks()`'s own result, emitted every overlapping frame,
+removed once confirmed) before locking anything - the same "verify
+against the real build, don't just trust source-level reasoning"
+discipline this project always applies. Two locked references mirror
+the brute follow-up's own "alive" + "defeated" two-checkpoint shape:
+`reference_m14_shield_blocked.ppm` (mid-approach, still genuinely
+blocked, 2 hearts) and `reference_m14_shield.ppm` (well after the
+natural transition, 1 heart) - real regression coverage for both
+states, not just the net result.
+
+The shield's own room placement (72,24) was chosen deliberately off
+every existing script's own walked path (unlike the sword pickup's
+deliberately-on-the-path placement), so `input_script_m8.txt`/`m11.txt`/
+`m12_brute.txt` needed no position or state changes at all - confirmed,
+not assumed. `reference_m11_sfx.wav`/`reference_m12_brute_sfx.wav`
+both still needed re-locking (a fourth real instance now of "any
+code-size change can shift exact sample timing," verified via
+`analyze_sfx.py` and re-locked in place each time). Full regression
+suite (unit tests, all visual/game/savestate targets, all three RGBDS
+ROMs, `gameboy-prism-build`) stayed green throughout, confirmed via a
+full `make clean` rebuild - this change touches only `wayfarer/`.
+
 **Next**: further Wayfarer work is open-ended (more rooms, a fuller
 inventory, deeper audio) rather than following a fixed list, once
 user-directed.

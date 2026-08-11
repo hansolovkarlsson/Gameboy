@@ -1,0 +1,42 @@
+# Wayfarer Milestone 14 verification script (shield.c's directional
+# block, room (2,0)).
+#
+# Sequence: dismiss the title screen -> hold RIGHT along the enemy's
+# own y=64 row, crossing (0,0) and (1,0) into (2,0) (an incidental,
+# untested hit from the original enemy may land here - harmless, this
+# script only asserts hearts at and after the shield test below, not
+# before) -> UP then LEFT to reach the shield's own fixed position
+# (72,24), collecting it -> continue DOWN, crossing south through
+# (2,0) into (2,1) (the brute's room) -> keep holding DOWN to approach
+# the brute head-on, facing down the whole time.
+#
+# The approach demonstrates the shield's real, directional nature, not
+# just "equipped = invincible": confirmed directly via a temporary
+# serial-instrumented probe (shield_is_collected()/facing/shield_blocks()
+# emitted every overlapping frame, removed once confirmed) that contact
+# starts out genuinely BLOCKED (the brute is below the stationary-
+# facing-down player, matching its own vertical patrol) for the first
+# ~6 overlapping frames, then - as the brute's own continuous patrol
+# carries it level with and past the player - the geometry legitimately
+# shifts (y-distance shrinks below the small x-offset, flipping the
+# dominant axis) and blocking correctly stops, taking exactly one real
+# hit. This is the mechanic working as designed, not a bug: a shield
+# only blocks the threat's actual current position, not a fixed
+# starting direction.
+#
+# Two checkpoints, mirroring Milestone 12's own "alive" + "defeated"
+# two-reference pattern: frame 625, still mid-approach and still fully
+# blocked (2 hearts, unchanged from crossing (2,0)) - and frame 700,
+# well after the natural block-to-unblock transition (1 heart, exactly
+# one real hit taken, confirming the transition happened for real and
+# didn't repeat or cascade into a respawn).
+10 START down
+11 START up
+20 RIGHT down
+356 RIGHT up
+356 UP down
+396 UP up
+396 LEFT down
+460 LEFT up
+460 DOWN down
+684 DOWN up

@@ -111,3 +111,19 @@ void sfx_play_brute_hit(void) {
     NR23_REG = 0x63;
     NR24_REG = AUDHIGH_RESTART | AUDHIGH_LENGTH_ON | 0x05;
 }
+
+// The shield successfully blocking a hit - shares channel 2 with
+// sfx_play_brute_hit() (never both at once - a block replaces a would-
+// be hit, not layered on top of one) but deliberately a bright, high
+// "ting" rather than a low "thud": a higher duty cycle (25% vs. the
+// brute-hit's 12.5%) and a higher pitch, still a sharp, short
+// percussive note (same fast AUDENV_LENGTH(1) decay), so it reads as
+// "deflected," not as another kind of hit.
+// G6 (1568.00 Hz), two octaves above sfx_play_brute_hit()'s own G3:
+// period = round(2048 - 131072/1568.00) = 1964 (0x7AC)
+void sfx_play_block(void) {
+    NR21_REG = AUDLEN_DUTY_25 | AUDLEN_LENGTH(54);
+    NR22_REG = (uint8_t)(AUDENV_VOL(15) | AUDENV_DOWN | AUDENV_LENGTH(1));
+    NR23_REG = 0xAC;
+    NR24_REG = AUDHIGH_RESTART | AUDHIGH_LENGTH_ON | 0x07;
+}

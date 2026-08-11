@@ -223,6 +223,24 @@ WAYFARER_BRUTE_SAV_OUT := $(BIN_DIR)/wayfarer-brute-output.sav
 WAYFARER_BRUTE_ALIVE_REF := wayfarer/reference_m12_brute_alive.ppm
 WAYFARER_BRUTE_ALIVE_OUT := $(BIN_DIR)/wayfarer-brute-alive-output.ppm
 
+# Milestone 14: a shield pickup (shield.c) in room (2,0), the last of
+# the two rooms Milestone 10 left empty. Blocks contact damage, but
+# only directionally (the player must be facing the threat's actual
+# current position) - not required to win, purely a defensive upgrade.
+WAYFARER_SHIELD_SCRIPT := wayfarer/input_script_m14_shield.txt
+WAYFARER_SHIELD_REF := wayfarer/reference_m14_shield.ppm
+WAYFARER_SHIELD_OUT := $(BIN_DIR)/wayfarer-shield-output.ppm
+# Mid-approach, still genuinely blocked (2 hearts) - the counterpart to
+# WAYFARER_SHIELD_REF's own post-transition state (1 heart), the same
+# two-checkpoint shape WAYFARER_BRUTE_ALIVE_REF/WAYFARER_BRUTE_REF
+# already establishes.
+WAYFARER_SHIELD_BLOCKED_REF := wayfarer/reference_m14_shield_blocked.ppm
+WAYFARER_SHIELD_BLOCKED_OUT := $(BIN_DIR)/wayfarer-shield-blocked-output.ppm
+WAYFARER_SHIELD_WAV_REF := wayfarer/reference_m14_shield_sfx.wav
+WAYFARER_SHIELD_WAV_OUT := $(BIN_DIR)/wayfarer-shield-sfx-output.wav
+WAYFARER_SHIELD_SAV_REF := wayfarer/reference_m14_shield.sav
+WAYFARER_SHIELD_SAV_OUT := $(BIN_DIR)/wayfarer-shield-output.sav
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -375,6 +393,22 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_SAV_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - defeating the brute persists BIT_BRUTE to cart RAM)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_BRUTE_SAV_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SHIELD_SCRIPT) --ppm $(WAYFARER_SHIELD_BLOCKED_OUT) --frames 625
+	cmp $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_BLOCKED_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 14 - the shield blocks a contact hit while facing the brute)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_SHIELD_BLOCKED_REF))"; exit 1)
+	rm -f $(WAYFARER_SHIELD_SAV_OUT)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SHIELD_SCRIPT) --sav $(WAYFARER_SHIELD_SAV_OUT) --ppm $(WAYFARER_SHIELD_OUT) --frames 700
+	cmp $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 14 - the block correctly stops once the brute's patrol carries it out of the faced direction)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_SHIELD_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_SHIELD_SCRIPT) --wav $(WAYFARER_SHIELD_WAV_OUT) --seconds 13
+	cmp $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_WAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 14 - the block sfx fires once, then the existing damage sfx once the block ends)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (captured audio doesn't match $(WAYFARER_SHIELD_WAV_REF))"; exit 1)
+	cmp $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_SHIELD_SAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 14 - collecting the shield persists BIT_SHIELD to cart RAM)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_SHIELD_SAV_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -412,6 +446,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean
