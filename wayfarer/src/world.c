@@ -24,6 +24,7 @@
 #include "enemy.h"
 #include "heart_hud.h"
 #include "key.h"
+#include "music.h"
 #include "pickup.h"
 #include "player.h"
 #include "room.h"
@@ -211,6 +212,7 @@ static void reset_world(void) {
     won = 0;
 
     sram_init();
+    music_init();
 
     room_init(); // one-time tile/palette load
     draw_current_room();
@@ -290,6 +292,8 @@ void world_update(uint8_t joy) {
         if (pressed & J_START) restart_game();
         return;
     }
+
+    music_update();
 
     player_update(joy);
 
@@ -454,6 +458,7 @@ void world_update(uint8_t joy) {
     // to become true.
     if (!won && !enemy_is_alive() && room_x == WIN_ROOM_X && room_y == WIN_ROOM_Y) {
         won = 1;
+        music_stop();
         sfx_play_win();
         win_play();
         sram_set_won();

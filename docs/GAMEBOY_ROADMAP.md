@@ -4403,6 +4403,112 @@ suite (unit tests, all visual/game/savestate targets, all three RGBDS
 ROMs, `gameboy-prism-build`) stayed green throughout, confirmed via a
 full `make clean` rebuild - this change touches only `wayfarer/`.
 
+**Milestone 15 (this pass): done - looping background music.** The
+game had one-shot sound effects since Milestone 7 but no music at all.
+The user asked for background music as the next feature.
+
+**Channel choice**: channel 3 (the wave channel), entirely untouched
+by this project until now - `sfx.c` already owns channels 1
+(swing/hit/pickup/win), 2 (brute-hit/block), and 4 (damage). Using the
+one remaining channel means music and every existing sfx mix in
+hardware for free, zero ducking/priority logic needed. Confirmed the
+emulator's own `src/apu.c` fully implements channel 3
+(`trigger_ch3()`, wave RAM at `0xFF30-0xFF3F`, registers at
+`0xFF1A-0xFF1E`) and it's already exercised by `test_roms/droneboy` (a
+real 4-channel drone ROM) - no emulator-side gap to work around.
+Channel 3's own frequency formula is genuinely different from channels
+1/2's: `freq = 65536/(2048-period)`, not `131072/...` - confirmed
+directly against `src/apu.c`'s own `period_timer` reload (`*2` for
+channel 3 vs. `*4` for channels 1/2, since the wave channel advances
+its 32-step table at half the rate a pulse channel advances its
+8-step duty cycle), not assumed the same as the pulse-channel formula.
+`sfx.c`'s own top comment, which previously overgeneralized "channels
+1/2/3" as sharing one formula (true only of the register *format*, not
+the resulting frequency), was corrected in the same commit as a real,
+if small, accuracy fix.
+
+**`wayfarer/src/music.c`/`.h`** (new): `music_init()` programs a
+32-sample triangle wave (ramps 0→15→0 across the wave channel's own
+4-bit sample range - a soft, mellow timbre, deliberately different in
+*character* from every sfx's own sharp duty-cycle pulse tone, the same
+"distinct timbre, not just distinct pitch" reasoning
+`sfx_play_damage()`'s own noise-channel choice already established)
+into `AUD3WAVE[16]`, sets the output level, and resets the sequencer.
+`music_update()`, called once per frame, decrements a frame countdown
+and, at 0, advances to the next step of a fixed 16-step note table
+(period + duration in frames), retriggering channel 3 for a new note
+or clearing `NR30_REG`'s DAC-enable bit for a rest, without an
+audible click either way. `music_stop()` clears `NR30_REG` - called
+once, the moment the player wins, so the loop doesn't keep playing
+under the win screen/jingle.
+
+**Melody**: an original 16-step phrase in C major (not a
+transcription of any existing game's real theme), quarter notes at
+~120 BPM (30 frames/note at ~59.7 fps; two notes held for 60 frames as
+small "arrival"/cadence points), plus a trailing rest - 14 short steps
++ 2 held steps + 1 rest = 540 frames, looping roughly every 9.0s (a
+first draft of this comment said "570 frames/~9.5s," a real arithmetic
+error caught during verification, not before - see below).
+
+**Integration** (`wayfarer/src/sfx.c`, `wayfarer/src/world.c`):
+`sfx_init()`'s `NR51_REG` gets `AUDTERM_3_LEFT`/`AUDTERM_3_RIGHT`
+added - the same required, not optional, step Milestone 12 already
+established for channel 2. `reset_world()` calls `music_init()`;
+`world_update()` calls `music_update()` once per frame, placed right
+after the existing `if (won) {...return;}` early-out; the win-
+condition block calls `music_stop()` alongside the existing
+`sfx_play_win()`/`win_play()` calls.
+
+**Verified - a real, larger scope than any prior WAV-reference
+change**, called out honestly rather than downplayed: past milestones
+shifted *when* existing sounds land (cycle-count drift) or added one
+new *one-shot* event. This one adds continuous new audio content
+throughout every existing script's entire runtime, from the moment
+gameplay begins - a qualitatively bigger change, not just a re-lock.
+A new `wayfarer/input_script_m15_music.txt` (title dismiss only, no
+other input) isolates the melody alone. Correctness was verified
+against the built ROM's own actual audio output, not assumed from the
+source: sampling dominant frequency (a small DFT-based probe, distinct
+from `analyze_sfx.py`'s own event detector) at 8 of the 16 steps' own
+midpoints confirmed each matches its intended note frequency within
+measurement resolution - this is exactly what caught the 570-vs-540-
+frame arithmetic error above (a sample at the wrongly-computed rest
+midpoint landed on the *next* loop's C4 instead of silence, which is
+what led to finding and fixing the real total). The rest step was then
+confirmed genuinely silent at the *correct* midpoint, and the loop
+restart was confirmed clean.
+
+For the three existing scripts (`input_script_m11.txt`/
+`input_script_m12_brute.txt`/`input_script_m14_shield.txt`),
+`analyze_sfx.py`'s original near-silence-threshold event detector
+broke immediately once music played underneath - every window stayed
+"active," merging all events into one giant run - even after halving
+the music's own output level from 50% to 25%, since no volume level
+fixes "the background never actually goes quiet" against a fixed
+near-zero floor. Fixed with a real tool upgrade (kept only in the
+working scratch directory this project's own tooling already lives in,
+not committed to the repo) - a second, peak-relative detection mode
+comparing each window's RMS against a rolling local baseline (median
+of a surrounding window) rather than a fixed floor, which correctly
+separated every real sfx event back out in all three scripts,
+confirmed at the same timestamps the pre-music references already
+had. This also surfaced two genuine, small, honest findings, neither
+hidden: a tiny audible "click" transient at the exact moment
+Milestone 11's own restart re-initializes the wave channel mid-
+session, and equally tiny blips at each note's own retrigger
+transient - both real, both harmless (far quieter than any actual sfx
+peak), not code defects.
+
+`reference_m11_sfx.wav`/`reference_m12_brute_sfx.wav`/
+`reference_m14_shield_sfx.wav` were fully regenerated (not just
+re-locked - this is genuinely new content, not shifted timing) after
+confirming the above; their own PPM/`.sav` references were confirmed
+byte-identical via `cmp`, not assumed (music is audio-only, no VRAM/
+sprite/SRAM footprint). Full regression suite (unit tests, all visual/
+game/savestate targets, all three RGBDS ROMs, `gameboy-prism-build`)
+stayed green throughout, confirmed via a full `make clean` rebuild -
+this change touches only `wayfarer/`.
+
 **Next**: further Wayfarer work is open-ended (more rooms, a fuller
 inventory, deeper audio) rather than following a fixed list, once
 user-directed.

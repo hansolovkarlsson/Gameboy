@@ -3,12 +3,16 @@
 // (this emulator's own APU - src/apu.c - already fully implemented and
 // verified, tests/test_apu.c and test_roms/droneboy).
 //
-// Channel 1/2/3's 11-bit "period" register (NRx3 low 8 bits + NRx4 low
-// 3 bits) relates to real frequency via pandocs' own conversion:
-// frequency = 131072 / (2048 - period), i.e. period = 2048 -
-// 131072/frequency. Computed once offline (python3 -c
-// "print(round(2048 - 131072/freq))"), same "generate programmatically
-// from a real formula" discipline as prism/'s own sfx.c:
+// Channels 1/2/3 share the same 11-bit "period" register *format*
+// (NRx3 low 8 bits + NRx4 low 3 bits), but only channels 1/2 (pulse)
+// share the same frequency *formula*: frequency = 131072 / (2048 -
+// period), i.e. period = 2048 - 131072/frequency. Computed once
+// offline (python3 -c "print(round(2048 - 131072/freq))"), same
+// "generate programmatically from a real formula" discipline as
+// prism/'s own sfx.c. Channel 3 (the wave channel, music.c's own
+// domain, not this file's) uses a genuinely different divisor -
+// confirmed directly against src/apu.c's own period_timer reload (*2
+// for channel 3 vs. *4 for channels 1/2), not assumed the same:
 //   swing (C6, 1046.5 Hz): period 1923 (0x783) - identical note to
 //     prism/'s own sfx_play_select(), same short-blip shape
 //   hit/win base (G4, 392.0 Hz, sweeps up from here): period 1714 (0x6B2) -
@@ -21,7 +25,7 @@
 void sfx_init(void) {
     NR52_REG = AUDENA_ON;
     NR51_REG = AUDTERM_1_LEFT | AUDTERM_1_RIGHT | AUDTERM_2_LEFT | AUDTERM_2_RIGHT
-             | AUDTERM_4_LEFT | AUDTERM_4_RIGHT;
+             | AUDTERM_3_LEFT | AUDTERM_3_RIGHT | AUDTERM_4_LEFT | AUDTERM_4_RIGHT;
     NR50_REG = AUDVOL_VOL_LEFT(7) | AUDVOL_VOL_RIGHT(7);
 }
 

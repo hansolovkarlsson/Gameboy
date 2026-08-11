@@ -32,7 +32,7 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 14 (a shield pickup - directional blocking)
+## Status: Milestone 15 (looping background music)
 
 Milestones 1-4 built a small bordered-room grid with a freely-walking,
 collision-checked, combat-capable player: a one-shot sword swing, one
@@ -51,7 +51,7 @@ rooms with a second, optional enemy (and fixed a real sprite-tile-ID
 bug found right after). Milestone 13 makes the sword itself a pickup —
 the player starts unarmed. Milestone 14 adds a shield pickup with real
 directional blocking, closing out the last of Milestone 10's two empty
-rooms.
+rooms. Milestone 15 adds a looping background theme.
 
 **Real bug report**: Milestone 9's SRAM save meant a `won` save loaded
 straight back into the win screen (by design) — but there was never a
@@ -214,3 +214,46 @@ states, not just the net result. `reference_m11_sfx.wav`/
 time now); `input_script_m8.txt`/`m11.txt`/`m12_brute.txt` themselves
 needed no changes at all, since the shield's own room placement was
 chosen off every existing script's own walked path.
+
+**Milestone 15**: a looping background theme on channel 3 (the wave
+channel) — entirely unused until now, so music and every existing sfx
+mix in hardware for free, no ducking logic needed. `src/music.c`/`.h`
+programs a soft 32-sample triangle wave (deliberately a different
+*timbre* from every sfx's own sharp pulse tone) and steps through a
+short, original 16-note phrase (not a transcription of any real game's
+theme) at ~120 BPM, looping every ~9s. Starts at `world_init()`/
+`reset_world()` (so Milestone 11's own restart restarts the theme too)
+and stops the moment the player wins, so it doesn't compete with the
+win jingle. Channel 3 uses a genuinely different frequency formula
+from channels 1/2 (`65536/(2048-period)`, not `131072/...` — confirmed
+directly against the emulator's own `src/apu.c` timer reload, not
+assumed the same) — `sfx.c`'s own top comment, which previously
+overgeneralized this, was corrected in the same commit.
+
+**A real verification-scope escalation**, called out honestly rather
+than downplayed: every prior WAV-reference change in this project
+shifted *when* existing sounds land or added one new one-shot event.
+This one adds continuous new audio *throughout* every existing
+script's entire runtime, from the moment gameplay begins — a
+qualitatively bigger change than a re-lock. `analyze_sfx.py`'s
+original near-silence-threshold event detector broke immediately
+(everything merged into one giant "event" once music kept the RMS
+elevated continuously) even after halving the music's own volume from
+50% to 25%, since no volume level fixes "the background never actually
+goes quiet." Fixed with a real upgrade — a second, peak-relative
+detection mode comparing each window's RMS against a rolling local
+baseline (median of a surrounding window) rather than a fixed near-
+zero floor — which correctly separated every real sfx event back out
+in all three existing scripts, confirmed at the same timestamps as
+before, plus surfaced two genuine, honest, minor findings: a tiny
+audible "click" transient at the exact moment Milestone 11's own
+restart re-initializes the wave channel, and equally tiny blips at
+each note's own retrigger transient — both real, both harmless,
+neither hidden. The dedicated `input_script_m15_music.txt` (title
+dismiss only, no other input) isolates the melody alone; correctness
+was verified against the built ROM's own actual audio output, not
+assumed from the source — sampling dominant frequency at 8 of the 16
+steps' own midpoints (via a small DFT-based probe, not
+`analyze_sfx.py`'s own event detector) confirmed each matches its
+intended note within measurement resolution, the rest step goes
+genuinely silent, and the loop restarts cleanly at the top.

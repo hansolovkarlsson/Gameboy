@@ -241,6 +241,15 @@ WAYFARER_SHIELD_WAV_OUT := $(BIN_DIR)/wayfarer-shield-sfx-output.wav
 WAYFARER_SHIELD_SAV_REF := wayfarer/reference_m14_shield.sav
 WAYFARER_SHIELD_SAV_OUT := $(BIN_DIR)/wayfarer-shield-output.sav
 
+# Milestone 15: looping background music (music.c) on channel 3 (the
+# wave channel, previously entirely unused) - a fixed melody that
+# starts at world_init()/reset_world() and stops the moment the player
+# wins. This script isolates the music alone (title dismiss, no other
+# input) so its own reference doesn't depend on anything else changing.
+WAYFARER_MUSIC_SCRIPT := wayfarer/input_script_m15_music.txt
+WAYFARER_MUSIC_WAV_REF := wayfarer/reference_m15_music_sfx.wav
+WAYFARER_MUSIC_WAV_OUT := $(BIN_DIR)/wayfarer-music-sfx-output.wav
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -409,6 +418,10 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_SHIELD_SAV_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 14 - collecting the shield persists BIT_SHIELD to cart RAM)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_SHIELD_SAV_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_MUSIC_SCRIPT) --wav $(WAYFARER_MUSIC_WAV_OUT) --seconds 10
+	cmp $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_MUSIC_WAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 15 - the background theme's melody, rest, and loop restart match a real captured reference)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (captured audio doesn't match $(WAYFARER_MUSIC_WAV_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -446,6 +459,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean
