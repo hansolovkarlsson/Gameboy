@@ -1,13 +1,19 @@
-// See world.h. A 2x2 grid (GRID_W x GRID_H) of rooms, but *not* fully
+// See world.h. A 3x2 grid (GRID_W x GRID_H) of rooms, but *not* fully
 // connected as a plain grid would be: (0,0)'s south side and (0,1)'s
 // north side are permanently severed (never open, regardless of any
-// key), turning what would otherwise be a 4-room cycle into a genuine
-// dead-end chain - (0,0) -> (1,0) -> (1,1) -> (0,1) - so the one locked
-// door (between (1,1) and (0,1), Milestone 5) actually gates progress
-// instead of being a bypassable decoration. See room.c's own
-// door_side/DOOR_* for the purely-cosmetic door-texture rendering;
-// collision is still 100% driven by the has_* flags below, unchanged
-// from Milestone 2's own already-correct per-side bound logic.
+// key) - so the one locked door (between (1,1) and (0,1), Milestone 5)
+// actually gates progress to the win room instead of being a
+// bypassable decoration. The other two columns ((1,0)/(1,1) and the
+// Milestone 10 rooms (2,0)/(2,1)) stay plainly, fully connected -
+// (1,0)'s and (1,1)'s own east sides open onto (2,0)/(2,1), forming a
+// real explorable loop ((1,0)-(2,0)-(2,1)-(1,1)-(1,0)) alongside the
+// linear critical path, rather than a dead-end appendage. (2,0)/(2,1)
+// are empty exploration space - no enemy/pickup/key lives there. See
+// room.c's own door_side/DOOR_* for the purely-cosmetic door-texture
+// rendering; collision is still 100% driven by the has_* flags below,
+// unchanged from Milestone 2's own already-correct per-side bound
+// logic - confirmed general enough to grow the grid with zero other
+// changes, not assumed.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
@@ -25,7 +31,7 @@
 #include "win.h"
 #include "world.h"
 
-#define GRID_W 2
+#define GRID_W 3
 #define GRID_H 2
 
 // The one enemy (enemy.c) belongs to this room only.

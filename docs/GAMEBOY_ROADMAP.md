@@ -3921,11 +3921,57 @@ visual/game/savestate targets, all three RGBDS ROMs, Mooneye,
 real MBC1+battery ROM, confirming zero interference) stayed green
 throughout - this change touches only `wayfarer/`.
 
-**Next**: Wayfarer's roadmap stretch list is now fully built out - a
-locked-door-and-key puzzle, sound effects, a title screen, and SRAM
-save are all done, alongside the core milestones (movement, room
-transitions, combat, health/items, a win condition). The game is
-genuinely complete and playable end to end. Further work here is
-open-ended (more rooms, more enemy types, a fuller inventory, deeper
-audio) rather than following a fixed list - the natural point to pause
-and let the user direct whatever comes next, on Wayfarer or elsewhere.
+**Milestone 10 (this pass): done - a bigger map.** User-directed, open-
+ended next step now that the roadmap's own stretch list is complete.
+Confirmed scope: grow from the 2x2 grid to 3x2 (2 new rooms), empty
+exploration space this pass (no new enemy/pickup/mechanic).
+
+**The entire code change was one constant**: `wayfarer/src/world.c`'s
+`#define GRID_W 2` became `3`. `compute_sides()` already computes
+`has_west`/`has_east`/`has_north`/`has_south` generically from `rx`/
+`ry`/`GRID_W`/`GRID_H` before applying its two special-case overrides
+(the `(0,0)`-`(0,1)` sever, the `(1,1)`-`(0,1)` key lock, Milestone 5) -
+both keyed to explicit `(rx,ry)` checks that only ever match the 4
+original rooms, so a larger grid doesn't touch them.
+`room.c`'s `room_draw()` already handles any combination of open sides
+per cell (0-4), not hardcoded to the original "2 open sides per room"
+shape, and `room_blocks()` only ever reads the 4 flags `room_draw()`
+was called with. Every piece of Milestone 2's own per-side architecture
+turned out general enough to grow the grid with zero other code
+changes - confirmed by re-reading it fresh before relying on it, not
+assumed correct because it sounded plausible.
+
+**Resulting topology**: growing `GRID_W` alone means room `(1,0)`'s
+(the key room) and room `(1,1)`'s (the heart pickup room) previously
+dead-end east walls automatically open onto the two new, empty rooms
+`(2,0)`/`(2,1)` - a real, deliberate outcome: it forms an explorable
+loop (`(1,0)`-`(2,0)`-`(2,1)`-`(1,1)`-`(1,0)`) alongside the existing
+linear critical path, not just a dead-end appendage tacked onto one
+side. The severed edge and the key-gated lock are untouched, so the
+critical path to the win room is exactly as it was.
+
+**Verified**: `reference_m8.ppm` and `reference_m8.sav` both confirmed
+byte-identical via direct `cmp`, not assumed - the existing win-
+condition script never uses the newly-opened connections, so its own
+final frame and save contents are provably unaffected. `reference_m9_won.ppm`
+(the loaded-`won`-save check) likewise confirmed unchanged. **A real,
+repeated finding**: `reference_m8_sfx.wav` needed re-locking in place
+*again* - even this single changed comparison constant (`rx < 1` vs.
+`rx < 2` in compiled form) measurably shifted exact sample-level SFX
+timing without moving any video frame, the same "real code changes
+shift exact sample position, not frame timing" category Milestone 9
+already hit once; confirmed via the same programmatic `wave`-module
+check, same 4 events at the same approximate timestamps. A new,
+uncommitted probe walked the full new loop end to end, confirming each
+room's own wall-opening fingerprint matches its real connectivity
+(`(2,0)`: west open to `(1,0)`, south open to `(2,1)`, north/east true
+grid-edge walls; `(2,1)`: west open to `(1,1)`, north open to `(2,0)`,
+south/east true grid-edge walls) and that the heart pickup in `(1,1)`
+is untouched by the new connection arriving next to it. Full existing
+regression suite (unit tests, all visual/game/savestate targets, all
+three RGBDS ROMs, Mooneye, `gameboy-prism-build`) stayed green
+throughout - this change touches only `wayfarer/src/world.c`.
+
+**Next**: further Wayfarer work is open-ended (more rooms, a new enemy
+in the expanded space, a fuller inventory, deeper audio) rather than
+following a fixed list, once user-directed.
