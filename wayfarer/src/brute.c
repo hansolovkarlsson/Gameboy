@@ -35,7 +35,9 @@ static const uint8_t brute_tiles[BRUTE_TILE_COUNT * 16] = {
     0xFC, 0xFC, 0xF8, 0xF8, 0xE0, 0xE0, 0x00, 0x00,
 };
 
-#define BRUTE_PALETTE 6 // player.c owns 0, sword.c owns 1, enemy.c owns 2, heart_hud.c owns 3-4, key.c owns 5
+// Palette index itself is brute.h's own public BRUTE_OBJ_PALETTE (6) -
+// player.c owns 0, sword.c owns 1, enemy.c owns 2, heart_hud.c owns
+// 3-4, key.c owns 5.
 static const palette_color_t brute_palette[4] = {
     RGB(0, 0, 0), RGB(10, 3, 14), RGB(16, 5, 20), RGB(22, 8, 28),
 };
@@ -84,12 +86,12 @@ void brute_hide(void) {
 }
 
 void brute_init(void) {
-    set_sprite_palette(BRUTE_PALETTE, 1, brute_palette);
+    set_sprite_palette(BRUTE_OBJ_PALETTE, 1, brute_palette);
     set_sprite_data(BRUTE_TILE_TL, BRUTE_TILE_COUNT, brute_tiles);
-    set_sprite_prop(BRUTE_SPRITE_TL, S_PAL(BRUTE_PALETTE));
-    set_sprite_prop(BRUTE_SPRITE_TR, S_PAL(BRUTE_PALETTE));
-    set_sprite_prop(BRUTE_SPRITE_BL, S_PAL(BRUTE_PALETTE));
-    set_sprite_prop(BRUTE_SPRITE_BR, S_PAL(BRUTE_PALETTE));
+    set_sprite_prop(BRUTE_SPRITE_TL, S_PAL(BRUTE_OBJ_PALETTE));
+    set_sprite_prop(BRUTE_SPRITE_TR, S_PAL(BRUTE_OBJ_PALETTE));
+    set_sprite_prop(BRUTE_SPRITE_BL, S_PAL(BRUTE_OBJ_PALETTE));
+    set_sprite_prop(BRUTE_SPRITE_BR, S_PAL(BRUTE_OBJ_PALETTE));
     set_sprite_tile(BRUTE_SPRITE_TL, BRUTE_TILE_TL);
     set_sprite_tile(BRUTE_SPRITE_TR, BRUTE_TILE_TR);
     set_sprite_tile(BRUTE_SPRITE_BL, BRUTE_TILE_BL);

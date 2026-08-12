@@ -4509,6 +4509,112 @@ game/savestate targets, all three RGBDS ROMs, `gameboy-prism-build`)
 stayed green throughout, confirmed via a full `make clean` rebuild -
 this change touches only `wayfarer/`.
 
+**Milestone 16 (this pass): done - an optional boss, growing the map
+to 3x3.** Following the shield's directional blocking, the user asked
+for a boss encounter that gives both equipment pieces real payoff.
+Confirmed with the user directly: optional, in a brand new room - the
+same low-risk, no-existing-script-impact *intent* the brute already
+established (though this one's own room-growth mechanics turned out to
+have real, if fixable, fallout on two existing scripts - see below).
+
+**Map**: `GRID_W`/`GRID_H` go from `3`/`2` to `3`/`3`, adding exactly
+one new room, `(2,2)`, a dead end south of the brute's own `(2,1)`.
+`compute_sides()` already computes plain grid topology by default and
+only needed two new override lines to *prevent* unwanted connections
+(growing `GRID_H` alone would have auto-opened a south side on every
+room in row 1, not just the one wanted), not build new ones -
+confirmed by tracing it directly, the same "verify against the actual
+logic, don't assume a constant bump is free" discipline this project
+already holds for every other constant change.
+
+**`wayfarer/src/boss.c`/`.h`** (new): mirrors `brute.c`'s shape,
+scaled up. A 24x24 blob (3x3 metasprite, 9 tiles/9 OAM slots) -
+generated via the same per-pixel circular-distance-from-center
+technique `enemy.c`/`brute.c` already established, a third application
+at a bigger radius, rendered and visually verified before being
+transcribed. Bounces independently on *both* axes within a fixed
+patrol box - a real first, every earlier enemy here moves on one axis
+only - the exact same per-axis "hit a bound, flip direction" logic
+`enemy.c`/`brute.c` already use, just duplicated for x and y. Three
+hits to die (vs. the brute's two), the same post-hit-cooldown pattern
+(20 frames, comfortably longer than `sword.c`'s own 12-frame
+`SWORD_FRAMES`) and 3-state `boss_try_hit()` return shape
+`brute_try_hit()` already established, reused as-is at the higher hit
+count. Contact damage routes through `shield_blocks()` completely
+unchanged - this is *how* the equipment payoff actually happens, with
+zero new blocking logic needed; the AABB math mirrors the original
+enemy's own asymmetric shape (24x24 threat vs. 16x16 player). Zero new
+sfx functions: non-lethal hits reuse `sfx_play_brute_hit()`, and the
+third, lethal hit deliberately reuses `sfx_play_win()` instead of the
+brute's own routine `sfx_play_hit()` - a real escalation so beating the
+actual boss reads as a bigger deal, at zero new register-poking cost
+(this only plays the existing win *sound*, not `win_play()`'s own
+screen - the boss stays genuinely optional, confirmed with the user).
+
+**A real bug found by actually rendering it, not just reasoning about
+the code** - the exact kind of gap this project's own "verify against
+the real build" discipline exists to catch: CGB hardware has only 8
+OBJ palette slots total (confirmed against this project's own
+`docs/HARDWARE_REFERENCE.md`), and every existing module here already
+claimed one (player 0, sword 1, enemy 2, heart_hud 3-4, key 5, brute 6,
+shield 7) - all 8 were already spoken for before this milestone even
+started. An early draft gave the boss a 9th anyway (index 8, following
+the exact same "next free index" pattern that correctly found free
+tile/sprite IDs elsewhere - but sprite tile IDs and OAM slots don't
+have this same 8-slot hardware ceiling, palettes uniquely do). CGB's
+OCPS palette-RAM index is only 6 bits wide, so that out-of-range write
+silently wrapped around and overwrote *palette 0* - the player's own
+colors. Entirely invisible from reading the source; glaringly obvious
+the instant the actual rendered frame was inspected, mid-verification:
+the player sprite turned up rendered in the boss's own crimson.
+Root-caused immediately, fixed by exporting `BRUTE_OBJ_PALETTE` from
+`brute.h` (moved there as the single source of truth - `brute.c` itself
+now references the header's own constant rather than keeping a second,
+private copy of the same value, the identical discipline `sword.h`'s
+own `SWORD_TILE_ID`/`SWORD_OBJ_PALETTE` already established) and having
+the boss deliberately reuse it rather than invent one. Re-verified via
+the exact same serial-instrumented hit-frame scan afterward, confirming
+the fix didn't disturb the already-found combat timing.
+
+**Growing the map broke two existing scripts**, a real, honest finding
+worth documenting plainly rather than glossing over:
+`input_script_m12_brute.txt`'s and `input_script_m14_shield.txt`'s own
+DOWN-holds both used the "overshoot past the real target and let a
+closed wall clamp it" technique against `(2,1)`'s own south side -
+which used to be a wall, and now, thanks to this exact milestone, is a
+doorway to the new room. Both scripts walked straight through into
+`(2,2)` instead of stopping in `(2,1)` - confirmed by actually running
+them and diffing against their own locked references, not assumed
+safe because "the room-entry logic didn't change." Fixed with precise,
+non-overshooting hold durations. `input_script_m12_brute.txt` needed
+its combat timing re-derived completely from scratch (the room-entry
+frame itself didn't move, but the approach finished faster, so the old
+hit frames no longer lined up against the brute's own unchanged patrol
+phase) - re-scanned the same empirical way as always, not assumed to
+shift by a convenient offset. `input_script_m14_shield.txt`'s own
+block/unblock checkpoint frames, by contrast, turned out to still be
+exactly correct unchanged - confirmed directly rather than assumed,
+reasoned afterward as making sense since the player's own trajectory
+up through its new, earlier stopping point was byte-for-byte identical
+to before, just cut off sooner. Both scripts' own reference *frames*
+needed full regeneration regardless (not just re-locking) since
+`(2,1)`'s own wall rendering genuinely changed shape (a new open side),
+even where the underlying gameplay timing didn't move at all.
+
+Every existing WAV reference (`reference_m11_sfx.wav`,
+`reference_m12_brute_sfx.wav`, `reference_m14_shield_sfx.wav`,
+`reference_m15_music_sfx.wav`) needed re-locking multiple times over
+the course of this milestone - once for the map-topology change itself,
+and again after the palette bug fix - each time verified via
+`analyze_sfx.py`'s own peak-relative detector (confirming the same real
+events at the same timestamps) before re-locking, never skipped on the
+assumption "it's probably fine now." Two locked boss references mirror
+the brute's own "alive" + "defeated" two-checkpoint shape. Full
+regression suite (unit tests, all visual/game/savestate targets, all
+three RGBDS ROMs, `gameboy-prism-build`) stayed green throughout,
+confirmed via a full `make clean` rebuild - this change touches only
+`wayfarer/`.
+
 **Next**: further Wayfarer work is open-ended (more rooms, a fuller
 inventory, deeper audio) rather than following a fixed list, once
 user-directed.

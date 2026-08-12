@@ -20,6 +20,7 @@
 #include <gb/cgb.h>
 #include <stdint.h>
 
+#include "boss.h"
 #include "brute.h"
 #include "enemy.h"
 #include "heart_hud.h"
@@ -37,7 +38,7 @@
 #include "world.h"
 
 #define GRID_W 3
-#define GRID_H 2
+#define GRID_H 3
 
 // The one enemy (enemy.c) belongs to this room only.
 #define ENEMY_ROOM_X 0
@@ -62,6 +63,12 @@
 // world_update() never consults it).
 #define BRUTE_ROOM_X 2
 #define BRUTE_ROOM_Y 1
+
+// The boss (boss.c) belongs to this room only - the new dead-end room
+// Milestone 16 added south of the brute's own room. Deliberately
+// optional, same as the brute: defeating it is not required to win.
+#define BOSS_ROOM_X 2
+#define BOSS_ROOM_Y 2
 
 // The one heart pickup (pickup.c) belongs to this room only.
 #define PICKUP_ROOM_X 1
@@ -90,6 +97,7 @@ static uint8_t won;
 // already established for the enemy/brute contact blocks themselves.
 static uint8_t was_blocking_enemy;
 static uint8_t was_blocking_brute;
+static uint8_t was_blocking_boss;
 
 // Plain grid-topology defaults, then two overrides: a permanent sever
 // (the (0,0)<->(0,1) edge, never open, not key-gated - see the file
@@ -109,6 +117,15 @@ static void compute_sides(uint8_t rx, uint8_t ry, uint8_t *has_north, uint8_t *h
 
     if (rx == 1 && ry == 1) *has_west = key_is_collected();
     if (rx == 0 && ry == 1) *has_east = key_is_collected();
+
+    // Milestone 16: growing GRID_H from 2 to 3 would otherwise open a
+    // new south side on *every* room in row 1 (ry < GRID_H-1 becomes
+    // true for ry=1 at every rx) - only (2,1), leading down to the new
+    // boss room (2,2), should actually gain one.
+    if (ry == 1 && rx != 2) *has_south = 0;
+    // (2,2) is a dead end - entered only from the north (2,1), not a
+    // new through-path to a nonexistent (1,2).
+    if (rx == 2 && ry == 2) *has_west = 0;
 }
 
 // Which side, if any, should render as a door texture when closed -
@@ -141,6 +158,10 @@ static uint8_t in_brute_room(void) {
     return room_x == BRUTE_ROOM_X && room_y == BRUTE_ROOM_Y;
 }
 
+static uint8_t in_boss_room(void) {
+    return room_x == BOSS_ROOM_X && room_y == BOSS_ROOM_Y;
+}
+
 static uint8_t in_pickup_room(void) {
     return room_x == PICKUP_ROOM_X && room_y == PICKUP_ROOM_Y;
 }
@@ -162,6 +183,7 @@ static uint8_t in_key_room(void) {
 static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t entry_y) {
     uint8_t leaving_enemy_room = in_enemy_room();
     uint8_t leaving_brute_room = in_brute_room();
+    uint8_t leaving_boss_room = in_boss_room();
     uint8_t leaving_sword_pickup_room = in_sword_pickup_room();
     uint8_t leaving_shield_room = in_shield_room();
     uint8_t leaving_pickup_room = in_pickup_room();
@@ -182,6 +204,7 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     // need an explicit show on entry too.
     if (leaving_enemy_room && !in_enemy_room()) enemy_hide();
     if (leaving_brute_room && !in_brute_room()) brute_hide();
+    if (leaving_boss_room && !in_boss_room()) boss_hide();
     if (leaving_sword_pickup_room && !in_sword_pickup_room()) sword_pickup_hide();
     if (!leaving_sword_pickup_room && in_sword_pickup_room()) sword_pickup_show();
     if (leaving_shield_room && !in_shield_room()) shield_hide();
@@ -228,6 +251,8 @@ static void reset_world(void) {
     enemy_load_defeated(sram_get_enemy_defeated());
     brute_init();
     brute_load_defeated(sram_get_brute_defeated());
+    boss_init();
+    boss_load_defeated(sram_get_boss_defeated());
     heart_hud_init();
     pickup_init();
     pickup_load_collected(sram_get_pickup_collected());
@@ -430,6 +455,51 @@ void world_update(uint8_t joy) {
                 was_blocking_brute = blocking;
             } else {
                 was_blocking_brute = 0;
+            }
+        }
+    }
+
+    if (in_boss_room()) {
+        boss_update();
+        if (sword_is_active()) {
+            uint8_t hit = boss_try_hit(sword_get_x(), sword_get_y(), 8, 8);
+            if (hit == 1) {
+                sfx_play_brute_hit();
+            } else if (hit == 2) {
+                // A deliberate escalation over the brute's own routine
+                // sfx_play_hit() - the actual boss's own lethal hit
+                // reuses the existing win *sound* (not win_play()'s own
+                // screen - the boss stays optional, not required) so
+                // defeating it reads as a bigger deal, at zero new sfx
+                // code cost.
+                sfx_play_win();
+                sram_set_boss_defeated();
+            }
+        }
+        if (boss_is_alive()) {
+            uint8_t bossx = boss_get_x();
+            uint8_t bossy = boss_get_y();
+            uint8_t pcx = player_get_x();
+            uint8_t pcy = player_get_y();
+            // 24x24 boss vs. 16x16 player - the same asymmetric shape
+            // the original enemy's own +8/+16 math uses, just scaled up
+            // to +24/+16.
+            uint8_t overlap_x = pcx < (uint8_t)(bossx + 24) && (uint8_t)(pcx + 16) > bossx;
+            uint8_t overlap_y = pcy < (uint8_t)(bossy + 24) && (uint8_t)(pcy + 16) > bossy;
+            if (overlap_x && overlap_y) {
+                uint8_t blocking = shield_blocks(pcx, pcy, 16, 16, bossx, bossy, 24, 24, player_get_facing());
+                if (blocking) {
+                    if (!was_blocking_boss) sfx_play_block();
+                } else {
+                    if (player_damage(1)) sfx_play_damage();
+                    if (player_get_hearts() == 0) {
+                        go_to_room(BOSS_ROOM_X, BOSS_ROOM_Y, ROOM_CENTER_X, ROOM_CENTER_Y);
+                        player_heal_full();
+                    }
+                }
+                was_blocking_boss = blocking;
+            } else {
+                was_blocking_boss = 0;
             }
         }
     }

@@ -10,28 +10,31 @@
 # itself, not incidentally from Milestone 6's enemy -> cross east
 # through (0,0) and (1,0) into (2,0) (held well past the real
 # transition frame - room (2,0)'s own north/east walls safely pin the
-# player there, no overshoot risk) -> cross south into (2,1) (same
-# safe-pin-at-the-wall technique against (2,1)'s own south/east walls)
-# -> approach the brute's vertical patrol column (BRUTE_X=64) and face
-# right -> swing (frame 1030, the real, empirically-found first
-# overlap - scanned directly against the built ROM, not hand-computed
-# from patrol math, same methodology input_script_m8.txt's own comments
-# already document) for the first, non-lethal hit -> swing again at
-# frame 1040, deliberately only 10 frames later (inside
-# BRUTE_HIT_COOLDOWN_FRAMES's own 20-frame window) - confirmed a
-# genuine no-op (the brute stays at 1 HP, not defeated) - before the
-# real second, lethal swing at frame 1050 (20 frames after the first
-# real hit, right at the cooldown's own edge) actually defeats it.
+# player there, no overshoot risk) -> cross south into (2,1) with a
+# *precise*, non-overshooting DOWN hold (Milestone 16 opened (2,1)'s
+# own south side too, leading to the new boss room (2,2) - the old
+# "overshoot and let the closed wall clamp it" trick this script used
+# to rely on would now walk straight through into that room instead,
+# and did, until this script was fixed) -> approach the brute's
+# vertical patrol column (BRUTE_X=64) and face right -> swing (frame
+# 810, the real, empirically-found first overlap - scanned directly
+# against the built ROM, not hand-computed from patrol math, same
+# methodology input_script_m8.txt's own comments already document) for
+# the first, non-lethal hit -> swing again at frame 820, deliberately
+# only 10 frames later (inside BRUTE_HIT_COOLDOWN_FRAMES's own 20-frame
+# window) - confirmed a genuine no-op (the brute stays at 1 HP, not
+# defeated) - before the real second, lethal swing at frame 880
+# actually defeats it.
 #
 # The exact working hit frames were found by an isolated per-frame
 # scan against the real build (temporarily instrumented with a serial
 # byte on each hit, removed again once the frames were confirmed) -
-# not derived from BRUTE_MIN_Y/MAX_Y/BRUTE_HIT_COOLDOWN_FRAMES by hand,
-# and re-scanned from scratch after Milestone 13 shifted the whole
-# script by the sword-pickup detour's own 16 frames (a uniform shift
-# turned out to land close, 1015/1035 -> 1030/1050, but not exactly - a
-# real instance of this project's own "don't assume a uniform shift
-# transfers to combat timing" rule, confirmed rather than trusted).
+# not derived from BRUTE_MIN_Y/MAX_Y/BRUTE_HIT_COOLDOWN_FRAMES by hand.
+# Re-derived twice now, both times because a later, unrelated map
+# change (first Milestone 13's sword-pickup detour, now Milestone 16's
+# new south exit from this same room) turned out to shift the working
+# frames - confirmed empirically each time, never assumed to carry
+# over from a plausible-looking uniform shift.
 10 START down
 11 START up
 20 RIGHT down
@@ -41,16 +44,14 @@
 116 RIGHT down
 566 RIGHT up
 566 DOWN down
-866 DOWN up
-866 LEFT down
-946 LEFT up
-946 UP down
-1006 UP up
-1006 RIGHT down
-1007 RIGHT up
-1030 A down
-1031 A up
-1040 A down
-1041 A up
-1050 A down
-1051 A up
+726 DOWN up
+726 LEFT down
+806 LEFT up
+806 RIGHT down
+807 RIGHT up
+810 A down
+811 A up
+820 A down
+821 A up
+880 A down
+881 A up

@@ -32,7 +32,7 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 15 (looping background music)
+## Status: Milestone 16 (an optional boss)
 
 Milestones 1-4 built a small bordered-room grid with a freely-walking,
 collision-checked, combat-capable player: a one-shot sword swing, one
@@ -51,7 +51,9 @@ rooms with a second, optional enemy (and fixed a real sprite-tile-ID
 bug found right after). Milestone 13 makes the sword itself a pickup —
 the player starts unarmed. Milestone 14 adds a shield pickup with real
 directional blocking, closing out the last of Milestone 10's two empty
-rooms. Milestone 15 adds a looping background theme.
+rooms. Milestone 15 adds a looping background theme. Milestone 16 grows
+the map to 3x3 and adds an optional boss, the real payoff for both
+equipment pieces working together.
 
 **Real bug report**: Milestone 9's SRAM save meant a `won` save loaded
 straight back into the win screen (by design) — but there was never a
@@ -257,3 +259,55 @@ steps' own midpoints (via a small DFT-based probe, not
 `analyze_sfx.py`'s own event detector) confirmed each matches its
 intended note within measurement resolution, the rest step goes
 genuinely silent, and the loop restarts cleanly at the top.
+
+**Milestone 16**: an optional boss, the payoff for the sword and
+shield working together. The map grows to 3x3 - a new dead-end room
+(2,2) south of the brute's own (2,1) - reached the same way Milestone
+10's own grid growth was: `compute_sides()` already computes plain
+grid topology by default, so growing `GRID_H` only needed two new
+override lines to *prevent* unwanted connections, not build new ones.
+`src/boss.c`/`.h` mirror `brute.c`'s shape: a 24x24 blob (bigger than
+the brute's own 16x16), bouncing independently on *both* axes (a real
+first - every earlier enemy here moves on one axis only), three hits
+to die, and contact damage that routes through `shield_blocks()`
+completely unchanged - the actual mechanism the equipment payoff runs
+on, needing zero new blocking logic.
+
+**A real bug found by actually looking, not just reasoning about the
+code**: CGB hardware has only 8 OBJ palette slots, and every existing
+module here already claimed one (player, sword, enemy, heart_hud x2,
+key, brute, shield - all 8, confirmed against
+`docs/HARDWARE_REFERENCE.md`). An early draft gave the boss a 9th
+(index 8) anyway; CGB's OCPS palette index is only 6 bits wide, so
+that write silently wrapped around and overwrote *palette 0* - the
+player's own colors. Invisible from reading the source, glaringly
+obvious the moment it was actually rendered: the player sprite turned
+up in the boss's own crimson. Fixed by exporting `BRUTE_OBJ_PALETTE`
+from `brute.h` (the single source of truth; `brute.c` itself now
+references it too, not a private duplicate) and having the boss
+deliberately reuse it - a real hardware constraint, not a shortcut.
+
+Two locked references again mirror the brute's own "alive" +
+"defeated" two-checkpoint shape. The three real hit frames were found
+the same empirical way the brute's own were (a temporary serial-
+instrumented scan against the real build, removed once confirmed) -
+the boss's own independent two-axis bounce made this even less hand-
+tractable than the brute's single-axis case ever was. Growing the map
+broke two existing scripts in a way worth being honest about:
+`input_script_m12_brute.txt`'s and `input_script_m14_shield.txt`'s own
+DOWN-holds both used to rely on `(2,1)`'s south wall being closed to
+safely overshoot and clamp - now that it's open (leading to the new
+room), both scripts walked straight through into `(2,2)` instead,
+confirmed via `cmp`, not assumed safe. Fixed with precise, non-
+overshooting hold durations instead, and re-verified (not just
+patched and hoped): `input_script_m12_brute.txt` needed its combat
+timing re-derived from scratch (the room-entry frame itself didn't
+move, but the approach got faster, so the old hit frames no longer
+lined up), while `input_script_m14_shield.txt`'s own block/unblock
+checkpoints turned out to still land at the exact same frame numbers,
+confirmed rather than assumed, since the player's own trajectory up to
+its new, earlier stopping point was unchanged. Every existing WAV
+reference needed re-locking again (a fifth real instance of "any
+code-size change can shift exact sample timing," now from the map
+growth itself). Full regression suite stayed green throughout,
+confirmed via a full `make clean` rebuild.

@@ -26,6 +26,7 @@
 #define BIT_BRUTE 0x10
 #define BIT_SWORD 0x20
 #define BIT_SHIELD 0x40
+#define BIT_BOSS 0x80 // the 8th and last bit available in this single-byte state - any future flag needs a second SRAM byte, not silently assumed to still fit
 
 static uint8_t state;
 
@@ -48,6 +49,7 @@ uint8_t sram_get_won(void) { return (state & BIT_WON) != 0; }
 uint8_t sram_get_brute_defeated(void) { return (state & BIT_BRUTE) != 0; }
 uint8_t sram_get_sword_collected(void) { return (state & BIT_SWORD) != 0; }
 uint8_t sram_get_shield_collected(void) { return (state & BIT_SHIELD) != 0; }
+uint8_t sram_get_boss_defeated(void) { return (state & BIT_BOSS) != 0; }
 
 static void save(void) {
     ENABLE_RAM;
@@ -63,6 +65,7 @@ void sram_set_won(void) { state |= BIT_WON; save(); }
 void sram_set_brute_defeated(void) { state |= BIT_BRUTE; save(); }
 void sram_set_sword_collected(void) { state |= BIT_SWORD; save(); }
 void sram_set_shield_collected(void) { state |= BIT_SHIELD; save(); }
+void sram_set_boss_defeated(void) { state |= BIT_BOSS; save(); }
 
 void sram_reset(void) {
     state = 0;

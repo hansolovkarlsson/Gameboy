@@ -250,6 +250,23 @@ WAYFARER_MUSIC_SCRIPT := wayfarer/input_script_m15_music.txt
 WAYFARER_MUSIC_WAV_REF := wayfarer/reference_m15_music_sfx.wav
 WAYFARER_MUSIC_WAV_OUT := $(BIN_DIR)/wayfarer-music-sfx-output.wav
 
+# Milestone 16: an optional boss (boss.c) in a new dead-end room (2,2),
+# grown south of the brute's own room (2,1) - the map is now 3x3, not
+# 3x2. A 24x24 blob (bigger than the brute's own 16x16), bounces on
+# both axes independently (a real first), takes three hits, and reuses
+# brute.c's own OBJ palette (CGB only has 8 total, all already spoken
+# for - see boss.c's own comment for the real bug this found and fixed
+# before it shipped). Not required to win, same as the brute.
+WAYFARER_BOSS_SCRIPT := wayfarer/input_script_m16_boss.txt
+WAYFARER_BOSS_ALIVE_REF := wayfarer/reference_m16_boss_alive.ppm
+WAYFARER_BOSS_ALIVE_OUT := $(BIN_DIR)/wayfarer-boss-alive-output.ppm
+WAYFARER_BOSS_REF := wayfarer/reference_m16_boss.ppm
+WAYFARER_BOSS_OUT := $(BIN_DIR)/wayfarer-boss-output.ppm
+WAYFARER_BOSS_WAV_REF := wayfarer/reference_m16_boss_sfx.wav
+WAYFARER_BOSS_WAV_OUT := $(BIN_DIR)/wayfarer-boss-sfx-output.wav
+WAYFARER_BOSS_SAV_REF := wayfarer/reference_m16_boss.sav
+WAYFARER_BOSS_SAV_OUT := $(BIN_DIR)/wayfarer-boss-output.sav
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -386,12 +403,12 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_WON_OUT) $(WAYFARER_WON_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 9 - a fresh boot loading a won save shows the win screen immediately after the title)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_WON_REF))"; exit 1)
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --ppm $(WAYFARER_BRUTE_ALIVE_OUT) --frames 1015
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --ppm $(WAYFARER_BRUTE_ALIVE_OUT) --frames 795
 	cmp $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_BRUTE_ALIVE_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - the brute's own 4 quadrant tiles render correctly while alive, no tile ID collision)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_BRUTE_ALIVE_REF))"; exit 1)
 	rm -f $(WAYFARER_BRUTE_SAV_OUT)
-	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --sav $(WAYFARER_BRUTE_SAV_OUT) --ppm $(WAYFARER_BRUTE_OUT) --frames 1076
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BRUTE_SCRIPT) --sav $(WAYFARER_BRUTE_SAV_OUT) --ppm $(WAYFARER_BRUTE_OUT) --frames 905
 	cmp $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 12 - the brute takes two hits to die, sitting in optional room (2,1))" \
 		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_BRUTE_REF))"; exit 1)
@@ -422,6 +439,22 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_MUSIC_WAV_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 15 - the background theme's melody, rest, and loop restart match a real captured reference)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (captured audio doesn't match $(WAYFARER_MUSIC_WAV_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BOSS_SCRIPT) --ppm $(WAYFARER_BOSS_ALIVE_OUT) --frames 990
+	cmp $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_ALIVE_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 16 - the boss's own 9 quadrant tiles render correctly while alive, reusing the brute's palette safely)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_BOSS_ALIVE_REF))"; exit 1)
+	rm -f $(WAYFARER_BOSS_SAV_OUT)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BOSS_SCRIPT) --sav $(WAYFARER_BOSS_SAV_OUT) --ppm $(WAYFARER_BOSS_OUT) --frames 1180
+	cmp $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 16 - the boss takes three hits to die, sitting in the new optional room (2,2))" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_BOSS_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_BOSS_SCRIPT) --wav $(WAYFARER_BOSS_WAV_OUT) --seconds 21
+	cmp $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_WAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 16 - the brute-hit thud on hits 1-2, the win sound on the third, lethal hit)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (captured audio doesn't match $(WAYFARER_BOSS_WAV_REF))"; exit 1)
+	cmp $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_BOSS_SAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 16 - defeating the boss persists BIT_BOSS to cart RAM)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_BOSS_SAV_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -459,6 +492,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean

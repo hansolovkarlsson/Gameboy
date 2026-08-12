@@ -1,0 +1,59 @@
+# Wayfarer Milestone 16 verification script (boss.c's three-hit boss,
+# the new dead-end room (2,2) south of the brute's own (2,1)).
+#
+# Sequence: dismiss the title screen -> a short RIGHT hold at spawn
+# collects the sword pickup (same technique input_script_m8.txt's own
+# comments already document) -> pivot up and away from the original
+# enemy's own y=64 row before crossing room (0,0) -> cross east through
+# (0,0) and (1,0) into (2,0) -> a single, generously-long DOWN hold
+# crosses south through (2,0) into (2,1) (the brute's own room, not
+# fought here) and continues straight through into the new (2,2), the
+# boss's own room, pinning at its south wall - a genuinely different
+# technique from input_script_m12_brute.txt's/input_script_m14_shield.txt's
+# own *precise*, non-overshooting DOWN legs through (2,1): those scripts
+# need to stop exactly within (2,1) to fight the brute there, but this
+# one is allowed to sail straight through since it's not stopping until
+# the room after -> LEFT then UP into the boss's own patrol box -> face
+# right -> land three real swings.
+#
+# The exact working hit frames were found the same way
+# input_script_m12_brute.txt's own were - an isolated per-frame scan
+# against the real build, temporarily instrumented with a serial byte
+# on each hit (removed again once confirmed) - not derived from
+# BOSS_MIN/MAX_X/Y or BOSS_HIT_COOLDOWN_FRAMES by hand. The boss's own
+# independent two-axis bounce (a real first - every earlier enemy here
+# moves on one axis only) made this even less hand-tractable than the
+# brute's own single-axis case ever was. Frame 1035 lands the first
+# hit; frame 1045, only 10 frames later (inside
+# BOSS_HIT_COOLDOWN_FRAMES's own 20-frame window), is confirmed a
+# genuine no-op; frame 1130 lands the second hit; frame 1155 lands the
+# third and lethal hit.
+#
+# This script runs close to the emulator CLI's own fixed 20M-
+# instruction budget (this session's own established ~1150-1200 frame
+# practical ceiling) - confirmed comfortably under it at exactly this
+# length, not assumed safe.
+10 START down
+11 START up
+20 RIGHT down
+36 RIGHT up
+36 UP down
+116 UP up
+116 RIGHT down
+566 RIGHT up
+566 DOWN down
+900 DOWN up
+900 LEFT down
+980 LEFT up
+980 UP down
+1030 UP up
+1030 RIGHT down
+1031 RIGHT up
+1035 A down
+1036 A up
+1045 A down
+1046 A up
+1130 A down
+1131 A up
+1155 A down
+1156 A up

@@ -39,4 +39,4 @@
 396 LEFT down
 460 LEFT up
 460 DOWN down
-684 DOWN up
+664 DOWN up

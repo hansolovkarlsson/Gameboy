@@ -11,6 +11,16 @@
 
 #include <stdint.h>
 
+// The brute's own OBJ palette index - exported (the single source of
+// truth; brute.c itself uses this same constant rather than a second,
+// private copy) so boss.c can deliberately reuse the exact same violet
+// ramp: CGB hardware has only 8 OBJ palette slots total (confirmed
+// against docs/HARDWARE_REFERENCE.md), and this project's own existing
+// modules (player, sword, enemy, heart_hud x2, key, brute, shield)
+// already claim all 8 of them - a boss added after that has nothing
+// left to claim as its own and must reuse one, not invent a 9th.
+#define BRUTE_OBJ_PALETTE 6 // player.c owns 0, sword.c owns 1, enemy.c owns 2, heart_hud.c owns 3-4, key.c owns 5
+
 void brute_init(void);
 
 // Steps the patrol and repositions the sprite, and counts down the
