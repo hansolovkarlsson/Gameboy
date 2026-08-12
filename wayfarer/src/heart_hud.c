@@ -29,8 +29,13 @@ static const palette_color_t heart_palettes[2 * 4] = {
     RGB(0, 0, 0), RGB(6, 6, 7), RGB(9, 9, 10), RGB(12, 12, 13),
 };
 
-#define HEART_COUNT 3
-#define HEART_SPRITE_BASE 6 // player.c owns 0-3, sword.c owns 4, enemy.c owns 5
+// Slots 6-8 are the original contiguous 3; slot 9 was already claimed
+// by pickup.c before a 4th heart ever existed (Milestone 17's chest),
+// so the 4th can't extend the run contiguously - it gets 26 instead,
+// the next slot free once boss.c's own 17-25 is accounted for. An
+// explicit array, not a formula, since the real layout isn't
+// contiguous.
+static const uint8_t heart_slots[MAX_HEARTS_CAP] = {6, 7, 8, 26}; // player.c owns 0-3, sword.c owns 4, enemy.c owns 5, pickup.c owns 9, key.c owns 10, brute.c owns 11-14, sword_pickup.c owns 15, shield.c owns 16, boss.c owns 17-25, chest.c owns 27
 
 // Fixed top-left screen position, 12px apart (8px icon + 4px gap).
 #define HEART_HUD_X 4
@@ -41,8 +46,8 @@ void heart_hud_init(void) {
     set_sprite_palette(HEART_PALETTE_FULL, 2, heart_palettes);
     set_sprite_data(HEART_TILE_ID, 1, heart_tile);
 
-    for (uint8_t i = 0; i < HEART_COUNT; i++) {
-        uint8_t slot = (uint8_t)(HEART_SPRITE_BASE + i);
+    for (uint8_t i = 0; i < MAX_HEARTS_CAP; i++) {
+        uint8_t slot = heart_slots[i];
         uint8_t x = (uint8_t)(HEART_HUD_X + i * HEART_HUD_SPACING);
         set_sprite_tile(slot, HEART_TILE_ID);
         move_sprite(slot, x + 8, HEART_HUD_Y + 16);
@@ -53,8 +58,15 @@ void heart_hud_init(void) {
 
 void heart_hud_update(void) {
     uint8_t hearts = player_get_hearts();
-    for (uint8_t i = 0; i < HEART_COUNT; i++) {
-        uint8_t slot = (uint8_t)(HEART_SPRITE_BASE + i);
+    uint8_t max_hearts = player_get_max_hearts();
+    for (uint8_t i = 0; i < MAX_HEARTS_CAP; i++) {
+        uint8_t slot = heart_slots[i];
+        if (i >= max_hearts) {
+            move_sprite(slot, 0, 0);
+            continue;
+        }
+        uint8_t x = (uint8_t)(HEART_HUD_X + i * HEART_HUD_SPACING);
+        move_sprite(slot, x + 8, HEART_HUD_Y + 16);
         uint8_t palette = (i < hearts) ? HEART_PALETTE_FULL : HEART_PALETTE_EMPTY;
         set_sprite_prop(slot, S_PAL(palette));
     }

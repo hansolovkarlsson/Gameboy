@@ -22,6 +22,7 @@
 
 #include "boss.h"
 #include "brute.h"
+#include "chest.h"
 #include "enemy.h"
 #include "heart_hud.h"
 #include "key.h"
@@ -69,6 +70,14 @@
 // optional, same as the brute: defeating it is not required to win.
 #define BOSS_ROOM_X 2
 #define BOSS_ROOM_Y 2
+
+// The treasure chest (chest.c) belongs to this room only - the same
+// room as the shield (Milestone 10's other empty-exploration room),
+// the second precedent (after (0,0)'s enemy + sword_pickup) for two
+// independent pickups sharing a room. Deliberately optional, same as
+// the brute/boss: it grants a permanent bonus, not a required one.
+#define CHEST_ROOM_X 2
+#define CHEST_ROOM_Y 0
 
 // The one heart pickup (pickup.c) belongs to this room only.
 #define PICKUP_ROOM_X 1
@@ -162,6 +171,10 @@ static uint8_t in_boss_room(void) {
     return room_x == BOSS_ROOM_X && room_y == BOSS_ROOM_Y;
 }
 
+static uint8_t in_chest_room(void) {
+    return room_x == CHEST_ROOM_X && room_y == CHEST_ROOM_Y;
+}
+
 static uint8_t in_pickup_room(void) {
     return room_x == PICKUP_ROOM_X && room_y == PICKUP_ROOM_Y;
 }
@@ -186,6 +199,7 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     uint8_t leaving_boss_room = in_boss_room();
     uint8_t leaving_sword_pickup_room = in_sword_pickup_room();
     uint8_t leaving_shield_room = in_shield_room();
+    uint8_t leaving_chest_room = in_chest_room();
     uint8_t leaving_pickup_room = in_pickup_room();
     uint8_t leaving_key_room = in_key_room();
 
@@ -209,6 +223,8 @@ static void go_to_room(uint8_t new_x, uint8_t new_y, uint8_t entry_x, uint8_t en
     if (!leaving_sword_pickup_room && in_sword_pickup_room()) sword_pickup_show();
     if (leaving_shield_room && !in_shield_room()) shield_hide();
     if (!leaving_shield_room && in_shield_room()) shield_show();
+    if (leaving_chest_room && !in_chest_room()) chest_hide();
+    if (!leaving_chest_room && in_chest_room()) chest_show();
     if (leaving_pickup_room && !in_pickup_room()) pickup_hide();
     if (!leaving_pickup_room && in_pickup_room()) pickup_show();
     if (leaving_key_room && !in_key_room()) key_hide();
@@ -258,10 +274,22 @@ static void reset_world(void) {
     pickup_load_collected(sram_get_pickup_collected());
     key_init();
     key_load_collected(sram_get_key_collected());
+    // Runs after key_init() so KEY_PALETTE's own color data is already
+    // loaded - chest.c deliberately reuses that palette rather than
+    // claiming a 9th of its own (see chest.c's own comment).
+    chest_init();
+    chest_load_collected(sram_get_chest_collected());
+    // A loaded save that already collected the chest must re-grant the
+    // permanent max-hearts boost too - player_init() above always
+    // resets to the base 3, and chest_load_collected() only restores
+    // this module's own sprite/collected-flag state, not the player's.
+    // Silent (no sfx) - this is a state restore, not a fresh pickup.
+    if (chest_is_collected()) player_increase_max_hearts();
     // Correct regardless of which room the game happens to start in,
     // not just assumed safe because today it's (0,0).
     if (in_sword_pickup_room()) sword_pickup_show(); else sword_pickup_hide();
     if (in_shield_room()) shield_show(); else shield_hide();
+    if (in_chest_room()) chest_show(); else chest_hide();
     if (in_pickup_room()) pickup_show(); else pickup_hide();
     if (in_key_room()) key_show(); else key_hide();
 
@@ -384,6 +412,14 @@ void world_update(uint8_t joy) {
         if (shield_try_collect(player_get_x(), player_get_y(), 16, 16)) {
             sfx_play_pickup();
             sram_set_shield_collected();
+        }
+    }
+
+    if (in_chest_room() && !chest_is_collected()) {
+        if (chest_try_collect(player_get_x(), player_get_y(), 16, 16)) {
+            player_increase_max_hearts();
+            sfx_play_pickup();
+            sram_set_chest_collected();
         }
     }
 

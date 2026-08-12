@@ -1,0 +1,61 @@
+# Wayfarer Milestone 17 verification script (chest.c's treasure chest,
+# room (2,0) - the shield's own room, the second precedent after
+# (0,0)'s enemy + sword_pickup for two independent pickups sharing one
+# room).
+#
+# Sequence: dismiss the title screen -> hold UP immediately from spawn
+# (72,64) to the top wall (y=8) - safe without any sword detour first,
+# since x stays 72 the whole time, never entering the original enemy's
+# own 96-128 patrol range regardless of y -> hold RIGHT across (0,0),
+# (1,0), and into (2,0), pinning at its NE corner (136,8), the same
+# technique input_script_m12_brute.txt's/input_script_m16_boss.txt's
+# own RIGHT legs already use -> a precise DOWN hold to y=96, then a
+# precise LEFT hold toward x=32, the chest's own fixed position - the
+# chest's 8x8 AABB against the player's 16x16 one means real collection
+# actually happens as soon as player x drops under 40, well before the
+# LEFT hold's own nominal endpoint (confirmed directly against the
+# built ROM: the 4th heart HUD slot flips from hidden to full between
+# frame 593 and 594, comfortably inside this hold, not at its end).
+#
+# **Checkpoint 1** (frame 615, player at rest after the LEFT hold
+# releases): the chest is collected (sprite gone) and the HUD now shows
+# 4 full hearts - proof both that collection worked and that
+# player_increase_max_hearts() actually grants and fully heals the new
+# heart container.
+#
+# Continuing: DOWN a short distance south into (2,1) (open by default
+# grid topology, no override touches room (2,0)'s own south side) ->
+# RIGHT to the brute's own patrol column (BRUTE_X=64) -> a long DOWN
+# hold sweeping the brute's *entire* 32-88 patrol band, guaranteeing at
+# least one overlap with it regardless of its current patrol phase,
+# taking exactly one unarmed graze (confirmed directly against the
+# built ROM: the 4th heart flips from full to empty between frame 732
+# and 734; the hold ends at 778, comfortably inside the 60-frame
+# invincibility window after the hit, so it can't double-count).
+#
+# **Checkpoint 2** (frame 780): the HUD shows 3 full hearts + 1 empty
+# at the new 4-heart width - the real test that heart_hud.c's
+# generalization renders partial damage correctly at the new max, not
+# just "still shows 3 hearts total."
+#
+# No combat timing here at all (unarmed throughout, no swing frames to
+# land) - both checkpoints' frame numbers come from a direct bisection
+# scan against the real build (the same "scan the real build, don't
+# hand-derive" discipline every combat script here already follows for
+# hit frames), not from hand-computing patrol/invincibility timing.
+10 START down
+11 START up
+20 UP down
+76 UP up
+76 RIGHT down
+412 RIGHT up
+412 DOWN down
+500 DOWN up
+500 LEFT down
+604 LEFT up
+624 DOWN down
+656 DOWN up
+656 RIGHT down
+688 RIGHT up
+688 DOWN down
+778 DOWN up

@@ -18,7 +18,8 @@ static const uint8_t key_tile[16] = {
     0x10, 0x10, 0x10, 0x10, 0x38, 0x38, 0x00, 0x00,
 };
 
-#define KEY_PALETTE 5 // player.c owns 0, sword.c owns 1, enemy.c owns 2, heart_hud.c owns 3-4
+// Palette index itself is key.h's own public KEY_PALETTE (5) - player.c
+// owns 0, sword.c owns 1, enemy.c owns 2, heart_hud.c owns 3-4.
 static const palette_color_t key_palette[4] = {
     RGB(0, 0, 0), RGB(20, 16, 2), RGB(26, 21, 3), RGB(31, 26, 4),
 };

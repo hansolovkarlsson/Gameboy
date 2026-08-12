@@ -98,13 +98,17 @@ static uint8_t player_x;
 static uint8_t player_y;
 static facing_t facing;
 
-#define MAX_HEARTS 3
+// The starting/default ceiling - see player.h's own MAX_HEARTS_CAP for
+// the real, current hard ceiling once treasure chests are accounted
+// for (Milestone 17).
+#define BASE_MAX_HEARTS 3
 // ~1s at ~59.7fps - long enough that a single enemy pass (it takes
 // only ~24 frames to fully cross a stationary 16px-wide player at
 // 1px/frame) can't cause a second deduction from the same graze.
 #define INVINCIBILITY_FRAMES 60
 
-static uint8_t hearts = MAX_HEARTS;
+static uint8_t max_hearts = BASE_MAX_HEARTS;
+static uint8_t hearts = BASE_MAX_HEARTS;
 static uint8_t invincible_timer = 0;
 
 // Positions the 4 quadrant sprites (cursor.c's own position_sprites()
@@ -163,7 +167,8 @@ void player_init(void) {
     player_x = ROOM_CENTER_X;
     player_y = ROOM_CENTER_Y;
     facing = FACING_DOWN;
-    hearts = MAX_HEARTS;
+    max_hearts = BASE_MAX_HEARTS;
+    hearts = max_hearts;
     invincible_timer = 0;
 
     position_player();
@@ -209,6 +214,7 @@ void player_set_position(uint8_t x, uint8_t y) {
 }
 
 uint8_t player_get_hearts(void) { return hearts; }
+uint8_t player_get_max_hearts(void) { return max_hearts; }
 
 uint8_t player_damage(uint8_t amount) {
     if (invincible_timer > 0) return 0;
@@ -218,5 +224,10 @@ uint8_t player_damage(uint8_t amount) {
 }
 
 void player_heal_full(void) {
-    hearts = MAX_HEARTS;
+    hearts = max_hearts;
+}
+
+void player_increase_max_hearts(void) {
+    if (max_hearts < MAX_HEARTS_CAP) max_hearts++;
+    hearts = max_hearts;
 }

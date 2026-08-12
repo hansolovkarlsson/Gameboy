@@ -35,8 +35,27 @@ uint8_t player_get_facing(void);
 // edge.
 void player_set_position(uint8_t x, uint8_t y);
 
-// Current heart count (0..MAX_HEARTS, see player.c).
+// Current heart count (0..player_get_max_hearts(), see player.c).
 uint8_t player_get_hearts(void);
+
+// The real, current ceiling on hearts - 3 by default, permanently
+// raised by 1 per treasure chest collected (chest.c/world.c). Exactly
+// "3 base + 1 chest" as of Milestone 17 (see MAX_HEARTS_CAP below),
+// not speculative headroom for a hypothetical future chest.
+uint8_t player_get_max_hearts(void);
+
+// The hard ceiling player_increase_max_hearts() will never exceed -
+// exported so heart_hud.c knows how many HUD sprite slots it might
+// ever need to draw.
+#define MAX_HEARTS_CAP 4
+
+// Permanently raises max_hearts by 1 (clamped at MAX_HEARTS_CAP) and
+// fully heals to the new max - the new heart container appears full,
+// not empty, matching the generosity of every other pickup's own
+// full-heal effect elsewhere in this project. Called once by world.c
+// when the chest is actually collected, and again (silently, no sfx)
+// when a save that already collected it is loaded at boot.
+void player_increase_max_hearts(void);
 
 // Subtracts amount from hearts (clamped at 0) and starts a brief
 // invincibility window - a no-op entirely if still invincible from a

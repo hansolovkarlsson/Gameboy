@@ -4615,6 +4615,115 @@ three RGBDS ROMs, `gameboy-prism-build`) stayed green throughout,
 confirmed via a full `make clean` rebuild - this change touches only
 `wayfarer/`.
 
+**Milestone 17 (this pass): done - a treasure chest granting a
+permanent max-hearts increase.** After the boss shipped, the user asked
+what could make the game more interesting (treasures, chests, breakable
+obstacles). Chests were recommended as the lower-risk, higher-payoff
+pick - they reuse the existing "stationary pickup" pattern everywhere
+else, but could grant something genuinely new. Confirmed with the user
+directly: a permanent max-hearts increase (3 -> 4), not just a full
+heal - real, lasting progression that didn't exist before, at the cost
+of touching `player.c`/`heart_hud.c`'s core heart system for the first
+time since Milestones 1-2.
+
+**Two registries were already fully saturated going in**, both
+confirmed by direct grep before writing any code, not assumed still
+open: SRAM's single state byte (`_SRAM[1]`, all 8 bits claimed as of
+the boss's own `BIT_BOSS`) and all 8 CGB OBJ palette slots (0-7, the
+same hardware ceiling the boss milestone's own bug was about). Both had
+to be worked around this time, not discovered as a surprise mid-flight.
+
+**`player.c`/`.h`**: `MAX_HEARTS` (a compile-time `3`) becomes
+`BASE_MAX_HEARTS` plus a real `static uint8_t max_hearts` variable, capped
+at a new, honestly-named `MAX_HEARTS_CAP` (`4`) - exactly "3 base + 1
+chest," not speculative headroom for a hypothetical second one. New
+`player_get_max_hearts()` and `player_increase_max_hearts()` (raises
+the cap, then fully heals to it - the new heart container appears
+full, matching every other pickup's own full-heal generosity).
+**A real correctness fix alongside it**: `player_heal_full()` used to
+hard-reset to the old `MAX_HEARTS` constant - left as-is, a player who
+already found the chest would get silently bumped back down to 3 hearts
+by the very next heart pickup or death-respawn, quietly undoing the
+chest's own reward. Now reads the `max_hearts` variable instead.
+
+**`heart_hud.c`**: sprite OAM slots 0-25 were fully claimed (boss owns
+17-25), so the 4th heart's own slot couldn't extend the original
+`HEART_SPRITE_BASE + i` contiguous scheme (slot 9 was already
+`pickup.c`'s, well before a 4th heart ever existed) - it gets slot 26
+instead, the next one actually free. Replaced with an explicit
+`heart_slots[MAX_HEARTS_CAP] = {6, 7, 8, 26}` array rather than a
+formula, since the real layout isn't contiguous. Both `heart_hud_init()`
+and `heart_hud_update()` now loop `MAX_HEARTS_CAP` times instead of a
+fixed `3`; any slot at or past the player's *current* real max is
+hidden every frame - the same "safe to call unconditionally" contract
+this function already had, now covering "not yet unlocked" too. A
+newly-unlocked 4th heart simply starts being drawn the very next call,
+no separate "just unlocked" event needed.
+
+**New `chest.c`/`.h`**: mirrors `shield.c`'s shape exactly (a single
+stationary pickup, no open/closed visual states - collected just means
+hidden, same as every other pickup here). A new hand-drawn 8x8 gold
+chest silhouette (tile ID 31, the next free one after the boss's own
+22-30) in the same "identical low/high bitplane bytes per row" 2-color
+convention every hand-drawn tile in this project already uses (confirmed
+by inspecting `heart_tile`/`key_tile`/`shield_tile` directly - one solid
+color plus transparent from a single row-bitmask, not 4 real colors).
+**Palette reuse, the same move the boss's own milestone already made**:
+all 8 OBJ palette slots were claimed, so the chest reuses `key.c`'s own
+gold ramp (newly exported as `KEY_PALETTE` from `key.h`, the single
+source of truth, `key.c` itself updated to reference it rather than
+keep a private duplicate) instead of inventing a 9th - thematically apt
+for treasure, and safe since the key (room (1,0)) and the chest (room
+(2,0)) never appear on screen at the same time. Lives in the shield's
+own room (2,0) - the second precedent, after `(0,0)`'s enemy +
+sword_pickup, for two independent pickups sharing a room - at a fixed
+position confirmed clear of every script that already visits that room
+by tracing each one's own walked path, not guessed.
+
+**`sram.c`/`.h`**: `_SRAM[1]`'s state byte was completely full, so a
+new `_SRAM[2]` second state byte holds the new `BIT_CHEST` flag - the
+first flag in this project's history to actually need it, exactly the
+contingency `sram.h`'s own Milestone 16-era comment had already flagged
+by name. `sram_init()`/`save()`/`sram_reset()` all extended to cover
+both bytes; the magic-byte check stays keyed on `_SRAM[0]` alone.
+
+**`world.c`**: the usual `in_chest_room()`/show-hide/`reset_world()`
+wiring every pickup here already follows, plus one real piece of new
+plumbing - a loaded save that already collected the chest must also
+re-grant the permanent heart boost at boot (`player_init()` always
+resets to the base 3; `chest_load_collected()` only restores this
+module's own sprite/flag state, not the player's), so `reset_world()`
+calls `player_increase_max_hearts()` once, silently, whenever
+`chest_is_collected()` reads true after loading.
+
+**Verification**: a new, entirely unarmed script (no sword needed to
+collect a chest) with two checkpoints. The first - chest collected,
+sprite gone, HUD now showing 4 full hearts - confirmed empirically that
+real collection happens as soon as the player's 16x16 box overlaps the
+chest's 8x8 one, well before reaching its exact center (a direct
+bisection scan against the built ROM found the flip between frame 593
+and 594, not hand-computed). The second, the real point of this
+milestone's own test coverage: continuing on to take one deliberate,
+unarmed graze from the brute (a full sweep through its entire 32-88
+patrol band, guaranteeing an overlap regardless of its own current
+patrol phase) confirms `heart_hud.c`'s generalization actually renders
+partial damage correctly at the new 4-heart width (3 full + 1 empty),
+not just "still shows 3 hearts total" - the riskiest new code path this
+milestone touched, and the one most worth a dedicated checkpoint rather
+than trusting by inspection. Both existing-reference concerns were
+checked directly rather than assumed: every prior PPM/`.sav` reference
+came back byte-identical via `cmp` (frame-accurate game logic is
+unaffected by this change for any script that never visits the chest's
+room or grows past 3 hearts, and the dumped SRAM region is a fixed 8 KiB
+regardless of how many of its bytes the game actually uses), while every
+prior WAV reference needed the now-familiar re-lock-and-verify pass (a
+sixth real instance of "any code-size change can shift exact sample
+timing," confirmed via `analyze_sfx2.py` before re-locking, never
+skipped). Full regression suite (unit tests, all visual/game/savestate
+targets, all three RGBDS ROMs, `gameboy-prism-build`) stayed green
+throughout, confirmed via a full `make clean` rebuild - this change
+touches only `wayfarer/`.
+
 **Next**: further Wayfarer work is open-ended (more rooms, a fuller
 inventory, deeper audio) rather than following a fixed list, once
 user-directed.

@@ -1,13 +1,16 @@
-// Persists the 8 permanent, one-way progress flags (key collected,
+// Persists the 9 permanent, one-way progress flags (key collected,
 // heart pickup collected, enemy defeated, game won, brute defeated,
-// sword collected, shield collected, boss defeated) to real battery-
-// backed cartridge RAM - not transient state (player position, current
-// room, current hearts). A fresh boot always starts at room (0,0) with
-// full hearts and no sword/shield; a loaded save just means already-
-// collected items stay collected and an already-won game shows the
-// win screen again immediately. This is now every bit of the single
-// state byte (_SRAM[1]) - a 9th flag would need a second byte. See
-// sram.c.
+// sword collected, shield collected, boss defeated, treasure chest
+// collected) to real battery-backed cartridge RAM - not transient state
+// (player position, current room, current hearts, current max hearts -
+// the last of which world.c instead re-derives at boot by calling
+// player_increase_max_hearts() once if the chest flag below is set).
+// A fresh boot always starts at room (0,0) with full hearts and no
+// sword/shield; a loaded save just means already-collected items stay
+// collected and an already-won game shows the win screen again
+// immediately. The original 8 flags fill _SRAM[1] completely; the
+// chest flag (Milestone 17) is the first to need a second state byte,
+// _SRAM[2]. See sram.c.
 
 #ifndef WAYFARER_SRAM_H
 #define WAYFARER_SRAM_H
@@ -24,6 +27,7 @@ uint8_t sram_get_brute_defeated(void);
 uint8_t sram_get_sword_collected(void);
 uint8_t sram_get_shield_collected(void);
 uint8_t sram_get_boss_defeated(void);
+uint8_t sram_get_chest_collected(void);
 
 // Each sets the corresponding flag and writes it to SRAM immediately -
 // saved as soon as it happens, more crash-resilient than waiting for a
@@ -37,6 +41,7 @@ void sram_set_brute_defeated(void);
 void sram_set_sword_collected(void);
 void sram_set_shield_collected(void);
 void sram_set_boss_defeated(void);
+void sram_set_chest_collected(void);
 
 // Wipes the persisted save back to "nothing collected, enemy alive,
 // not won" - the same state a genuinely fresh cartridge already

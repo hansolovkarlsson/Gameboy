@@ -32,7 +32,7 @@ smoke-runs it through this project's own `bin/gameboy --mode cgb`,
 same treatment `gameboy-prism-build`/`gameboy-sdl`/the RGBDS targets
 get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 16 (an optional boss)
+## Status: Milestone 17 (a treasure chest)
 
 Milestones 1-4 built a small bordered-room grid with a freely-walking,
 collision-checked, combat-capable player: a one-shot sword swing, one
@@ -53,7 +53,8 @@ the player starts unarmed. Milestone 14 adds a shield pickup with real
 directional blocking, closing out the last of Milestone 10's two empty
 rooms. Milestone 15 adds a looping background theme. Milestone 16 grows
 the map to 3x3 and adds an optional boss, the real payoff for both
-equipment pieces working together.
+equipment pieces working together. Milestone 17 adds a treasure chest
+that permanently raises max hearts from 3 to 4.
 
 **Real bug report**: Milestone 9's SRAM save meant a `won` save loaded
 straight back into the win screen (by design) — but there was never a
@@ -311,3 +312,49 @@ reference needed re-locking again (a fifth real instance of "any
 code-size change can shift exact sample timing," now from the map
 growth itself). Full regression suite stayed green throughout,
 confirmed via a full `make clean` rebuild.
+
+**Milestone 17**: a treasure chest in room (2,0) - the shield's own
+room, the second precedent (after (0,0)'s enemy + sword_pickup) for two
+independent pickups sharing a room. Grants a real, permanent
+progression reward - max hearts rises from 3 to 4 (`player.c`'s new
+`player_increase_max_hearts()`), not just a full heal - the first time
+`player.c`/`heart_hud.c`'s core heart system has changed since
+Milestones 1-2.
+
+**Two registries were already fully saturated going in**: SRAM's single
+state byte (all 8 bits claimed as of the boss's own `BIT_BOSS`) and all
+8 CGB OBJ palette slots. A new `_SRAM[2]` second state byte holds the
+new `BIT_CHEST` flag - the exact contingency `sram.h`'s own comment had
+already named. The chest's own tile reuses `key.c`'s gold palette
+(newly exported as `KEY_PALETTE`, the same "reuse an existing palette,
+document why" move the boss already made with `BRUTE_OBJ_PALETTE`) -
+the key and the chest never appear on screen at the same time, so
+sharing the index is safe.
+
+`heart_hud.c`'s own sprite slots 0-25 were fully claimed, so the 4th
+heart couldn't extend the original contiguous `HEART_SPRITE_BASE + i`
+scheme (slot 9 already belonged to `pickup.c`) - it gets slot 26
+instead, via a new explicit `heart_slots[4] = {6, 7, 8, 26}` array. Both
+`heart_hud_init()`/`heart_hud_update()` now loop over the player's real
+current max instead of a fixed 3, hiding any slot not yet unlocked -
+the same "safe to call unconditionally" contract this function already
+had. **A real correctness fix alongside it**: `player_heal_full()` used
+to hard-reset to the old fixed `MAX_HEARTS` constant, which would have
+silently un-done the chest's own reward on the very next heart pickup
+or death-respawn - now reads the real, current `max_hearts` variable.
+
+Verified with a fully unarmed script (no sword needed to collect a
+chest) and two checkpoints: chest collected (HUD now shows 4 full
+hearts - real collection confirmed, via a direct bisection scan against
+the built ROM, to happen as soon as the player's box overlaps the
+chest's, well before reaching its exact center) and, the real point of
+this milestone's own test coverage, one deliberate unarmed graze taken
+afterward from the brute - proof `heart_hud.c`'s generalization renders
+partial damage correctly at the new 4-heart width (3 full + 1 empty),
+not just "still shows 3 hearts total." Every prior PPM/`.sav` reference
+came back byte-identical via `cmp` (unaffected by this change); every
+prior WAV reference needed the now-familiar re-lock-and-verify pass (a
+sixth instance of "any code-size change can shift exact sample timing,"
+confirmed via `analyze_sfx2.py` before re-locking). Full regression
+suite stayed green throughout, confirmed via a full `make clean`
+rebuild.

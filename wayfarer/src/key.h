@@ -8,6 +8,16 @@
 
 #include <stdint.h>
 
+// The key's own OBJ palette index - exported (the single source of
+// truth; key.c itself uses this same constant rather than a second,
+// private copy) so chest.c can deliberately reuse the exact same gold
+// ramp: all 8 CGB OBJ palette slots are already claimed by this
+// project's existing modules, so the Milestone 17 chest - thematically
+// gold anyway - reuses this one rather than inventing a 9th, the same
+// "reuse an existing palette, document why" move boss.c already made
+// with brute.h's own BRUTE_OBJ_PALETTE.
+#define KEY_PALETTE 5 // player.c owns 0, sword.c owns 1, enemy.c owns 2, heart_hud.c owns 3-4
+
 void key_init(void);
 
 // Repositions/hides the sprite - call on entering/leaving room (1,0).

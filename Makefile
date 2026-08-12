@@ -267,6 +267,26 @@ WAYFARER_BOSS_WAV_OUT := $(BIN_DIR)/wayfarer-boss-sfx-output.wav
 WAYFARER_BOSS_SAV_REF := wayfarer/reference_m16_boss.sav
 WAYFARER_BOSS_SAV_OUT := $(BIN_DIR)/wayfarer-boss-output.sav
 
+# Milestone 17: a treasure chest (chest.c) in room (2,0) - the
+# shield's own room, the second precedent (after (0,0)'s enemy +
+# sword_pickup) for two independent pickups sharing a room. Grants a
+# permanent max-hearts increase (3 -> 4, player.c's own
+# player_increase_max_hearts()) rather than just a full heal - real,
+# lasting progression. Not required to win, same as the brute/boss.
+WAYFARER_CHEST_SCRIPT := wayfarer/input_script_m17_chest.txt
+WAYFARER_CHEST_COLLECTED_REF := wayfarer/reference_m17_chest_collected.ppm
+WAYFARER_CHEST_COLLECTED_OUT := $(BIN_DIR)/wayfarer-chest-collected-output.ppm
+# The counterpart checkpoint - one unarmed graze taken *after* growing
+# to 4 max hearts, the real test that heart_hud.c's generalization
+# renders partial damage correctly at the new width (3 full + 1 empty),
+# not just "still shows 3 hearts total."
+WAYFARER_CHEST_HIT_REF := wayfarer/reference_m17_chest_hit.ppm
+WAYFARER_CHEST_HIT_OUT := $(BIN_DIR)/wayfarer-chest-hit-output.ppm
+WAYFARER_CHEST_WAV_REF := wayfarer/reference_m17_chest_sfx.wav
+WAYFARER_CHEST_WAV_OUT := $(BIN_DIR)/wayfarer-chest-sfx-output.wav
+WAYFARER_CHEST_SAV_REF := wayfarer/reference_m17_chest.sav
+WAYFARER_CHEST_SAV_OUT := $(BIN_DIR)/wayfarer-chest-output.sav
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -455,6 +475,22 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 	cmp $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_BOSS_SAV_REF) \
 		&& echo "gameboy-wayfarer-build: OK (Milestone 16 - defeating the boss persists BIT_BOSS to cart RAM)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_BOSS_SAV_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_CHEST_SCRIPT) --ppm $(WAYFARER_CHEST_COLLECTED_OUT) --frames 615
+	cmp $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_COLLECTED_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 17 - collecting the chest grants a 4th, full heart)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_CHEST_COLLECTED_REF))"; exit 1)
+	rm -f $(WAYFARER_CHEST_SAV_OUT)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_CHEST_SCRIPT) --sav $(WAYFARER_CHEST_SAV_OUT) --ppm $(WAYFARER_CHEST_HIT_OUT) --frames 780
+	cmp $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_HIT_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 17 - heart_hud.c's generalized HUD renders partial damage correctly at the new 4-heart width)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (rendered frame doesn't match $(WAYFARER_CHEST_HIT_REF))"; exit 1)
+	./$(TARGET) $(WAYFARER_ROM) --mode cgb --input $(WAYFARER_CHEST_SCRIPT) --wav $(WAYFARER_CHEST_WAV_OUT) --seconds 15
+	cmp $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_WAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 17 - the shared pickup chime on collection, the existing damage sfx on the later graze)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (captured audio doesn't match $(WAYFARER_CHEST_WAV_REF))"; exit 1)
+	cmp $(WAYFARER_CHEST_SAV_OUT) $(WAYFARER_CHEST_SAV_REF) \
+		&& echo "gameboy-wayfarer-build: OK (Milestone 17 - collecting the chest persists BIT_CHEST to the new second SRAM state byte)" \
+		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_CHEST_SAV_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -492,6 +528,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean
