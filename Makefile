@@ -348,6 +348,18 @@ ASCENT_M6_SCRIPT := ascent/input_script_m6_score.txt
 ASCENT_M6_REF := ascent/reference_m6_score.ppm
 ASCENT_M6_OUT := $(BIN_DIR)/ascent-m6-output.ppm
 
+# Milestone 7: sound effects (sfx.c) - a jump, a barrel scored, a
+# barrel hit, and the win fanfare. Two WAV checkpoints reuse existing
+# scripts rather than adding new ones: Milestone 2's own barrel script
+# already exercises jump+score+hit in one route, Milestone 4's own win
+# script already reaches the goal.
+ASCENT_M7_SFX_SCRIPT := ascent/input_script_m2_barrels.txt
+ASCENT_M7_SFX_WAV_REF := ascent/reference_m7_sfx.wav
+ASCENT_M7_SFX_WAV_OUT := $(BIN_DIR)/ascent-m7-sfx-output.wav
+ASCENT_M7_WIN_SFX_SCRIPT := ascent/input_script_m4_win.txt
+ASCENT_M7_WIN_SFX_WAV_REF := ascent/reference_m7_win_sfx.wav
+ASCENT_M7_WIN_SFX_WAV_OUT := $(BIN_DIR)/ascent-m7-win-sfx-output.wav
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -583,6 +595,14 @@ gameboy-ascent-build: $(TARGET) | $(BIN_DIR)
 	cmp $(ASCENT_M6_OUT) $(ASCENT_M6_REF) \
 		&& echo "gameboy-ascent-build: OK (Milestone 6 - jumping over a barrel scores 100 points)" \
 		|| (echo "gameboy-ascent-build: FAIL (rendered frame doesn't match $(ASCENT_M6_REF))"; exit 1)
+	./$(TARGET) $(ASCENT_ROM) --mode cgb --input $(ASCENT_M7_SFX_SCRIPT) --wav $(ASCENT_M7_SFX_WAV_OUT) --seconds 17
+	cmp $(ASCENT_M7_SFX_WAV_OUT) $(ASCENT_M7_SFX_WAV_REF) \
+		&& echo "gameboy-ascent-build: OK (Milestone 7 - jump/score/hit sound effects match)" \
+		|| (echo "gameboy-ascent-build: FAIL (captured audio doesn't match $(ASCENT_M7_SFX_WAV_REF))"; exit 1)
+	./$(TARGET) $(ASCENT_ROM) --mode cgb --input $(ASCENT_M7_WIN_SFX_SCRIPT) --wav $(ASCENT_M7_WIN_SFX_WAV_OUT) --seconds 8
+	cmp $(ASCENT_M7_WIN_SFX_WAV_OUT) $(ASCENT_M7_WIN_SFX_WAV_REF) \
+		&& echo "gameboy-ascent-build: OK (Milestone 7 - the win fanfare matches)" \
+		|| (echo "gameboy-ascent-build: FAIL (captured audio doesn't match $(ASCENT_M7_WIN_SFX_WAV_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -620,6 +640,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT) $(ASCENT_M2_SURVIVE_OUT) $(ASCENT_M2_RESPAWN_OUT) $(ASCENT_M3_OUT) $(ASCENT_M4_OUT) $(ASCENT_M5_OUT) $(ASCENT_M6_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT) $(ASCENT_M2_SURVIVE_OUT) $(ASCENT_M2_RESPAWN_OUT) $(ASCENT_M3_OUT) $(ASCENT_M4_OUT) $(ASCENT_M5_OUT) $(ASCENT_M6_OUT) $(ASCENT_M7_SFX_WAV_OUT) $(ASCENT_M7_WIN_SFX_WAV_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean

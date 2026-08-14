@@ -15,10 +15,13 @@
 // exact same init sequence real boot uses, since every module's own
 // _init() is already a full, idempotent reset (confirmed by reading
 // each one - none of them carry state across calls that a fresh call
-// wouldn't itself overwrite). This pass (Milestone 6) adds a score
-// (score.h/score.c): 100 points for each barrel jumped over, the same
-// real Donkey Kong (1981) mechanic and point value, shown live on
-// background row 0.
+// wouldn't itself overwrite). Milestone 6 added a score (score.h/
+// score.c): 100 points for each barrel jumped over, the same real
+// Donkey Kong (1981) mechanic and point value, shown live on
+// background row 0. This pass (Milestone 7) adds sound effects
+// (sfx.h/sfx.c) for jumping, scoring, a barrel hit, and reaching the
+// goal - direct register pokes, no per-frame service loop, the same
+// approach prism/src/sfx.c and wayfarer/src/sfx.c already established.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
@@ -31,6 +34,7 @@
 #include "goal.h"
 #include "win.h"
 #include "score.h"
+#include "sfx.h"
 
 void main(void) {
     initrand(DIV_REG);
@@ -40,12 +44,19 @@ void main(void) {
     barrel_init();
     goal_init();
     score_init();
+    sfx_init();
 
     SHOW_BKG;
     DISPLAY_ON;
 
     uint8_t won = 0;
     uint8_t prev_joy = 0;
+    // Edge-detects a jump's own *start* (main.c's own concern, not
+    // player.c's - the same "return state, let main.c decide" shape
+    // barrel_check_hit()/goal_check_reached() already use) so
+    // sfx_play_jump() fires exactly once per jump, not every frame
+    // player_is_jumping() stays true.
+    uint8_t was_jumping = 0;
     while (1) {
         uint8_t joy = joypad();
         // Edge-detected (not held) so a Start press restarts exactly
@@ -80,15 +91,25 @@ void main(void) {
             }
         } else {
             player_update(joy);
+
+            uint8_t is_jumping = player_is_jumping();
+            if (is_jumping && !was_jumping) sfx_play_jump();
+            was_jumping = is_jumping;
+
             barrel_update();
             if (barrel_check_hit(player_get_x(), player_get_y())) {
                 player_respawn();
-            } else if (player_is_jumping()) {
+                sfx_play_hit();
+            } else if (is_jumping) {
                 uint16_t gained = barrel_check_jump_score(player_get_x(), player_get_y());
-                if (gained) score_add(gained);
+                if (gained) {
+                    score_add(gained);
+                    sfx_play_score();
+                }
             }
             if (goal_check_reached(player_get_x(), player_get_y())) {
                 won = 1;
+                sfx_play_win();
                 win_play();
             }
         }

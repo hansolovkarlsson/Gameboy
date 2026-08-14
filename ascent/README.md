@@ -34,7 +34,7 @@ through this project's own `bin/gameboy --mode cgb`, same treatment
 `gameboy-prism-build`/`gameboy-wayfarer-build`/`gameboy-sdl`/the RGBDS
 targets get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 6 (a score)
+## Status: Milestone 7 (sound effects)
 
 One static 20x18-tile screen (`src/stage.c`): four girder tiers
 (rows 5, 9, 13, 17 of a 18-row screen) connected by two ladder columns
@@ -275,3 +275,46 @@ is what the score shows afterward. **Checkpoint** (frame 600, same
 timing as Milestone 2's own checkpoint A): the score field reads
 "00100" - one barrel's worth of points, paid out exactly once despite
 the jump's own multi-frame overlap window with the barrel.
+
+Milestone 7 adds sound effects. New `src/sfx.c`/`.h` follows the exact
+same approach `prism/src/sfx.c` and `wayfarer/src/sfx.c` already
+established - direct DMG/CGB sound-register pokes, one write-and-
+restart per event, real hardware envelope/sweep/length-counter decay
+doing the rest, no per-frame service loop. Three of the four tones
+reuse those projects' own exact register values verbatim rather than
+re-deriving them (same physical channel-1/2/4 hardware, same
+frequency-to-period formula - nothing to recompute): `sfx_play_jump()`
+is channel 1, identical to `wayfarer/src/sfx.c`'s own
+`sfx_play_swing()`; `sfx_play_score()` is `sfx_play_pickup()`'s own
+exact note, moved to channel 2 so a barrel cleared mid-flight never
+steps on a jump blip still decaying; `sfx_play_hit()` is channel 4
+(noise), identical to `sfx_play_damage()`; `sfx_play_win()` is channel
+1 again (never concurrent with a jump - `main.c`'s own `won` flag stops
+`player_update()` entirely once it fires), identical to
+`wayfarer/src/sfx.c`'s own `sfx_play_win()`.
+
+`main.c` wires all four into the existing per-frame checks rather than
+teaching any other module about audio - the same "return state, let
+main.c decide" shape `barrel_check_hit()`/`goal_check_reached()`
+already use. A jump's own *start* needed a new edge-detected
+`was_jumping` local in `main.c` (comparing consecutive
+`player_is_jumping()` reads, the same edge-detection shape already used
+for the Start-press restart) since `player_is_jumping()` alone stays
+true for the jump's whole multi-frame flight.
+
+**Verification**: WAV capture, not a screenshot - two references reuse
+existing scripts rather than adding new ones, since both already
+exercise every relevant event. `reference_m7_sfx.wav`
+(`input_script_m2_barrels.txt`, 17s) covers jump, score, and hit in one
+route; `reference_m7_win_sfx.wav` (`input_script_m4_win.txt`, 8s)
+covers the win fanfare. Confirmed against the real build with a custom
+RMS/zero-crossing timeline analyzer (the same discipline every prior
+milestone's own bisection already used, applied to audio instead of
+pixels) before locking either: the jump/score/hit reference shows three
+distinct events at ~7.94s, ~8.08s, and ~15.62s - matching the
+already-bisected jump-press frame (475), the barrel's own overlap
+window immediately after, and the already-bisected hit-contact frame
+(932-935) respectively, once converted to seconds at ~59.7 fps; the win
+reference shows one ~200ms event at ~6.46s, matching the already-
+bisected win-contact frame (386-387) and `sfx_play_win()`'s own
+LENGTH(12) note duration.

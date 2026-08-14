@@ -5196,6 +5196,63 @@ savestate targets, all three RGBDS ROMs, `gameboy-prism-build`,
 rebuild, including the same 3 known pre-existing Mooneye timer
 failures - this change touches only `ascent/` and the root `Makefile`.
 
-**Next**: further Ascent work is open-ended (sound effects, possibly a
-lives/game-over system for barrel hits) rather than
-following a fixed list, once user-directed.
+**Phase 12 ("Ascent"), Milestone 7 (this pass): done - sound
+effects.** The user asked for exactly this next, matching Milestone 6's
+own closing "Next" note.
+
+**New `src/sfx.c`/`.h`** follows the exact same approach
+`prism/src/sfx.c` and `wayfarer/src/sfx.c` already established - direct
+DMG/CGB sound-register pokes, one write-and-restart per event, real
+hardware envelope/sweep/length-counter decay doing the rest, no
+per-frame service loop. Three of the four tones reuse those projects'
+own exact register values verbatim rather than re-deriving them (same
+physical channel-1/2/4 hardware, same frequency-to-period formula -
+nothing to recompute, only to reuse, the same "already-proven, don't
+redo it" reasoning `player.c`/`win.c`/`score.c` already give for
+reusing `wayfarer/`'s/`prism/`'s own art): `sfx_play_jump()` is
+identical to `wayfarer/src/sfx.c`'s own `sfx_play_swing()` (channel 1);
+`sfx_play_score()` is `sfx_play_pickup()`'s own exact note, moved to
+channel 2 so a barrel cleared mid-flight never steps on a jump blip
+still decaying; `sfx_play_hit()` is identical to `sfx_play_damage()`
+(channel 4, noise); `sfx_play_win()` is identical to `wayfarer/src/
+sfx.c`'s own `sfx_play_win()` (channel 1 again - never concurrent with
+a jump, since `main.c`'s own `won` flag stops `player_update()`
+entirely once it fires).
+
+**`main.c` wires all four into its existing per-frame checks** rather
+than teaching any other module about audio - the same "return state,
+let main.c decide" shape `barrel_check_hit()`/`goal_check_reached()`
+already use, extended rather than broken. A jump's own *start* needed a
+new edge-detected `was_jumping` local in `main.c` (comparing
+consecutive `player_is_jumping()` reads, the same edge-detection shape
+already used for the Milestone 5 Start-press restart) since
+`player_is_jumping()` alone stays true for a jump's whole multi-frame
+flight - without the edge check, `sfx_play_jump()` would fire every
+single frame of every jump instead of once at takeoff.
+
+**Verification**: WAV capture, not a screenshot, confirmed against the
+real build with a custom RMS/zero-crossing timeline analyzer before
+locking anything - the same bisection discipline every prior milestone
+already used, applied to audio instead of pixels. Two references reuse
+existing scripts rather than adding new ones, since both already
+exercise every relevant event: `reference_m7_sfx.wav`
+(`input_script_m2_barrels.txt`, 17s) shows three distinct events at
+~7.94s, ~8.08s, and ~15.62s - matching the already-bisected jump-press
+frame (475), the barrel's own overlap window immediately after, and the
+already-bisected hit-contact frame (932-935), all converted to seconds
+at ~59.7 fps; `reference_m7_win_sfx.wav` (`input_script_m4_win.txt`,
+8s) shows one ~200ms event at ~6.46s, matching the already-bisected
+win-contact frame (386-387) and `sfx_play_win()`'s own `LENGTH(12)`
+note duration. `gameboy-ascent-build` gained two more `cmp` steps (the
+first WAV checkpoints this project's own game has needed - every
+earlier milestone was purely visual). Full regression suite (unit
+tests, all visual/game/savestate targets, all three RGBDS ROMs,
+`gameboy-prism-build`, `gameboy-wayfarer-build`) stayed green throughout
+a full `make clean` rebuild, including the same 3 known pre-existing
+Mooneye timer failures - no existing PPM reference needed re-locking
+this pass (sound has no visual footprint), and this change touches only
+`ascent/` and the root `Makefile`.
+
+**Next**: further Ascent work is open-ended (possibly a lives/game-over
+system for barrel hits) rather than following a fixed list, once
+user-directed.
