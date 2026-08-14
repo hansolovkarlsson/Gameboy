@@ -5064,6 +5064,77 @@ savestate targets, all three RGBDS ROMs, `gameboy-prism-build`,
 rebuild, including the same 3 known pre-existing Mooneye timer
 failures - this change touches only `ascent/` and the root `Makefile`.
 
-**Next**: further Ascent work is open-ended (a restart from the win
-screen, a score, sound effects, possibly a lives/game-over system for
-barrel hits) rather than following a fixed list, once user-directed.
+**Phase 12 ("Ascent"), Milestone 5 (this pass): done - a Start press on
+the WIN screen restarts the whole game.** The user asked for exactly
+this next, matching Milestone 4's own closing "Next" note.
+
+**`src/win.c`** gained a "PRESS START" hint below "WIN", reusing the
+exact same hand-authored P/R/E/S/T/A letter bytes `wayfarer/src/win.c`
+already draws for its own identical hint (same reasoning Milestone 4
+already gave for reusing its W/I/N bytes verbatim). **`src/main.c`**
+gained a `prev_joy` static and edge-detects Start (`joy & ~prev_joy`)
+while `won` is set, the same pattern `wayfarer/src/world.c`'s own
+win-screen Start handling already uses, so a held Start button
+restarts exactly once rather than every frame it stays down. On that
+edge, it re-runs the exact same `stage_init()`/`player_init()`/
+`barrel_init()`/`goal_init()` sequence real boot already calls -
+deliberately no separate reset path, the same discipline
+`wayfarer/src/world.c`'s own `restart_game()` already follows there
+(layered on top of an SRAM wipe Ascent has no equivalent of, since it
+has no save state at all). This only works because each of those four
+`_init()` functions was confirmed, by reading them, to already be a
+full reset of its own module's state (position, sprites, the barrel
+array and its spawn timer) with nothing left over between calls.
+
+**A real bug, caught by testing a restart rather than trusting the
+code**: the first rendered frame after a restart showed the right
+stage *shapes* through the win screen's own leftover gold palette
+instead of the stage's proper navy/rust one - confirmed by rendering
+it and comparing against a fresh boot's own colors, not just glancing
+at it. Root cause: `stage_init()` had only ever written BG tile
+*indices* via `set_bkg_tiles()`; on a truly fresh boot that's enough,
+since the CGB's separate per-tile palette *attribute* map already
+defaults to 0 in unwritten VRAM. But `win_play()` explicitly stamps
+that same whole-screen attribute map to its own `WIN_PALETTE` for the
+"WIN"/"PRESS START" text, and nothing had ever stamped it back -
+`stage_init()` was only ever exercised once per boot before this
+milestone, so the gap was invisible until a real restart actually
+exercised it a second time. Fixed by having `stage_init()` do its own
+explicit whole-screen `set_bkg_attributes()` stamp back to
+`STAGE_PALETTE`, mirroring `win_play()`'s own call, making it a
+genuinely idempotent reset rather than one that only happened to work
+the first time.
+
+**Two more expected ripple effects, not bugs, both confirmed by
+rendering before re-locking anything**: the new "PRESS START" line
+meant `reference_m4_win.ppm` needed re-locking (one more line of text
+on an otherwise-identical frame). Separately, `stage_init()`'s own
+attribute-stamp fix does measurably more work before the very first
+`vsync()` of a fresh boot, nudging exactly when gameplay logic begins
+by a handful of CPU cycles - late enough to shift a few of the
+movement-precise checkpoints that end mid-route on an exact bisected
+frame (`reference_m1.ppm`, `reference_m2_survive.ppm`,
+`reference_m2_respawn.ppm`, `reference_m3_climbdown.ppm`) by a pixel or
+two, though not Milestone 4's own win-screen checkpoint, captured long
+after the player has already stopped moving. All four were re-rendered,
+visually confirmed still correct, and re-locked.
+
+**Verification**: new `input_script_m5_restart.txt` reuses Milestone
+4's own full win route (frames 5-420) verbatim, waits past the
+already-confirmed-stable win screen, presses Start at frame 500, then
+checkpoints frame 550 - stage, player (back at the ground spawn point),
+and goal flag all drawn exactly as a fresh boot would, no barrels yet
+(a fresh spawn timer). A further short walk (frames 555-565) and a
+second checkpoint at frame 600 confirm the restarted game is actually
+playable, not just visually reset - the player responds to input and
+settles at a new position rather than sitting frozen. `gameboy-ascent-
+build` gained a fifth `cmp` step. Full regression suite (unit tests,
+all visual/game/savestate targets, all three RGBDS ROMs, `gameboy-
+prism-build`, `gameboy-wayfarer-build`) stayed green throughout a full
+`make clean` rebuild, including the same 3 known pre-existing Mooneye
+timer failures - this change touches only `ascent/` and the root
+`Makefile`.
+
+**Next**: further Ascent work is open-ended (a score, sound effects,
+possibly a lives/game-over system for barrel hits) rather than
+following a fixed list, once user-directed.

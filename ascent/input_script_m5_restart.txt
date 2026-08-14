@@ -1,0 +1,31 @@
+# Ascent Milestone 5 verification script - proves a Start press on the
+# "WIN" screen restarts the whole game (win.c's own new "PRESS START"
+# hint, main.c's own new won/prev_joy restart handling).
+#
+# Frames 5-420 are Milestone 4's own already-locked win route, reused
+# verbatim (ground -> tier1 -> tier2 -> tier3 -> the flag at x=8). The
+# real win trigger lands between frame 386 and 387 (bisected in
+# Milestone 4); by frame 450 the WIN screen is confirmed stable.
+#
+# A Start press at frame 500 (held two frames, though only the rising
+# edge matters - main.c's own prev_joy check fires the restart exactly
+# once) triggers the restart. Frame numbers for the checkpoint below
+# were bisected against the real build, not hand-derived.
+5 LEFT down
+64 LEFT up
+64 UP down
+114 UP up
+114 RIGHT down
+194 RIGHT up
+194 UP down
+244 UP up
+244 LEFT down
+324 LEFT up
+324 UP down
+374 UP up
+374 LEFT down
+420 LEFT up
+500 START down
+502 START up
+555 LEFT down
+565 LEFT up

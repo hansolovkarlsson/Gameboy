@@ -324,6 +324,19 @@ ASCENT_M4_SCRIPT := ascent/input_script_m4_win.txt
 ASCENT_M4_REF := ascent/reference_m4_win.ppm
 ASCENT_M4_OUT := $(BIN_DIR)/ascent-m4-output.ppm
 
+# Milestone 5: a Start press on the WIN screen restarts the whole game
+# (win.c's own new "PRESS START" hint). Found and fixed a real bug
+# along the way - stage_init() redrew the right tile shapes on restart
+# but left them reading through win.c's own leftover gold BG palette
+# attribute, since only win_play() itself had ever stamped that
+# whole-screen attribute map; stage_init() now stamps it back
+# explicitly, making it a truly idempotent reset. The WIN screen itself
+# also gained the "PRESS START" text this milestone, so Milestone 4's
+# own reference above was re-locked alongside this one.
+ASCENT_M5_SCRIPT := ascent/input_script_m5_restart.txt
+ASCENT_M5_REF := ascent/reference_m5_restart.ppm
+ASCENT_M5_OUT := $(BIN_DIR)/ascent-m5-output.ppm
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -551,6 +564,10 @@ gameboy-ascent-build: $(TARGET) | $(BIN_DIR)
 	cmp $(ASCENT_M4_OUT) $(ASCENT_M4_REF) \
 		&& echo "gameboy-ascent-build: OK (Milestone 4 - reaching the goal flag shows a one-shot WIN screen)" \
 		|| (echo "gameboy-ascent-build: FAIL (rendered frame doesn't match $(ASCENT_M4_REF))"; exit 1)
+	./$(TARGET) $(ASCENT_ROM) --mode cgb --input $(ASCENT_M5_SCRIPT) --ppm $(ASCENT_M5_OUT) --frames 600
+	cmp $(ASCENT_M5_OUT) $(ASCENT_M5_REF) \
+		&& echo "gameboy-ascent-build: OK (Milestone 5 - a Start press on the WIN screen restarts the whole game)" \
+		|| (echo "gameboy-ascent-build: FAIL (rendered frame doesn't match $(ASCENT_M5_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -588,6 +605,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT) $(ASCENT_M2_SURVIVE_OUT) $(ASCENT_M2_RESPAWN_OUT) $(ASCENT_M3_OUT) $(ASCENT_M4_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT) $(ASCENT_M2_SURVIVE_OUT) $(ASCENT_M2_RESPAWN_OUT) $(ASCENT_M3_OUT) $(ASCENT_M4_OUT) $(ASCENT_M5_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean

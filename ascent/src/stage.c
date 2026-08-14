@@ -75,6 +75,23 @@ void stage_init(void) {
     set_bkg_palette(STAGE_PALETTE, 1, stage_palette);
     set_bkg_data(EMPTY_TILE, STAGE_TILE_COUNT, stage_tiles);
     set_bkg_tiles(0, 0, STAGE_TILE_W, STAGE_TILE_H, stage_map);
+
+    // Explicit, whole-screen palette-attribute stamp - not just cosmetic
+    // caution. set_bkg_tiles() only ever writes tile *indices*; the
+    // per-tile CGB palette *attribute* is a separate map that a fresh
+    // boot happens to default to 0 already, but win.c's own win_play()
+    // later stamps that same whole-screen attribute map to WIN_PALETTE
+    // (needed for the win text's own gold/white colors) and never
+    // reverts it. Without this, restarting via stage_init() alone
+    // redraws the right tile *shapes* but leaves every one of them
+    // reading through the win screen's leftover gold palette instead of
+    // the stage's own navy/rust one - a real bug caught by actually
+    // rendering a post-restart frame, not assumed from the code.
+    uint8_t attr_row[STAGE_TILE_W];
+    for (uint8_t i = 0; i < STAGE_TILE_W; i++) attr_row[i] = STAGE_PALETTE;
+    for (uint8_t y = 0; y < STAGE_TILE_H; y++) {
+        set_bkg_attributes(0, y, STAGE_TILE_W, 1, attr_row);
+    }
 }
 
 uint8_t stage_tile_at(uint8_t px, uint8_t py) {

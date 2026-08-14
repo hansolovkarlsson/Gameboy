@@ -34,7 +34,7 @@ through this project's own `bin/gameboy --mode cgb`, same treatment
 `gameboy-prism-build`/`gameboy-wayfarer-build`/`gameboy-sdl`/the RGBDS
 targets get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 4 (a goal and a win screen)
+## Status: Milestone 5 (restart from the win screen)
 
 One static 20x18-tile screen (`src/stage.c`): four girder tiers
 (rows 5, 9, 13, 17 of a 18-row screen) connected by two ladder columns
@@ -173,3 +173,59 @@ real build to between frame 386 and 387. One PPM reference
 the "WIN" text - the stage, the player, both barrel sprites, and the
 goal flag itself are all gone at once, confirmed stable (not reverting)
 by rendering a later frame and finding it identical.
+
+Milestone 5 gives the win screen its one way out: a Start press
+restarts the whole game, the same escape `wayfarer/src/world.c`'s own
+win screen already gives (Start-restart, edge-detected against a new
+`prev_joy` in `main.c` so a held Start button fires the restart exactly
+once, not every frame). `win.c` gained a "PRESS START" hint below the
+"WIN" text, reusing the exact same hand-authored P/R/E/S/T/A letter
+bytes `wayfarer/src/win.c` already draws for its own identical hint.
+Restarting just re-runs the same `stage_init()`/`player_init()`/
+`barrel_init()`/`goal_init()` sequence real boot already uses - each
+one was confirmed to be a full, idempotent reset of its own module's
+state (position, sprites, the barrel array, the spawn timer), so
+nothing from the finished run carries forward, the same "no separate
+reset path" discipline `wayfarer/src/world.c`'s own `restart_game()`
+already follows (there, layered on top of an SRAM wipe this project
+has no equivalent of, since Ascent has no save state at all).
+
+**A real bug, caught by actually testing a restart rather than trusting
+the code**: the very first rendered frame after a restart showed the
+right stage *shapes* but through the win screen's own leftover gold
+palette instead of the stage's proper navy/rust one. `stage_init()`
+had only ever written BG tile *indices* (`set_bkg_tiles()`) - on a
+fresh boot that's enough, since the CGB's separate per-tile palette
+*attribute* map already defaults to 0. But `win_play()` explicitly
+stamps that same whole-screen attribute map to its own `WIN_PALETTE`
+for the "WIN"/"PRESS START" text, and nothing had ever stamped it back.
+`stage_init()` now does that stamp itself (an explicit whole-screen
+`set_bkg_attributes()` call, mirroring `win_play()`'s own), making it a
+genuinely idempotent reset rather than one that only happened to work
+the first time.
+
+**A second, expected ripple effect**: adding the win screen's new
+"PRESS START" line meant `reference_m4_win.ppm` needed re-locking too
+(one more line of text on an otherwise-identical frame). Separately,
+`stage_init()`'s own attribute-stamp fix does slightly more work before
+the very first `vsync()` of a fresh boot, nudging exactly when gameplay
+begins by a handful of CPU cycles - late enough to shift a few
+movement-precise checkpoints (`reference_m1.ppm`,
+`reference_m2_survive.ppm`, `reference_m2_respawn.ppm`,
+`reference_m3_climbdown.ppm`, all of which end mid-route on an exact
+bisected frame) by a pixel or two, though not the win screen's own
+static Milestone 4 checkpoint, which is captured long after the player
+has already stopped moving. Confirmed harmless by rendering each
+affected frame and finding the game state visually correct before
+re-locking every one of them.
+
+**Verification**: new `input_script_m5_restart.txt` reuses Milestone
+4's own full win route (frames 5-420) verbatim, waits past the already-
+confirmed-stable win screen, then presses Start at frame 500. A
+checkpoint at frame 550 confirms the stage, player (back at the ground
+spawn point), and goal flag are all back exactly as a fresh boot draws
+them, with no barrels yet (a fresh spawn timer). A further short walk
+(frames 555-565) and a second checkpoint at frame 600 confirm the
+restarted game is actually playable, not just visually reset - the
+player responds to input and settles at a new position, not just
+sitting frozen post-restart.
