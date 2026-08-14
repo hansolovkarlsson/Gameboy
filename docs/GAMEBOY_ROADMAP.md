@@ -5253,6 +5253,100 @@ Mooneye timer failures - no existing PPM reference needed re-locking
 this pass (sound has no visual footprint), and this change touches only
 `ascent/` and the root `Makefile`.
 
-**Next**: further Ascent work is open-ended (possibly a lives/game-over
-system for barrel hits) rather than following a fixed list, once
-user-directed.
+**Phase 12 ("Ascent"), Milestone 8 (this pass): done - a lives counter
+and a "GAME OVER" screen.** The user asked for exactly this next,
+matching Milestone 7's own closing "Next" note.
+
+**New `src/lives.c`/`.h`** draws a single digit at the opposite end of
+background row 0 from `score.c`'s own counter - the same two-field,
+one-row HUD shape `prism/src/hud.c` already established - reusing
+`score.c`'s own already-loaded digit tiles/palette directly (`score.h`
+now exports `SCORE_DIGIT_TILE_BASE`/`SCORE_PALETTE`) rather than
+loading a second identical copy, since both fields render
+simultaneously as one persistent HUD. `STARTING_LIVES` is 3, real
+Donkey Kong (1981)'s own standard.
+
+**New `src/gameover.c`/`.h`** mirrors `win.c`'s own shape - whole-screen
+wipe, "PRESS START" hint - under a deliberately somber dark-red palette
+so the two terminal screens never read alike. Six of the ten letters
+needed (A, E, P, R, S, T) are `win.c`'s own exact bytes, copied verbatim
+- unlike `lives.c`'s live tile-ID reuse above, `win.c`'s own tile data
+is only ever resident in VRAM during an actual win, never during a game
+over (the two terminal screens are mutually exclusive within one run),
+so each has to load its own copy independently. The remaining four (G,
+M, O, V) are newly authored in the same standard 5x7 block-font
+convention every hand-drawn letter here already uses.
+
+**`main.c`** gained a `game_state_t` enum (`STATE_PLAYING`/
+`STATE_WON`/`STATE_LOST`) in place of the old single `won` flag - a
+barrel hit now calls `lives_lose()`; if lives remain, the run continues
+exactly as before; if that was the last one, `gameover_play()` runs
+instead. The existing Start-press restart handling already covers both
+terminal states with no changes needed - it was never actually checking
+*which* terminal state, just that one had been reached.
+
+**A real bug, caught by testing the real 3-hit sequence rather than
+trusting the code**: a stationary idle test lost all 3 starting lives
+within about 10 frames of the first barrel contact, not three separate
+encounters. Root cause: `SPAWN_X` sits inside the ground tier's own
+barrel travel range, so a barrel still overlapping the just-respawned
+player re-triggered a hit on literally the next frame, with nothing to
+stop it re-triggering every frame it kept overlapping. Fixed the same
+way `wayfarer/src/player.c` already solved the identical problem for
+its own enemy contact system: a new `invincible_timer` in `player.c`
+(`INVINCIBILITY_FRAMES` = 60, the same value wayfarer's own constant
+already uses), armed by `player_respawn()`, decremented once per real
+frame regardless of which of `player_update()`'s two exit paths runs,
+and checked by `main.c` before applying any hit consequence.
+
+**A second real, expected ripple effect** - the lives digit reads "3"
+from the very first frame, so it's visible in every capture from now
+on: `reference_m1.ppm`, `reference_m2_survive.ppm`,
+`reference_m2_respawn.ppm`, `reference_m3_climbdown.ppm`,
+`reference_m5_restart.ppm`, and `reference_m6_score.ppm` were all
+re-rendered, visually confirmed correct (`reference_m2_respawn.ppm` now
+shows a genuine "2" - the same barrel hit Milestone 2's own checkpoint
+B already verified triggers a respawn now correctly costs a life too),
+and re-locked. Separately, `player_respawn()`'s own new
+`invincible_timer` write measurably shifts boot-to-first-audio timing
+by a few cycles, rippling through the entire captured waveform
+(unlike a PPM snapshot, audio has no single frame for a shift to land
+on) - confirmed harmless by re-running Milestone 7's own RMS/zero-
+crossing analysis and finding the same events at the same approximate
+times before re-locking both WAV references.
+
+**Verification, chained across two real invocations**: real,
+unhurried play needs more gameplay time to reach a genuine third hit
+than this emulator's own fixed 20,000,000-instruction-per-run budget
+allows in one invocation - confirmed directly when the first attempt at
+a 3-hit test hit that ceiling partway through, not assumed. New
+`input_script_m8_lives.txt` reuses Milestone 1's own climb, then camps
+directly in a barrel's own spawn zone (the fastest real way to trigger
+a hit). No further input after that: two real, separately-earned hits
+follow purely from real barrel physics - first the camped barrel
+itself, then that same barrel's own continued descent reaching the
+ground a second time. **Checkpoint A** (frame 1200): lives reads "1" -
+exactly two hits. Rather than rushing the script to fit the instruction
+budget, `gameboy-ascent-build`'s own Milestone 8 steps save state at
+frame 1200 and resume via `--load-state` in a second invocation's own
+fresh budget - the same real save/load capability the savestate
+round-trip test already verifies bit-exact, used here as a testing
+tool, not to skip or fake any of the playthrough. The real third hit
+was bisected this way to between continuation frame 92 and 94 (absolute
+frame 1292-1294) against the real build. **Checkpoint B** (continuation
+frame 150): the screen shows only "GAME OVER", confirmed stable.
+Restart from this state reuses the exact same Start-press code path
+Milestone 5's own restart verification already exercises (the branch
+makes no distinction between `STATE_WON` and `STATE_LOST`), so it
+wasn't re-verified separately. `gameboy-ascent-build` gained two more
+`cmp` steps. Full regression suite (unit tests, all visual/game/
+savestate targets, all three RGBDS ROMs, `gameboy-prism-build`,
+`gameboy-wayfarer-build`) stayed green throughout a full `make clean`
+rebuild, including the same 3 known pre-existing Mooneye timer
+failures - this change touches only `ascent/` and the root `Makefile`.
+
+**Next**: further Ascent work is open-ended (score, sound, and lives
+were the full "Next" list Milestone 4's own closing note first raised -
+all three are now done; anything further, e.g. multiple stages,
+would be a genuinely new scope) rather than following a fixed list,
+once user-directed.

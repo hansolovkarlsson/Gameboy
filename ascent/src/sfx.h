@@ -10,9 +10,10 @@
 
 void sfx_init(void);
 
-void sfx_play_jump(void);   // the player leaves the ground - fires on every jump, cleared or not
-void sfx_play_score(void);  // a barrel was successfully jumped over (100 points)
-void sfx_play_hit(void);    // a barrel hit the player - triggers the respawn
-void sfx_play_win(void);    // the goal flag was reached
+void sfx_play_jump(void);      // the player leaves the ground - fires on every jump, cleared or not
+void sfx_play_score(void);     // a barrel was successfully jumped over (100 points)
+void sfx_play_hit(void);       // a barrel hit the player - triggers the respawn
+void sfx_play_win(void);       // the goal flag was reached
+void sfx_play_gameover(void);  // the last life was just spent
 
 #endif

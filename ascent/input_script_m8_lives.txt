@@ -1,0 +1,60 @@
+# Ascent Milestone 8 verification script - proves lives.c's own
+# 3-life counter and gameover.c's own "GAME OVER" screen against the
+# real build, start to finish.
+#
+# Frames 5-374 are Milestone 1's own already-locked climb (ground ->
+# tier1 -> tier2 -> tier3). From column 4's own tier-3 landing, a
+# further walk right (frames 374-480) to camp directly in a barrel's
+# own spawn zone (BARREL_SPAWN_X=144 in barrel.c) - a barrel overlaps
+# the player almost immediately after spawning there, the fastest real
+# way to trigger a hit (rather than waiting out a barrel's own full
+# multi-tier descent to reach the player at the ground).
+#
+# No further input after frame 480: two real, separately-earned hits
+# follow purely from real barrel physics with no more scripting -
+# first the camped barrel itself (spawns ~frame 450, overlaps almost
+# immediately), then that same barrel's own continued descent reaching
+# the ground tier's spawn point a second time after its full
+# multi-tier journey (player.c's own 60-frame invincibility window,
+# armed by player_respawn(), is what keeps these from being
+# mis-counted as one - see player.c's own INVINCIBILITY_FRAMES
+# comment for the real bug this fixed). **Checkpoint A** (frame 1200):
+# lives reads "1" - two hits correctly cost two lives, not more, not
+# fewer.
+#
+# This emulator's own bin/gameboy caps every run at a fixed 20,000,000-
+# instruction budget (src/main.c) - real, unhurried gameplay exhausts
+# it around frame ~1213 here, before a third hit (from the *second*
+# spawned barrel's own full descent) has time to land. Rather than
+# rushing the script to fit (which would mean testing a contrived,
+# unrealistic pace instead of real play), gameboy-ascent-build's own
+# Milestone 8 steps use --save-state at frame 1200 and a *second*
+# invocation's own fresh budget via --load-state to keep simulating
+# the exact same continuous playthrough past that wall - the same real
+# capability this project's own savestate round-trip test already
+# verifies works bit-exactly, used here as a testing tool, not a
+# gameplay feature. The real third hit was bisected this way to
+# between frame 1292 and 1294 (continuation frame 92-94) of the real
+# build - not hand-computed. **Checkpoint B** (continuation frame 150,
+# well after that hit lands): the screen shows only "GAME OVER" -
+# confirmed stable (not reverting) by checking a later continuation
+# frame and finding it identical.
+#
+# Milestone 5's own restart verification already exercises the exact
+# same Start-press code path this loss state shares (main.c's own
+# `state != STATE_PLAYING` branch makes no distinction between
+# STATE_WON and STATE_LOST) - not re-verified separately here.
+5 LEFT down
+64 LEFT up
+64 UP down
+114 UP up
+114 RIGHT down
+194 RIGHT up
+194 UP down
+244 UP up
+244 LEFT down
+324 LEFT up
+324 UP down
+374 UP up
+374 RIGHT down
+480 RIGHT up

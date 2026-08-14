@@ -81,3 +81,20 @@ void sfx_play_win(void) {
     NR13_REG = 0xB2;
     NR14_REG = AUDHIGH_RESTART | AUDHIGH_LENGTH_ON | 0x06;
 }
+
+// Channel 4 (noise) again - a different, more dramatic decay from
+// sfx_play_hit()'s own short burst, so a run genuinely ending reads as
+// distinct from a routine hit. Identical to prism/src/sfx.c's and
+// wayfarer/src/sfx.c's own sfx_play_gameover(): no length counter (the
+// note isn't cut short by NR41's 250ms ceiling), so it's the volume
+// envelope's own fade to 0 (15 steps at a 4/64s period, ~0.94s total)
+// that ends it. shift=11, divisor-code=1 (divisor 1), 15-bit LFSR
+// width: frequency = 262144 / (1*2048) = 128 Hz, a suitably low buzz -
+// same formula and grounding sfx_play_hit()'s own comment already
+// cites.
+void sfx_play_gameover(void) {
+    NR41_REG = AUDLEN_LENGTH(0);
+    NR42_REG = (uint8_t)(AUDENV_VOL(15) | AUDENV_DOWN | AUDENV_LENGTH(4));
+    NR43_REG = (uint8_t)((11 << 4) | AUD4POLY_WIDTH_15BIT | 1);
+    NR44_REG = AUDHIGH_RESTART;
+}

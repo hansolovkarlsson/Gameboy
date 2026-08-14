@@ -84,6 +84,9 @@ static facing_t facing;
 static uint8_t jumping;
 static uint8_t jump_timer;
 
+// See INVINCIBILITY_FRAMES below.
+static uint8_t invincible_timer;
+
 // 20px of forced rise. A first attempt at 12px (checked against just
 // the static height of an 8px barrel) turned out not to survive
 // contact with a real, moving one: an approaching 8px barrel and a
@@ -97,6 +100,20 @@ static uint8_t jump_timer;
 // frames - enough to fully cover a barrel's real horizontal approach,
 // not just its static footprint.
 #define JUMP_RISE_FRAMES 20
+
+// Frames of grace after a respawn during which a barrel contact is
+// ignored - identical value to wayfarer/src/player.c's own
+// INVINCIBILITY_FRAMES (~1s at ~60fps). Needed for a real reason, not
+// just genre convention: SPAWN_X (80) sits inside the ground tier's
+// own barrel travel range (barrel.c's barrels roll the ground tier's
+// entire width before despawning), so without a grace window a single
+// barrel still overlapping the respawn point re-triggers
+// barrel_check_hit() on literally the next frame - confirmed directly
+// against the real build (an idle-at-spawn test lost all 3 of
+// lives.c's own starting lives within about 10 frames of the first
+// contact, not the three separate encounters the feature is meant to
+// represent) before adding this.
+#define INVINCIBILITY_FRAMES 60
 
 #define PLAYER_MIN_X 0
 #define PLAYER_MAX_X (160 - 16)
@@ -152,6 +169,7 @@ void player_init(void) {
     facing = FACING_RIGHT;
     jumping = 0;
     jump_timer = 0;
+    invincible_timer = 0;
 
     position_player();
     SHOW_SPRITES;
@@ -161,6 +179,13 @@ void player_update(uint8_t joy) {
     uint8_t center_x = player_x + 8;
     uint8_t feet_x = player_x + 8;
     uint8_t feet_y = player_y + 16;
+
+    // Decremented unconditionally, before either of this function's own
+    // two exit paths (the ladder-grip branch's own early return, and
+    // the normal fallthrough below) - same "run once per real frame no
+    // matter which path is taken" requirement main.c's own was_jumping
+    // edge-detection already has to respect.
+    if (invincible_timer > 0) invincible_timer--;
 
     // Grip check uses the *feet* point - the same offset the solid/
     // gravity check below already uses - not the box's own vertical
@@ -241,11 +266,13 @@ void player_update(uint8_t joy) {
 uint8_t player_get_x(void) { return player_x; }
 uint8_t player_get_y(void) { return player_y; }
 uint8_t player_is_jumping(void) { return jumping; }
+uint8_t player_is_invincible(void) { return invincible_timer > 0; }
 
 void player_respawn(void) {
     player_x = SPAWN_X;
     player_y = SPAWN_Y;
     jumping = 0;
     jump_timer = 0;
+    invincible_timer = INVINCIBILITY_FRAMES;
     position_player();
 }

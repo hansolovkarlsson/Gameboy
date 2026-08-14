@@ -11,7 +11,8 @@
 
 #include "score.h"
 
-#define SCORE_DIGIT_TILE_BASE 13 // stage.c owns BG 0-3, win.c owns 4-12
+// SCORE_DIGIT_TILE_BASE/SCORE_PALETTE are defined in score.h (lives.c
+// needs them too).
 #define SCORE_DIGIT_COUNT 10
 
 static const uint8_t score_digit_tiles[SCORE_DIGIT_COUNT * 16] = {
@@ -54,7 +55,6 @@ static const uint8_t score_digit_tiles[SCORE_DIGIT_COUNT * 16] = {
 // (colors 1/2 unused - every digit byte pair here is low==high, the
 // same "one solid color per lit row" convention every hand-drawn tile
 // in this project relies on, so only indices 0 and 3 ever appear).
-#define SCORE_PALETTE 2 // stage.c owns 0, win.c owns 1
 static const palette_color_t score_palette[4] = {
     RGB(2, 2, 10), RGB(2, 2, 10), RGB(2, 2, 10), RGB(31, 29, 16),
 };

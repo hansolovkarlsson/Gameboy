@@ -360,6 +360,24 @@ ASCENT_M7_WIN_SFX_SCRIPT := ascent/input_script_m4_win.txt
 ASCENT_M7_WIN_SFX_WAV_REF := ascent/reference_m7_win_sfx.wav
 ASCENT_M7_WIN_SFX_WAV_OUT := $(BIN_DIR)/ascent-m7-win-sfx-output.wav
 
+# Milestone 8: a lives counter (lives.c, the right half of score.c's
+# own HUD row) and a "GAME OVER" screen (gameover.c) once the last one
+# is spent. Real, unhurried play needs more real gameplay time to reach
+# a genuine third hit than this emulator's own fixed 20,000,000-
+# instruction-per-run budget allows in one invocation (see
+# ASCENT_M8_SCRIPT's own header comment) - checkpoint A captures partway
+# through and saves state; checkpoint B resumes from it via a second
+# invocation's own fresh budget, the same real save/load capability
+# the savestate round-trip test above already verifies bit-exact,
+# used here as a testing tool to keep simulating one continuous
+# playthrough past that wall, not to skip or fake any of it.
+ASCENT_M8_SCRIPT := ascent/input_script_m8_lives.txt
+ASCENT_M8_MID_STATE := $(BIN_DIR)/ascent-m8-mid.state
+ASCENT_M8_MID_REF := ascent/reference_m8_mid.ppm
+ASCENT_M8_MID_OUT := $(BIN_DIR)/ascent-m8-mid-output.ppm
+ASCENT_M8_GAMEOVER_REF := ascent/reference_m8_gameover.ppm
+ASCENT_M8_GAMEOVER_OUT := $(BIN_DIR)/ascent-m8-gameover-output.ppm
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -603,6 +621,14 @@ gameboy-ascent-build: $(TARGET) | $(BIN_DIR)
 	cmp $(ASCENT_M7_WIN_SFX_WAV_OUT) $(ASCENT_M7_WIN_SFX_WAV_REF) \
 		&& echo "gameboy-ascent-build: OK (Milestone 7 - the win fanfare matches)" \
 		|| (echo "gameboy-ascent-build: FAIL (captured audio doesn't match $(ASCENT_M7_WIN_SFX_WAV_REF))"; exit 1)
+	./$(TARGET) $(ASCENT_ROM) --mode cgb --input $(ASCENT_M8_SCRIPT) --ppm $(ASCENT_M8_MID_OUT) --frames 1200 --save-state $(ASCENT_M8_MID_STATE)
+	cmp $(ASCENT_M8_MID_OUT) $(ASCENT_M8_MID_REF) \
+		&& echo "gameboy-ascent-build: OK (Milestone 8 - two barrel hits correctly cost two lives)" \
+		|| (echo "gameboy-ascent-build: FAIL (rendered frame doesn't match $(ASCENT_M8_MID_REF))"; exit 1)
+	./$(TARGET) $(ASCENT_ROM) --load-state $(ASCENT_M8_MID_STATE) --ppm $(ASCENT_M8_GAMEOVER_OUT) --frames 150
+	cmp $(ASCENT_M8_GAMEOVER_OUT) $(ASCENT_M8_GAMEOVER_REF) \
+		&& echo "gameboy-ascent-build: OK (Milestone 8 - the third hit ends the run with GAME OVER)" \
+		|| (echo "gameboy-ascent-build: FAIL (rendered frame doesn't match $(ASCENT_M8_GAMEOVER_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -640,6 +666,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT) $(ASCENT_M2_SURVIVE_OUT) $(ASCENT_M2_RESPAWN_OUT) $(ASCENT_M3_OUT) $(ASCENT_M4_OUT) $(ASCENT_M5_OUT) $(ASCENT_M6_OUT) $(ASCENT_M7_SFX_WAV_OUT) $(ASCENT_M7_WIN_SFX_WAV_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT) $(ASCENT_M2_SURVIVE_OUT) $(ASCENT_M2_RESPAWN_OUT) $(ASCENT_M3_OUT) $(ASCENT_M4_OUT) $(ASCENT_M5_OUT) $(ASCENT_M6_OUT) $(ASCENT_M7_SFX_WAV_OUT) $(ASCENT_M7_WIN_SFX_WAV_OUT) $(ASCENT_M8_MID_STATE) $(ASCENT_M8_MID_OUT) $(ASCENT_M8_GAMEOVER_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean
