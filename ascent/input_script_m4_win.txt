@@ -1,0 +1,39 @@
+# Ascent Milestone 4 verification script - proves the goal (a flag
+# fixed on tier 3, past column 4, permanently out of barrel traffic)
+# and the resulting one-shot "WIN" screen both work against the real
+# build.
+#
+# Frames 5-374 are Milestone 1's own already-locked route, reused
+# verbatim (ground -> tier1 -> tier2 -> tier3, resting near column 4).
+#
+# From there, a further plain walk left toward the flag at x=8 - no
+# barrel danger this leg either, since a barrel rolling toward column
+# 4 always descends there (barrel.c's own rule), never continuing
+# further left on tier 3, confirmed by stage.c's real tile map.
+#
+# The actual moment of contact was bisected against the real build to
+# between frame 386 and 387 of this script (main.c's own win check
+# runs after player_update() each frame, so it's the closing edge of
+# the AABB overlap, not the walk's own nominal endpoint at 420).
+#
+# **Checkpoint** (frame 450, well after both the win trigger and the
+# walk's own LEFT release at 420): the screen shows only the "WIN"
+# text - the whole stage, the player, both barrel sprites, and the
+# goal flag itself are all gone, replaced in one shot per win.c's own
+# design. Confirmed stable (not reverting, and no further game logic
+# running underneath) by rendering a later frame (500) and finding it
+# identical.
+5 LEFT down
+64 LEFT up
+64 UP down
+114 UP up
+114 RIGHT down
+194 RIGHT up
+194 UP down
+244 UP up
+244 LEFT down
+324 LEFT up
+324 UP down
+374 UP up
+374 LEFT down
+420 LEFT up

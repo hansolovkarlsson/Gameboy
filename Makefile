@@ -315,6 +315,15 @@ ASCENT_M3_SCRIPT := ascent/input_script_m3_climbdown.txt
 ASCENT_M3_REF := ascent/reference_m3_climbdown.ppm
 ASCENT_M3_OUT := $(BIN_DIR)/ascent-m3-output.ppm
 
+# Milestone 4: a real win condition - a flag fixed on tier 3 (goal.c)
+# ends the run with a one-shot "WIN" screen (win.c) once reached. The
+# flag is now permanently visible on-screen (this is one static,
+# never-scrolling stage), so Milestones 1-3's own references above
+# were re-locked alongside this one to include it.
+ASCENT_M4_SCRIPT := ascent/input_script_m4_win.txt
+ASCENT_M4_REF := ascent/reference_m4_win.ppm
+ASCENT_M4_OUT := $(BIN_DIR)/ascent-m4-output.ppm
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -538,6 +547,10 @@ gameboy-ascent-build: $(TARGET) | $(BIN_DIR)
 	cmp $(ASCENT_M3_OUT) $(ASCENT_M3_REF) \
 		&& echo "gameboy-ascent-build: OK (Milestone 3 - the player can climb back down the same ladder to true ground rest)" \
 		|| (echo "gameboy-ascent-build: FAIL (rendered frame doesn't match $(ASCENT_M3_REF))"; exit 1)
+	./$(TARGET) $(ASCENT_ROM) --mode cgb --input $(ASCENT_M4_SCRIPT) --ppm $(ASCENT_M4_OUT) --frames 450
+	cmp $(ASCENT_M4_OUT) $(ASCENT_M4_REF) \
+		&& echo "gameboy-ascent-build: OK (Milestone 4 - reaching the goal flag shows a one-shot WIN screen)" \
+		|| (echo "gameboy-ascent-build: FAIL (rendered frame doesn't match $(ASCENT_M4_REF))"; exit 1)
 
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
@@ -575,6 +588,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT) $(ASCENT_M2_SURVIVE_OUT) $(ASCENT_M2_RESPAWN_OUT) $(ASCENT_M3_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT) $(ASCENT_M2_SURVIVE_OUT) $(ASCENT_M2_RESPAWN_OUT) $(ASCENT_M3_OUT) $(ASCENT_M4_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean

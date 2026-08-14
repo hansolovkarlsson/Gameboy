@@ -5000,6 +5000,70 @@ throughout a full `make clean` rebuild, including the same 3 known
 pre-existing Mooneye timer failures - this change touches only
 `ascent/` and the root `Makefile`.
 
-**Next**: further Ascent work is open-ended (a goal/win condition at
-the top platform, a score, sound effects, possibly a lives/game-over
-system) rather than following a fixed list, once user-directed.
+**Phase 12 ("Ascent"), Milestone 4 (this pass): done - a goal flag on
+the top platform and a one-shot "WIN" screen.** The user asked for
+exactly this next, matching Milestone 3's own closing "Next" note.
+
+**New `src/goal.c`/`.h`**: a single stationary 8x8 flag sprite, fixed
+on tier 3 past column 4. Placement isn't arbitrary - column 4 is tier
+3's *only* ladder, and `barrel.c`'s own barrels always descend at the
+first ladder column they cross while rolling (Milestone 2's own
+design), so nothing ever reaches the far side of it on that tier;
+confirmed by tracing this against `stage.c`'s real tile map, the same
+discipline Milestone 2's own barrel-path tracing already used, not
+assumed safe. `goal_check_reached()` is a plain AABB test against the
+player's box, the same shape `barrel_check_hit()` already established.
+
+**New `src/win.c`/`.h`**: a one-shot screen wipe to a plain "WIN"
+message - `wait_vbl_done()`/`DISPLAY_OFF`/`HIDE_SPRITES`, a fresh BG
+palette, the whole 20x18 map redrawn to `stage.h`'s own `EMPTY_TILE`
+(the same "one tile, palette swap" reuse trick `wayfarer/src/win.c`
+already established via `room.h`'s `FLOOR_TILE_ID`), then the word
+itself. The W/I/N letter tile bytes are reused verbatim from
+`wayfarer/src/win.c` - the same "already-proven hand-authored art,
+don't redraw it" reasoning `player.c` already gives for reusing
+`wayfarer/src/player.c`'s own sprite bytes. `main.c` gained a single
+`won` flag: once `goal_check_reached()` trips it, `player_update()`
+and `barrel_update()` simply stop being called at all (a clean, total
+freeze - simpler than `wayfarer/`'s own win-flag handling, which keeps
+`world_update()` running post-win since it also has to support a
+restart) and `win_play()` runs once. No restart, no lives/score/sound
+yet - the platformer-genre equivalent of `wayfarer/`'s own real
+Milestone 6, which shipped a terminal win screen alone; restart didn't
+arrive there until Milestone 11, several passes later.
+
+**A real, expected ripple effect across every earlier reference, not a
+bug**: this whole game is one static, never-scrolling screen, so a
+flag drawn once at startup and never hidden until a win is visible in
+*every* frame captured from now on - including Milestones 1-3's own
+already-locked PPM references. Confirmed directly rather than assumed:
+re-running each existing script against the Milestone-4 build produced
+a `cmp` mismatch every time, always at the identical byte offset,
+confirmed by rendering to PNG to be exactly the flag's own pixels and
+nothing else (player/barrel positions, physics, timing all unchanged).
+`reference_m1.ppm`, `reference_m2_survive.ppm`,
+`reference_m2_respawn.ppm`, and `reference_m3_climbdown.ppm` were all
+re-locked alongside this milestone's own new reference, each
+re-verified reproducible (re-run and `cmp`'d against its own freshly
+locked copy) before committing.
+
+**Verification**: new `input_script_m4_win.txt` reuses Milestone 1's
+own full climb (frames 5-374) verbatim, then walks further left to the
+flag - no barrel risk on this leg either, for the identical column-4
+reasoning that makes the flag's placement safe in the first place. The
+real contact frame was bisected against the built ROM to between frame
+386 and 387 (not hand-derived from the nominal walk speed alone). One
+PPM reference (`reference_m4_win.ppm`, frame 450) checkpoints the
+screen showing only the "WIN" text - stage, player, both barrel
+sprites, and the goal flag all gone in one shot - confirmed stable
+(not reverting, no game logic still running underneath) by rendering a
+later frame and finding it identical. `gameboy-ascent-build` gained one
+more `cmp` step. Full regression suite (unit tests, all visual/game/
+savestate targets, all three RGBDS ROMs, `gameboy-prism-build`,
+`gameboy-wayfarer-build`) stayed green throughout a full `make clean`
+rebuild, including the same 3 known pre-existing Mooneye timer
+failures - this change touches only `ascent/` and the root `Makefile`.
+
+**Next**: further Ascent work is open-ended (a restart from the win
+screen, a score, sound effects, possibly a lives/game-over system for
+barrel hits) rather than following a fixed list, once user-directed.

@@ -34,7 +34,7 @@ through this project's own `bin/gameboy --mode cgb`, same treatment
 `gameboy-prism-build`/`gameboy-wayfarer-build`/`gameboy-sdl`/the RGBDS
 targets get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 3 (downward ladder climbing)
+## Status: Milestone 4 (a goal and a win screen)
 
 One static 20x18-tile screen (`src/stage.c`): four girder tiers
 (rows 5, 9, 13, 17 of a 18-row screen) connected by two ladder columns
@@ -135,3 +135,41 @@ climb (frames 5-114), then holds Down and confirms (**checkpoint**,
 frame 250) the player is back at true ground rest directly below where
 they started - proof descending actually completes, not just grips
 without moving.
+
+Milestone 4 adds a real win condition. New `src/goal.c` is a single
+stationary flag, fixed on tier 3 past column 4 - deliberately placed
+where no barrel ever reaches, since `barrel.c`'s own barrels always
+descend at the first ladder column they cross and column 4 is tier 3's
+only one, confirmed against the real tile map rather than assumed.
+Reaching it (a plain AABB check against the player's box, the same
+shape `barrel_check_hit()` already uses) is a one-way trigger: `main.c`
+tracks a single `won` flag that, once set, stops calling
+`player_update()`/`barrel_update()` entirely and calls new
+`src/win.c`'s `win_play()` - a one-shot screen wipe to a plain "WIN"
+message, reusing `wayfarer/src/win.c`'s own hand-authored W/I/N letter
+tiles verbatim (same reasoning as reusing its player sprite art
+elsewhere in this project). No restart yet, and no lives/score/sound
+either - the platformer-genre equivalent of `wayfarer/`'s own real
+Milestone 6, which shipped a terminal win screen alone, restart arriving
+only much later at Milestone 11.
+
+**A real, expected ripple effect, not a bug**: this is one static,
+never-scrolling screen, so the goal flag - drawn once at startup and
+never hidden until a win - is visible in *every* frame from now on,
+including every earlier milestone's own locked references. Confirmed
+directly (re-running each existing script showed an expected `cmp`
+mismatch, always at the same byte offset, always just the flag's own
+pixels) before re-locking `reference_m1.ppm`,
+`reference_m2_survive.ppm`, `reference_m2_respawn.ppm`, and
+`reference_m3_climbdown.ppm` alongside this milestone's own new
+reference - not silently overwritten, verified first.
+
+**Verification**: new `input_script_m4_win.txt` reuses Milestone 1's
+own full climb (frames 5-374) verbatim, then walks further left to the
+flag - no barrel risk on this leg either, for the same reason the flag
+itself is safe there. The actual contact frame was bisected against the
+real build to between frame 386 and 387. One PPM reference
+(`reference_m4_win.ppm`, frame 450) checkpoints the screen showing only
+the "WIN" text - the stage, the player, both barrel sprites, and the
+goal flag itself are all gone at once, confirmed stable (not reverting)
+by rendering a later frame and finding it identical.
