@@ -34,7 +34,7 @@ through this project's own `bin/gameboy --mode cgb`, same treatment
 `gameboy-prism-build`/`gameboy-wayfarer-build`/`gameboy-sdl`/the RGBDS
 targets get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 1 (gravity, platforms, ladders)
+## Status: Milestone 2 (a jump and rolling barrels)
 
 One static 20x18-tile screen (`src/stage.c`): four girder tiers
 (rows 5, 9, 13, 17 of a 18-row screen) connected by two ladder columns
@@ -57,24 +57,54 @@ naturally self-limits, since stepping past the ladder tile into open
 air or a plain floor tile means the very next frame's check no longer
 grants a climb).
 
-No jump, no barrels, no goal, no HUD, no sound yet — deliberately
-minimal, the platformer-genre equivalent of `wayfarer/`'s own real
-Milestone 1 (a player sprite, wall collision, nothing else). Jumping
-in particular is barrel-dodging tech, so it's honestly scoped
-alongside barrels in a later milestone rather than added here just
-because Donkey Kong "has" a jump button.
+Milestone 1 deliberately shipped no jump, no barrels, no goal, no HUD,
+no sound — the platformer-genre equivalent of `wayfarer/`'s own real
+Milestone 1 (a player sprite, wall collision, nothing else).
 
-**Verification**: `input_script_m1.txt` walks a single continuous
-route across the whole screen — ground → tier 1 (via the x=4 ladder) →
-tier 2 (via the x=14 ladder, proving the second column independently)
-→ tier 3, the top (via the x=4 ladder again) — with the player
-starting 8px above true rest height, so the opening frames' fall onto
-the ground girder is itself a free proof that gravity/landing works.
-Every leg's exact frame count (how long to walk into a ladder's ~8px
-horizontal grip window, how long to hold a climb) was found by
-bisecting against the real built ROM, not hand-derived — the same
-"verify against the real build" discipline this whole project already
-holds itself to elsewhere. One PPM reference
-(`reference_m1.ppm`) checkpoints the player at rest on the top
-platform, confirmed stable (not still settling) by rendering a later
-frame and finding it identical.
+Milestone 2 adds the pairing that Milestone 1's own "Next" note already
+flagged - a jump is barrel-dodging tech, so the two are scoped
+together, not bolted on separately. A barrel hitting the player
+respawns them at the ground (confirmed by the user over a fuller
+lives/score/game-over system, which stays an honest later milestone -
+the same "core mechanic first, consequence system layered on later"
+shape `wayfarer/` itself followed with enemies-then-hearts).
+
+`src/player.c`'s jump is a timed, fixed 20px-rise-then-fall arc (with
+Left/Right air control the whole flight) - the one genuinely stateful
+addition on top of Milestone 1's otherwise-stateless per-frame tile
+checks, since a jump is a discrete timed action, not something
+rederivable fresh from the map every frame the way gravity/ladder-grip
+already are.
+
+New `src/barrel.c` spawns up to two 8x8 barrels on the top platform,
+periodically. A barrel rolls 1px/frame until it's resting over a
+ladder-top tile, then descends 1px/frame through the ladder shaft
+until it lands on the tier below, reversing direction each time - two
+simple rules that, against this stage's real tile map, are enough to
+make barrels retrace the player's own climb route in reverse with no
+per-tier special-casing (column 4 carries the ground↔tier1 and
+tier2↔tier3 legs; column 14 carries tier1↔tier2 - a barrel spawned
+rolling toward column 4 on tier 3 ends up sweeping the *entire* zigzag
+before rolling off the ground edge and despawning).
+
+**A real tuning finding, not just a script-timing one**: the jump's
+first height (12px, sized against a barrel's own static 8px footprint)
+could not actually survive a real *moving* barrel - an approaching
+barrel and the player overlap horizontally for ~22-24 frames as it
+closes in, but a 12px hop is only high enough to clear it for about 9
+frames around its peak, confirmed by testing several jump-start frames
+against a real rolling barrel and getting caught every time. Widening
+the rise to 20px (a ~21-25 frame clearance window) was what actually
+made a full pass survivable.
+
+**Verification**: `input_script_m2_barrels.txt` reuses Milestone 1's
+own route verbatim (still byte-identical against `reference_m1.ppm`,
+since `SPAWN_INTERVAL` is deliberately tuned so the first barrel
+doesn't spawn until after a real climb could reasonably finish), walks
+to open ground on tier 3, then jumps a real oncoming barrel
+(**checkpoint A**: still resting in place, not reset) before
+deliberately taking a hit from the next one (**checkpoint B**: back at
+the ground spawn point). Every frame number - the walk, the jump
+window, the hit - was found by bisecting against the real built ROM,
+not hand-derived, the same discipline Milestone 1's own ladder-
+alignment windows already used.

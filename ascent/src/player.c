@@ -6,15 +6,21 @@
 // but no reason to duplicate already-working CGB sprite art/
 // positioning code for a plain humanoid figure).
 //
-// Physics: a stateless per-frame check against stage.h's tile map -
-// no "is_climbing" flag. Each frame: if the player's center overlaps
-// a ladder tile *and* Up/Down is held, move vertically by 1px and
-// skip gravity/walking entirely (this naturally self-limits - once
+// Physics: mostly a stateless per-frame check against stage.h's tile
+// map - no "is_climbing" flag. Each frame: if the player's center
+// overlaps a ladder tile *and* Up/Down is held, move vertically by 1px
+// and skip gravity/walking entirely (this naturally self-limits - once
 // the center steps past the ladder tile into open air or a plain
 // floor tile, the very next frame's check no longer grants a climb,
 // and gravity resumes). Otherwise: check the tile just below the feet
 // - solid (floor or ladder-top) means grounded (snap to rest exactly
 // on top of it, and allow Left/Right); not solid means fall 1px.
+//
+// Milestone 2 adds one genuinely stateful action on top of that: a
+// jump (see `jumping`/`jump_timer` below) is a timed forced-rise, not
+// a tile condition, so unlike gravity/ladder-grip it can't be
+// rederived fresh from the map every frame - it has to remember it's
+// in progress.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
@@ -69,6 +75,27 @@ static uint8_t player_x;
 static uint8_t player_y;
 static facing_t facing;
 
+// Jump state - see the header comment above. jumping is 0 whenever the
+// player is grounded or gripping a ladder; jump_timer counts down the
+// forced-rise frames, then the same 1px/frame fall as ordinary gravity
+// carries the player back down until landing clears both.
+static uint8_t jumping;
+static uint8_t jump_timer;
+
+// 20px of forced rise. A first attempt at 12px (checked against just
+// the static height of an 8px barrel) turned out not to survive
+// contact with a real, moving one: an approaching 8px barrel and a
+// 16px-wide player overlap horizontally for ~22-24 frames as it
+// closes in, but a 12px hop is only high enough to clear it (player's
+// own bottom edge above the barrel's own top edge) for about 9 frames
+// around its peak - nowhere near enough to cover the full approach,
+// confirmed directly against the real build (a scripted jump timed at
+// several different frames against an actual rolling barrel was
+// caught every time). 20px widens that clearance window to ~21-25
+// frames - enough to fully cover a barrel's real horizontal approach,
+// not just its static footprint.
+#define JUMP_RISE_FRAMES 20
+
 #define PLAYER_MIN_X 0
 #define PLAYER_MAX_X (160 - 16)
 
@@ -121,6 +148,8 @@ void player_init(void) {
     player_x = SPAWN_X;
     player_y = SPAWN_Y;
     facing = FACING_RIGHT;
+    jumping = 0;
+    jump_timer = 0;
 
     position_player();
     SHOW_SPRITES;
@@ -142,7 +171,37 @@ void player_update(uint8_t joy) {
 
     uint8_t feet_x = player_x + 8;
     uint8_t feet_y = player_y + 16;
-    if (stage_is_solid(feet_x, feet_y)) {
+    uint8_t on_ground = stage_is_solid(feet_x, feet_y);
+
+    if (!jumping && on_ground && (joy & J_A)) {
+        jumping = 1;
+        jump_timer = JUMP_RISE_FRAMES;
+    }
+
+    if (jumping) {
+        if (jump_timer > 0) {
+            player_y--;
+            jump_timer--;
+        } else {
+            player_y++;
+        }
+
+        if (joy & J_LEFT) {
+            facing = FACING_LEFT;
+            if (player_x > PLAYER_MIN_X) player_x--;
+        }
+        if (joy & J_RIGHT) {
+            facing = FACING_RIGHT;
+            if (player_x < PLAYER_MAX_X) player_x++;
+        }
+
+        feet_y = player_y + 16;
+        if (jump_timer == 0 && stage_is_solid(feet_x, feet_y)) {
+            uint8_t tile_row = feet_y / 8;
+            player_y = (uint8_t)(tile_row * 8 - 16);
+            jumping = 0;
+        }
+    } else if (on_ground) {
         uint8_t tile_row = feet_y / 8;
         player_y = (uint8_t)(tile_row * 8 - 16);
 
@@ -158,5 +217,16 @@ void player_update(uint8_t joy) {
         player_y++;
     }
 
+    position_player();
+}
+
+uint8_t player_get_x(void) { return player_x; }
+uint8_t player_get_y(void) { return player_y; }
+
+void player_respawn(void) {
+    player_x = SPAWN_X;
+    player_y = SPAWN_Y;
+    jumping = 0;
+    jump_timer = 0;
     position_player();
 }

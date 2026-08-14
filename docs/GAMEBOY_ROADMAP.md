@@ -4824,6 +4824,126 @@ stayed green throughout a full `make clean` rebuild, including the same
 `tima_write_reloading`, `tma_write_reloading`) already documented
 above - this change touches only `ascent/` and the root `Makefile`.
 
-**Next**: further Ascent work is open-ended (a jump alongside barrels
-being the natural next milestone, then a goal/win condition, score,
-sound) rather than following a fixed list, once user-directed.
+**Phase 12 ("Ascent"), Milestone 2 (this pass): done - a fixed-arc jump
+with air control, and barrels that spawn on the top platform, retrace
+the player's own zigzag climb route in reverse, and respawn the player
+at the ground on contact.** The user asked for "a jump and barrels
+next," exactly the pairing Milestone 1's own "Next" note already
+flagged (jumping is barrel-dodging tech). Confirmed via AskUserQuestion:
+a barrel hit respawns the player at the ground - real stakes, no new
+lives/score/HUD system yet, the same "core mechanic first, consequence
+system layered on later" shape Wayfarer itself followed (enemies
+existed for two milestones before hearts/HUD/damage arrived).
+
+**`src/player.c`**: a jump is the first genuinely stateful addition to
+this file - `jumping`/`jump_timer` - since a timed forced-rise-then-
+fall arc can't be rederived fresh from the tile map every frame the
+way gravity/ladder-grip already are. Pressing `A` while grounded (and
+not already jumping) starts a fixed rise; Left/Right apply every frame
+of the whole flight (real air control, matching how Donkey Kong's own
+jumps are always mid-stride); landing is detected the same
+`stage_is_solid()` feet-check gravity already uses, gated to only fire
+during the *descent* half (`jump_timer == 0`) so the rise itself can't
+immediately re-trigger a landing. New `player_get_x()`/`player_get_y()`
+(barrel collision needs the player's box) and `player_respawn()`
+(reuses `player_init()`'s own `SPAWN_X`/`SPAWN_Y` 8px-above-rest point,
+so the existing gravity code animates a "drop back in" for free, and
+calls `position_player()` immediately so a respawn is visible the same
+frame it happens).
+
+**New `src/barrel.c`/`.h`**: up to 2 barrels, spawned periodically on
+tier 3 (the top platform). A rolling barrel checks `stage_is_ladder()`
+at the tile it's *resting on* (one row below its own box, the same
+offset `player.c`'s gravity check uses - not the "center" offset the
+player's own *climb* check uses, which is tuned for a 16px-tall player
+and lands on nothing meaningful for an 8px barrel, a real early mixup
+during implementation) - reaching a ladder-top tile starts a descent;
+landing (the same feet-check again) reverses the barrel's direction
+and resumes rolling. That single reversal rule, with no per-tier
+special-casing, is enough to make a barrel retrace the player's own
+M1 climb route in reverse: column 4 carries ground↔tier1 and
+tier2↔tier3 (tier 3 only touches column 4, so a barrel spawned rolling
+toward it always finds it); landing on tier 2 moving the reversed
+direction crosses column 14 (tier 2's other ladder); landing on tier 1
+reversed again crosses column 4 (tier 1's other ladder, down to the
+ground); landing on the ground reversed a third time rolls straight to
+the screen edge and despawns - confirmed by tracing this exact path
+against the real tile map and then confirming it frame-by-frame against
+the real build, not assumed. **A second real bug found the same way**:
+the landing check as first written re-triggered immediately on the
+very tile a barrel had just started descending from (a ladder-top
+tile is itself solid, being where the player stands too) - fixed by
+recording the tile row a descent started from and only allowing a
+landing once the barrel has actually moved into a *different* row.
+Barrel art reuses the same row-bitmask 2-color-plus-transparent
+convention every hand-drawn tile here already relies on; a `BARREL_PALETTE`
+CGB OBJ palette (index 1, the player owns 0) needed its own real fix
+too - `set_sprite_prop()`'s low 3 bits select the CGB sprite palette,
+and the first pass left them at 0, so barrels silently rendered in the
+player's own palette (skin-tone/hair-brown, which happened to still
+look barrel-ish by coincidence) until `BARREL_PALETTE` was actually
+passed there.
+
+**A real tuning finding, found only by testing against a moving
+barrel rather than a static one**: the jump's first height (12px,
+sized only against a barrel's own static 8px footprint) could not
+actually survive real contact - an approaching barrel and the 16px-wide
+player overlap horizontally for ~22-24 frames as it closes in, but a
+12px hop is only high enough to clear it (the player's own bottom edge
+above the barrel's own top edge) for about 9 frames around its peak,
+confirmed by scripting several different jump-start frames against a
+real rolling barrel and getting caught by all of them. Widening
+`JUMP_RISE_FRAMES` to 20 (a ~21-25 frame clearance window, closely
+matching the real horizontal danger window) was what actually produced
+a survivable, if still narrow, timing window - bisected against the
+real build to a genuine 3-frame press-window for this exact encounter,
+not a wide margin, an honest limitation left as-is for this milestone
+rather than over-tuned away.
+
+**A real design finding that reshaped the whole verification
+approach**: the first `SPAWN_INTERVAL` tried (200 frames) let the very
+first barrel's own transit down column 4 collide with the *player's
+own first climb* up that same column during Milestone 1's already-
+locked route - discovered by re-running `input_script_m1.txt` against
+the Milestone-2 build and finding it no longer matched
+`reference_m1.ppm`. Raising `SPAWN_INTERVAL` to 450 frames (long
+enough that a real, unhurried climb reaches the top before any barrel
+is even in play, matching real Donkey Kong's own brief grace period
+before the first barrel appears) fixed this for real rather than
+papering over it in the test script, and `input_script_m1.txt` is
+confirmed byte-identical to `reference_m1.ppm` again with the
+Milestone 2 build. A related, smaller finding while building the
+verification script: simply having the player *wait* at a fixed spot
+for a long stretch is not automatically safe either - a barrel rolls
+across a tier's *entire* width, so idling anywhere on tier 2 while
+barrel 1 was in transit caused a hit before the scripted jump test
+even began, which is why the final script's wait happens on tier 3,
+timed against a specific barrel's known approach rather than an
+open-ended idle.
+
+**Verification**: `input_script_m2_barrels.txt` reuses Milestone 1's
+own frames 5-374 verbatim, walks to open ground on tier 3 (a wide,
+non-precision margin, unlike Milestone 1's own 8px ladder-grip
+windows), then jumps a real oncoming barrel (**checkpoint A**, frame
+600: still resting in place, not reset - proof the jump cleared it)
+before deliberately taking a hit from the next spawned barrel
+(**checkpoint B**, frame 1000: back at the ground spawn point - proof
+a hit triggers a real respawn). Two new PPM references
+(`reference_m2_survive.ppm`, `reference_m2_respawn.ppm`), both
+confirmed via the player's own tracked position rather than a raw
+frame diff (other barrels are still independently active and rolling
+elsewhere in each checkpoint's own frame, so two otherwise-"stable"
+frames a few ticks apart are never byte-identical the way Milestone 1's
+single-actor screen was - checked and understood, not a red flag).
+`gameboy-ascent-build` gained two more `cmp` steps for these
+checkpoints, following `gameboy-wayfarer-build`'s own established
+"accumulate checkpoints onto one target as milestones grow" shape.
+Full regression suite (unit tests, all visual/game/savestate targets,
+all three RGBDS ROMs, `gameboy-prism-build`, `gameboy-wayfarer-build`)
+stayed green throughout a full `make clean` rebuild, including the same
+3 known pre-existing Mooneye timer failures - this change touches only
+`ascent/` and the root `Makefile`.
+
+**Next**: further Ascent work is open-ended (a goal/win condition at
+the top platform, a score, sound effects, possibly a lives/game-over
+system) rather than following a fixed list, once user-directed.

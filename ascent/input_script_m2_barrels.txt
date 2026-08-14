@@ -1,0 +1,67 @@
+# Ascent Milestone 2 verification script - proves the jump (a fixed
+# 20px-rise arc with air control) and rolling barrels (spawn, roll,
+# descend through the zigzag columns, and respawn the player at the
+# ground on contact) all work against the real build.
+#
+# Frames 5-374 are Milestone 1's own already-locked route, reused
+# verbatim (ground -> tier1 -> tier2 -> tier3) - confirmed byte-
+# identical to reference_m1.ppm at frame 400 even with this
+# milestone's jump/barrel code compiled in, since SPAWN_INTERVAL is
+# deliberately tuned (barrel.c) so the first barrel doesn't spawn
+# until after a real climb could reasonably finish.
+#
+# From tier3 (resting near column 4, M1's own end state), a plain,
+# generous walk right to open ground away from either ladder column
+# (x=100ish - unlike M1's own 8px-wide ladder grip windows, this has a
+# wide margin of error, so no bisection needed for this leg).
+#
+# **A real design finding, not just a script-timing one**: the first
+# jump height tried (12px, checked only against a barrel's own static
+# 8px footprint) could not actually survive a real *moving* barrel -
+# an approaching 8px barrel and the 16px-wide player overlap
+# horizontally for ~22-24 frames as it closes in, but a 12px hop is
+# only high enough to clear it (the player's own bottom edge above the
+# barrel's own top edge) for about 9 frames around its peak - nowhere
+# close to covering a full approach. Confirmed directly against the
+# real build (several different jump-start frames against an actual
+# rolling barrel, all caught) before widening the rise to 20px
+# (player.c) - see docs/GAMEBOY_ROADMAP.md's own Milestone 2 entry.
+#
+# Even at 20px, the surviving press-A window against barrel 1's real
+# approach is narrow (bisected against the real build to exactly
+# frames 474-476 of this script - not hand-computed) since the
+# clearance window (~21-25 frames) and the horizontal danger window
+# (~22-24 frames) are close in size, leaving little slack to shift the
+# jump's timing and still cover the whole approach. 475 (the middle of
+# that window) is used here for the most real-world margin.
+#
+# **Checkpoint A** (frame 600, well after the jump lands and settles,
+# well before barrel 2 is anywhere near): the player is still resting
+# at the same tier-3 spot (not snapped back to the ground spawn point)
+# - proof the jump actually cleared barrel 1.
+#
+# Continuing with no further input (deliberately not jumping this
+# time): barrel 2 (the next periodic spawn) rolls in and is allowed to
+# hit the player - the real moment of contact bisected against the
+# real build to between frame 932 and 935 of this script.
+#
+# **Checkpoint B** (frame 1000, well after the hit and the respawn's
+# own gravity-drop-in settle): the player is back at the ground spawn
+# point (SPAWN_X, GROUND_REST_Y) - proof a barrel hit triggers a real
+# respawn.
+5 LEFT down
+64 LEFT up
+64 UP down
+114 UP up
+114 RIGHT down
+194 RIGHT up
+194 UP down
+244 UP up
+244 LEFT down
+324 LEFT up
+324 UP down
+374 UP up
+374 RIGHT down
+444 RIGHT up
+475 A down
+477 A up
