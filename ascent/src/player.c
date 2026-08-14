@@ -7,14 +7,16 @@
 // positioning code for a plain humanoid figure).
 //
 // Physics: mostly a stateless per-frame check against stage.h's tile
-// map - no "is_climbing" flag. Each frame: if the player's center
-// overlaps a ladder tile *and* Up/Down is held, move vertically by 1px
-// and skip gravity/walking entirely (this naturally self-limits - once
-// the center steps past the ladder tile into open air or a plain
-// floor tile, the very next frame's check no longer grants a climb,
-// and gravity resumes). Otherwise: check the tile just below the feet
-// - solid (floor or ladder-top) means grounded (snap to rest exactly
-// on top of it, and allow Left/Right); not solid means fall 1px.
+// map - no "is_climbing" flag. Each frame: if the tile at the
+// player's *feet* (the same point the solid/gravity check below uses)
+// is a ladder tile *and* Up/Down is held, move vertically by 1px and
+// skip gravity/walking entirely (this naturally self-limits - once
+// the feet step past the ladder tile into open air or a plain floor
+// tile, the very next frame's check no longer grants a climb, and
+// gravity resumes). Otherwise: check that same feet point for
+// solidity - solid (floor or ladder-top) means grounded (snap to rest
+// exactly on top of it, and allow Left/Right); not solid means fall
+// 1px.
 //
 // Milestone 2 adds one genuinely stateful action on top of that: a
 // jump (see `jumping`/`jump_timer` below) is a timed forced-rise, not
@@ -157,20 +159,36 @@ void player_init(void) {
 
 void player_update(uint8_t joy) {
     uint8_t center_x = player_x + 8;
-    uint8_t center_y = player_y + 8;
+    uint8_t feet_x = player_x + 8;
+    uint8_t feet_y = player_y + 16;
 
-    if ((joy & (J_UP | J_DOWN)) && stage_is_ladder(center_x, center_y)) {
+    // Grip check uses the *feet* point - the same offset the solid/
+    // gravity check below already uses - not the box's own vertical
+    // center. Checking center happens to work for grabbing a ladder
+    // from a dead stop, since standing at rest already means the top
+    // two-thirds of the player's own box overlaps whatever shaft
+    // leads *up* from here - but it never overlaps a shaft leading
+    // *down* from here (that shaft starts on the far side of the
+    // solid tile the player is standing on). The feet point is
+    // exactly the tile being stood on, so it grants a grip in either
+    // direction symmetrically, and it's the same point the mid-shaft
+    // climb already re-checks every frame while moving, so this
+    // doesn't change that part of the behavior at all.
+    if ((joy & (J_UP | J_DOWN)) && stage_is_ladder(center_x, feet_y)) {
         if (joy & J_UP) {
             if (player_y > 0) player_y--;
-        } else {
+        } else if (player_y < GROUND_REST_Y) {
+            // Clamped explicitly rather than relying on the tile
+            // check alone: stage_tile_at() clamps any row past the
+            // map's own last row to that last row, so without this,
+            // the ground's own ladder-top tile would keep reading as
+            // "ladder" forever below the visible floor and the player
+            // would sink out of the map holding Down.
             player_y++;
         }
         position_player();
         return;
     }
-
-    uint8_t feet_x = player_x + 8;
-    uint8_t feet_y = player_y + 16;
     uint8_t on_ground = stage_is_solid(feet_x, feet_y);
 
     if (!jumping && on_ground && (joy & J_A)) {

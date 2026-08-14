@@ -4944,6 +4944,62 @@ stayed green throughout a full `make clean` rebuild, including the same
 3 known pre-existing Mooneye timer failures - this change touches only
 `ascent/` and the root `Makefile`.
 
+**Phase 12 ("Ascent"), Milestone 3 (this pass): done - downward ladder
+climbing.** The user tried Milestone 2 and reported the one real gap
+directly: climbing *up* a ladder from a resting position worked, but
+climbing *down* one didn't. Root cause, confirmed by testing rather
+than assumed: `player.c`'s ladder-grip check tested the tile at the
+player's vertical *center* (`player_y + 8`). That offset happens to
+work for climbing up, because a player at rest already has the top
+two-thirds of their own 16px box overlapping whatever shaft leads up
+from wherever they're standing - but a shaft leading *down* starts on
+the far side of the solid tile directly underfoot, a point the center
+offset never reaches. A scripted test confirmed this directly: holding
+Down at tier 1's own ladder junction (after climbing there via
+Milestone 1's own route) did nothing at all, frame after frame, for
+100 straight frames.
+
+**The fix**: rekey the grip check to the player's *feet*
+(`player_y + 16`) - the exact same point `stage_is_solid()`'s own
+gravity/landing check already uses. This makes grip detection
+symmetric by construction: it's no longer "does an offset happen to
+land in the right gap," it's "is the tile I'm currently standing on
+itself a ladder-top junction," which is true regardless of which
+direction that junction's shaft happens to run. A second real issue
+surfaced immediately once downward movement worked at all:
+`stage_tile_at()` clamps any row past the map's own last row to that
+last row, so the ground's own ladder-top tile at column 4 would keep
+reading as "ladder" forever below the visible floor - without an
+explicit stop, holding Down at ground level would let the player sink
+out of the map indefinitely. Fixed with a direct clamp
+(`player_y < GROUND_REST_Y`) on the downward branch, the same kind of
+explicit screen-bound guard the upward branch (`player_y > 0`) already
+had from Milestone 1.
+
+Both fixes are in `player.c` only - `stage.c`'s tile map and
+`barrel.c` are untouched. Confirmed the rekeyed check doesn't shift a
+single existing frame of behavior: `input_script_m1.txt` and
+`input_script_m2_barrels.txt` were both re-run against the fixed build
+and `cmp`'d byte-identical against their own already-locked
+`reference_m1.ppm`/`reference_m2_survive.ppm`/`reference_m2_respawn.ppm`
+before adding anything new - the same "verify against the real build,
+don't assume" discipline that caught Milestone 2's own barrel/palette
+bugs.
+
+**Verification**: new `input_script_m3_climbdown.txt` reuses
+Milestone 1's own ground→tier1 climb (frames 5-114) verbatim, then
+holds Down. One PPM reference (`reference_m3_climbdown.ppm`,
+frame 250) checkpoints the player back at true ground rest, directly
+below where the climb started - confirmed the descent actually
+*completes* (not just grips without moving, and doesn't sink past the
+floor) by also rendering a later frame and finding it identical.
+`gameboy-ascent-build` gained one more `cmp` step. Full regression
+suite (unit tests, all visual/game/savestate targets, all three RGBDS
+ROMs, `gameboy-prism-build`, `gameboy-wayfarer-build`) stayed green
+throughout a full `make clean` rebuild, including the same 3 known
+pre-existing Mooneye timer failures - this change touches only
+`ascent/` and the root `Makefile`.
+
 **Next**: further Ascent work is open-ended (a goal/win condition at
 the top platform, a score, sound effects, possibly a lives/game-over
 system) rather than following a fixed list, once user-directed.

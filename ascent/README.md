@@ -34,7 +34,7 @@ through this project's own `bin/gameboy --mode cgb`, same treatment
 `gameboy-prism-build`/`gameboy-wayfarer-build`/`gameboy-sdl`/the RGBDS
 targets get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 2 (a jump and rolling barrels)
+## Status: Milestone 3 (downward ladder climbing)
 
 One static 20x18-tile screen (`src/stage.c`): four girder tiers
 (rows 5, 9, 13, 17 of a 18-row screen) connected by two ladder columns
@@ -52,7 +52,7 @@ against the tile map with no persistent state machine: gravity (fall
 1px/frame when the tile below the feet isn't solid), platform standing
 (snap to rest exactly on a girder's top edge, walk left/right while
 grounded), and ladder climbing (move 1px/frame vertically while the
-player's center overlaps a ladder tile and Up/Down is held — this
+tile at the player's feet is a ladder tile and Up/Down is held — this
 naturally self-limits, since stepping past the ladder tile into open
 air or a plain floor tile means the very next frame's check no longer
 grants a climb).
@@ -108,3 +108,30 @@ the ground spawn point). Every frame number - the walk, the jump
 window, the hit - was found by bisecting against the real built ROM,
 not hand-derived, the same discipline Milestone 1's own ladder-
 alignment windows already used.
+
+Milestone 3 fixes a real gap the user found right after trying Milestone
+2: the player could climb *up* a ladder from a resting position but not
+*down* one. The ladder-grip check had been keyed on the player's
+vertical center (`player_y + 8`), which happens to work for climbing up
+- a resting player's own box already overlaps the shaft leading up from
+wherever they're standing - but a shaft leading *down* starts on the
+far side of the solid tile underfoot, which the center point never
+reaches. Rekeying the check to the player's *feet* (`player_y + 16`,
+the exact point the solid/gravity check already uses) makes grip
+detection symmetric in both directions, since it's now checking "is the
+tile I'm standing on itself a ladder-top junction" rather than an
+offset that only happened to line up one way. A new explicit clamp
+(`player_y < GROUND_REST_Y`) stops the player exactly at true ground
+level while descending - without it, `stage_tile_at()`'s own clamping
+of any row past the map's last row means the ground's ladder-top tile
+would keep reading as climbable forever, letting the player sink out of
+the map while holding Down. Confirmed this change doesn't alter a
+single existing frame of Milestone 1's or Milestone 2's own locked
+references (re-run and `cmp`'d byte-identical) before adding a
+dedicated verification script for the new behavior itself.
+
+`input_script_m3_climbdown.txt` reuses Milestone 1's own ground→tier1
+climb (frames 5-114), then holds Down and confirms (**checkpoint**,
+frame 250) the player is back at true ground rest directly below where
+they started - proof descending actually completes, not just grips
+without moving.

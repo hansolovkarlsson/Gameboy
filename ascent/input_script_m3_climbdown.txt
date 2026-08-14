@@ -1,0 +1,30 @@
+# Ascent Milestone 3 verification script - proves downward ladder
+# climbing (player.c's ladder-grip check now keyed on the player's
+# *feet*, the same point the solid/gravity check already uses, rather
+# than the box's vertical center - center only ever happened to detect
+# the shaft leading *up* from a resting position, never one leading
+# down, since a resting player's own box already overlaps the up-shaft
+# but a down-shaft starts on the far side of the solid tile underfoot).
+#
+# Frames 5-114 are Milestone 1's own already-locked opening leg, reused
+# verbatim: walk to the x=4 ladder's grip window, climb it from the
+# ground up to tier 1.
+#
+# From rest on tier 1 (settled by ~frame 130), hold Down - the real
+# point of this script: descending back through the very same column
+# used to climb up, confirmed against the real build to complete
+# (reaching true ground rest, not just started) by frame 185, and
+# confirmed stable (not still settling, and not sinking through the
+# floor - a real bug this fix's own ground-rest clamp prevents) by
+# frame 200 rendering identically.
+#
+# **Checkpoint** (frame 250, well after the descent settles): the
+# player is back at ground rest, directly below where they started
+# climbing - proof downward climbing actually works end to end, not
+# just "grips" the ladder without going anywhere.
+5 LEFT down
+64 LEFT up
+64 UP down
+114 UP up
+150 DOWN down
+200 DOWN up
