@@ -1,0 +1,55 @@
+# Ascent Milestone 1 verification script - proves gravity, platform
+# collision, and ladder climbing (the whole of this milestone's new
+# physics) in one continuous route across the static screen's real
+# zigzag layout (stage.c): ground -> tier 1 -> tier 2 -> tier 3 (top),
+# alternating between the two ladder columns (x=4, x=14) so it's not
+# just "one ladder happens to work."
+#
+# No title screen yet, so the very first frames already matter: the
+# player spawns 8px above true rest height on the ground girder
+# (player.c's own SPAWN_Y), so simply letting the first few frames
+# play out before any input is itself the gravity/landing proof - no
+# dedicated checkpoint needed for that part.
+#
+# Each leg's exact frame count was found by bisecting against the real
+# built ROM (per this whole project's own "verify against the real
+# build, don't hand-derive" discipline) - both the walk distance
+# needed to land the player's horizontal center inside a ladder
+# column's 8px grip window, and the climb duration needed to fully
+# cross a 32px gap between tiers (with generous slack so neither ever
+# lands right at its own edge case):
+#
+# LEFT 5->64 (59 frames): walk from spawn (x=80) to the x=4 ladder's
+# grip window (lands around x=26, well inside the valid [24,31] range
+# - x=76 or x=82 both missed the window in testing).
+# UP 64->114 (50 frames, only ~32 needed): climb the x=4 ladder from
+# the ground up to tier 1.
+# RIGHT 114->194 (80 frames): walk across tier 1 to the x=14 ladder's
+# grip window (a 76-frame walk landed just short of the window in
+# testing; 80 lands solidly inside it).
+# UP 194->244 (50 frames): climb the x=14 ladder from tier 1 to tier 2
+# - the one leg that doesn't reuse the x=4 column, proving the second
+# ladder's own tile placement/grip logic independently.
+# LEFT 244->324 (80 frames): walk back across tier 2 to the x=4
+# ladder's grip window.
+# UP 324->374 (50 frames): climb the x=4 ladder from tier 2 to tier 3
+# - the top platform.
+#
+# **Checkpoint** (frame 400, player at rest on tier 3 - confirmed
+# stable, not still settling, by also checking frame 420 renders
+# identically): this single end state is a real proof of every
+# mechanic this milestone adds - gravity/landing (the opening settle),
+# platform walking in both directions, and ladder climbing through two
+# different zigzag columns.
+5 LEFT down
+64 LEFT up
+64 UP down
+114 UP up
+114 RIGHT down
+194 RIGHT up
+194 UP down
+244 UP up
+244 LEFT down
+324 LEFT up
+324 UP down
+374 UP up

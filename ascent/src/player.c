@@ -1,0 +1,162 @@
+// See player.h. One 16x16 side-profile icon (4 8x8 tiles, drawn
+// facing right, mirrored via S_FLIPX for left) - the exact "one
+// profile, two flipped facings" 4-quadrant sprite technique the
+// sibling wayfarer/src/player.c already proved out (same tile art,
+// reused verbatim rather than redrawn - a genuinely different game,
+// but no reason to duplicate already-working CGB sprite art/
+// positioning code for a plain humanoid figure).
+//
+// Physics: a stateless per-frame check against stage.h's tile map -
+// no "is_climbing" flag. Each frame: if the player's center overlaps
+// a ladder tile *and* Up/Down is held, move vertically by 1px and
+// skip gravity/walking entirely (this naturally self-limits - once
+// the center steps past the ladder tile into open air or a plain
+// floor tile, the very next frame's check no longer grants a climb,
+// and gravity resumes). Otherwise: check the tile just below the feet
+// - solid (floor or ladder-top) means grounded (snap to rest exactly
+// on top of it, and allow Left/Right); not solid means fall 1px.
+
+#include <gb/gb.h>
+#include <gb/cgb.h>
+#include <stdint.h>
+
+#include "player.h"
+#include "stage.h"
+
+#define TILE_SIDE_TL 0
+#define TILE_SIDE_TR 1
+#define TILE_SIDE_BL 2
+#define TILE_SIDE_BR 3
+#define PLAYER_TILE_COUNT 4
+
+static const uint8_t player_tiles[PLAYER_TILE_COUNT * 16] = {
+    // side (facing right): top-left
+    0x0F, 0x00, 0x0F, 0x00, 0x00, 0x0F, 0x00, 0x0F,
+    0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F,
+    // side (facing right): top-right
+    0xF0, 0x00, 0xF0, 0x00, 0x00, 0xF0, 0x40, 0xB0,
+    0xF0, 0xF0, 0xF0, 0xFC, 0xF0, 0xFC, 0xF0, 0xFC,
+    // side (facing right): bottom-left
+    0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F, 0x0F,
+    0x00, 0x0E, 0x00, 0x0E, 0x00, 0x0E, 0x00, 0x0E,
+    // side (facing right): bottom-right
+    0xF0, 0xFC, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0, 0xF0,
+    0x00, 0x70, 0x00, 0x70, 0x00, 0x70, 0x00, 0x70,
+};
+
+// One CGB OBJ palette: color 0 unused (hardware-transparent for
+// sprites unconditionally), color 1 a dark brown (hair/outline),
+// color 2 a warm skin tone, color 3 a blue tunic - same values as
+// wayfarer/src/player.c's own PLAYER_PALETTE, reused for the same
+// reason as the tile art above.
+#define PLAYER_PALETTE 0
+static const palette_color_t player_palette[4] = {
+    RGB(0, 0, 0), RGB(12, 7, 3), RGB(28, 20, 14), RGB(4, 10, 26),
+};
+
+// Sprite slots 0-3 - the only sprites this game draws yet.
+#define SPRITE_TL 0
+#define SPRITE_TR 1
+#define SPRITE_BL 2
+#define SPRITE_BR 3
+
+typedef enum {
+    FACING_LEFT,
+    FACING_RIGHT,
+} facing_t;
+
+static uint8_t player_x;
+static uint8_t player_y;
+static facing_t facing;
+
+#define PLAYER_MIN_X 0
+#define PLAYER_MAX_X (160 - 16)
+
+// Ground girder is tile row 17 (see stage.c) - resting on top of it
+// means the sprite's bottom edge sits exactly at row 17's top pixel.
+#define GROUND_TILE_ROW 17
+#define GROUND_REST_Y (GROUND_TILE_ROW * 8 - 16)
+
+// Spawn 8px above true rest height: the first several frames of
+// gravity pulling the player down onto the girder is itself a free,
+// automatic proof that landing/gravity works, with no dedicated
+// checkpoint needed.
+#define SPAWN_X 80
+#define SPAWN_Y (GROUND_REST_Y - 8)
+
+static void position_player(void) {
+    uint8_t px = player_x;
+    uint8_t py = player_y;
+    uint8_t tl, tr, bl, br, flip;
+
+    if (facing == FACING_LEFT) {
+        tl = TILE_SIDE_TR; tr = TILE_SIDE_TL; bl = TILE_SIDE_BR; br = TILE_SIDE_BL;
+        flip = S_FLIPX;
+    } else {
+        tl = TILE_SIDE_TL; tr = TILE_SIDE_TR; bl = TILE_SIDE_BL; br = TILE_SIDE_BR;
+        flip = 0;
+    }
+
+    set_sprite_tile(SPRITE_TL, tl);
+    set_sprite_prop(SPRITE_TL, flip);
+    move_sprite(SPRITE_TL, px + 8, py + 16);
+
+    set_sprite_tile(SPRITE_TR, tr);
+    set_sprite_prop(SPRITE_TR, flip);
+    move_sprite(SPRITE_TR, px + 8 + 8, py + 16);
+
+    set_sprite_tile(SPRITE_BL, bl);
+    set_sprite_prop(SPRITE_BL, flip);
+    move_sprite(SPRITE_BL, px + 8, py + 16 + 8);
+
+    set_sprite_tile(SPRITE_BR, br);
+    set_sprite_prop(SPRITE_BR, flip);
+    move_sprite(SPRITE_BR, px + 8 + 8, py + 16 + 8);
+}
+
+void player_init(void) {
+    set_sprite_palette(PLAYER_PALETTE, 1, player_palette);
+    set_sprite_data(TILE_SIDE_TL, PLAYER_TILE_COUNT, player_tiles);
+
+    player_x = SPAWN_X;
+    player_y = SPAWN_Y;
+    facing = FACING_RIGHT;
+
+    position_player();
+    SHOW_SPRITES;
+}
+
+void player_update(uint8_t joy) {
+    uint8_t center_x = player_x + 8;
+    uint8_t center_y = player_y + 8;
+
+    if ((joy & (J_UP | J_DOWN)) && stage_is_ladder(center_x, center_y)) {
+        if (joy & J_UP) {
+            if (player_y > 0) player_y--;
+        } else {
+            player_y++;
+        }
+        position_player();
+        return;
+    }
+
+    uint8_t feet_x = player_x + 8;
+    uint8_t feet_y = player_y + 16;
+    if (stage_is_solid(feet_x, feet_y)) {
+        uint8_t tile_row = feet_y / 8;
+        player_y = (uint8_t)(tile_row * 8 - 16);
+
+        if (joy & J_LEFT) {
+            facing = FACING_LEFT;
+            if (player_x > PLAYER_MIN_X) player_x--;
+        }
+        if (joy & J_RIGHT) {
+            facing = FACING_RIGHT;
+            if (player_x < PLAYER_MAX_X) player_x++;
+        }
+    } else {
+        player_y++;
+    }
+
+    position_player();
+}

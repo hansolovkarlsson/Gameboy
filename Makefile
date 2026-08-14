@@ -287,6 +287,17 @@ WAYFARER_CHEST_WAV_OUT := $(BIN_DIR)/wayfarer-chest-sfx-output.wav
 WAYFARER_CHEST_SAV_REF := wayfarer/reference_m17_chest.sav
 WAYFARER_CHEST_SAV_OUT := $(BIN_DIR)/wayfarer-chest-output.sav
 
+# Ascent (ascent/ - a third, separate original homebrew game, a
+# Donkey Kong (1981)-style single-screen platformer rather than
+# prism/'s match-3 puzzle or wayfarer/'s top-down action-adventure -
+# see ascent/README.md and docs/GAMEBOY_ROADMAP.md's own entry).
+# Milestone 1: gravity, platform standing, and ladder climbing, proven
+# on one static screen with no title/HUD/sfx yet.
+ASCENT_ROM := ascent/bin/ascent.gb
+ASCENT_SCRIPT := ascent/input_script_m1.txt
+ASCENT_REF := ascent/reference_m1.ppm
+ASCENT_OUT := $(BIN_DIR)/ascent-output.ppm
+
 # Mooneye GB Test Suite (test_roms/mooneye/ - MIT-licensed, prebuilt
 # ROMs committed same as dmg-acid2/2048-gb/droneboy/tobutobugirl, not
 # built from source here - see test_roms/mooneye/README.md for the full
@@ -316,7 +327,7 @@ SDL_PKGS := sdl2
 SDL_CFLAGS := $(shell pkg-config --cflags $(SDL_PKGS) 2>/dev/null) -I$(SRC_DIR)
 SDL_LIBS := $(shell pkg-config --libs $(SDL_PKGS) 2>/dev/null)
 
-.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-rgbds-hdma-test gameboy-prism-build gameboy-wayfarer-build gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
+.PHONY: all gameboy gameboy-test gameboy-visual-test gameboy-cgb-visual-test gameboy-2048-test gameboy-droneboy-test gameboy-tobu-test gameboy-rgbds-test gameboy-rgbds-mbc3-test gameboy-rgbds-hdma-test gameboy-prism-build gameboy-wayfarer-build gameboy-ascent-build gameboy-savestate-test gameboy-mooneye-test gameboy-sdl clean
 
 all: gameboy
 
@@ -492,6 +503,13 @@ gameboy-wayfarer-build: $(TARGET) | $(BIN_DIR)
 		&& echo "gameboy-wayfarer-build: OK (Milestone 17 - collecting the chest persists BIT_CHEST to the new second SRAM state byte)" \
 		|| (echo "gameboy-wayfarer-build: FAIL (saved cart RAM doesn't match $(WAYFARER_CHEST_SAV_REF))"; exit 1)
 
+gameboy-ascent-build: $(TARGET) | $(BIN_DIR)
+	$(MAKE) -C ascent
+	./$(TARGET) $(ASCENT_ROM) --mode cgb --input $(ASCENT_SCRIPT) --ppm $(ASCENT_OUT) --frames 400
+	cmp $(ASCENT_OUT) $(ASCENT_REF) \
+		&& echo "gameboy-ascent-build: OK (Milestone 1 - gravity, platform standing, and ladder climbing through both zigzag columns reach the top platform)" \
+		|| (echo "gameboy-ascent-build: FAIL (rendered frame doesn't match $(ASCENT_REF))"; exit 1)
+
 gameboy-mooneye-test: $(TARGET)
 	python3 tests/run_mooneye.py $(TARGET) $(MOONEYE_DIR)
 
@@ -528,6 +546,6 @@ $(SDL_SRC_DIR)/%.o: $(SDL_SRC_DIR)/%.c
 	$(CC) $(CFLAGS) -c $< -o $@
 
 clean:
-	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT)
+	rm -f $(OBJS) $(SDL_OBJS) $(TARGET) $(TEST_TARGET) $(TEST_TIMER_TARGET) $(TEST_APU_TARGET) $(TEST_CPU_TARGET) $(TEST_SAVESTATE_TARGET) $(VISUAL_OUT) $(CGB_VISUAL_OUT) $(GB2048_OUT) $(DRONEBOY_OUT) $(TOBU_OUT) $(SAVESTATE_CONTINUOUS) $(SAVESTATE_MID_PPM) $(SAVESTATE_MID_STATE) $(SAVESTATE_RESUMED) $(SDL_TARGET) $(RGBDS_HELLO_OBJ) $(RGBDS_HELLO_ROM) $(RGBDS_MBC3_RTC_OBJ) $(RGBDS_MBC3_RTC_ROM) $(RGBDS_HDMA_OBJ) $(RGBDS_HDMA_ROM) $(PRISM_OUT) $(PRISM_WAV_OUT) $(PRISM_SAV_OUT) $(PRISM_TITLE_OUT) $(WAYFARER_OUT) $(WAYFARER_WAV_OUT) $(WAYFARER_SAV_OUT) $(WAYFARER_WON_SAV_OUT) $(WAYFARER_WON_OUT) $(WAYFARER_BRUTE_OUT) $(WAYFARER_BRUTE_WAV_OUT) $(WAYFARER_BRUTE_SAV_OUT) $(WAYFARER_BRUTE_ALIVE_OUT) $(WAYFARER_SHIELD_OUT) $(WAYFARER_SHIELD_BLOCKED_OUT) $(WAYFARER_SHIELD_WAV_OUT) $(WAYFARER_SHIELD_SAV_OUT) $(WAYFARER_MUSIC_WAV_OUT) $(WAYFARER_BOSS_ALIVE_OUT) $(WAYFARER_BOSS_OUT) $(WAYFARER_BOSS_WAV_OUT) $(WAYFARER_BOSS_SAV_OUT) $(WAYFARER_CHEST_COLLECTED_OUT) $(WAYFARER_CHEST_HIT_OUT) $(WAYFARER_CHEST_WAV_OUT) $(WAYFARER_CHEST_SAV_OUT) $(ASCENT_OUT)
 	$(MAKE) -C prism clean
 	$(MAKE) -C wayfarer clean

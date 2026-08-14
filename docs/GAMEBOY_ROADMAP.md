@@ -162,6 +162,15 @@ Zelda (1986), also written in GBDK-2020 (C), reusing the same toolchain
 install `prism/` already needs. See the Status section's own Phase 11
 entry for the concept, milestone roadmap, and design.
 
+### Phase 12: a third original homebrew game ("Ascent")
+
+A third, separate homebrew game alongside `prism/` and `wayfarer/` -
+`ascent/`, a CGB-only single-screen platformer in the tradition of the
+original Donkey Kong (1981) - stacked girders and zigzagging ladders,
+climbed from bottom to top - also written in GBDK-2020 (C), reusing the
+same toolchain install `prism/` already needs. See the Status section's
+own Phase 12 entry for the concept, milestone roadmap, and design.
+
 ## Status
 
 **Phase 1 (CPU core): functionally complete and passing its gate.**
@@ -4727,3 +4736,94 @@ touches only `wayfarer/`.
 **Next**: further Wayfarer work is open-ended (more rooms, a fuller
 inventory, deeper audio) rather than following a fixed list, once
 user-directed.
+
+**Phase 12 ("Ascent"), Milestone 1 (this pass): done - gravity, platform
+standing, and ladder climbing on one static single-screen layout.**
+After Milestone 17 shipped for Wayfarer, the user asked for a new,
+third homebrew game "like Donkey Kong" - confirmed via AskUserQuestion
+as a classic single fixed screen (not multiple discrete stages, not a
+side-scrolling level) and CGB-only, matching both sibling projects.
+Milestone 1 is deliberately the platformer-genre equivalent of
+Wayfarer's own real Milestone 1 (`df5fa11`) - one static screen, one
+player sprite, the core movement mechanic proven end to end, nothing
+else (no jump, no barrels, no goal, no HUD, no sound). Jumping in
+particular is barrel-dodging tech, so it's honestly scoped alongside
+barrels in a later milestone rather than bolted on here just because
+Donkey Kong "has" a jump button.
+
+**New `ascent/` directory**, a third sibling alongside `prism/` and
+`wayfarer/`, reusing `prism/`'s already-extracted GBDK-2020 toolchain
+exactly like `wayfarer/Makefile` already does (`GBDK_HOME ?=
+../prism/toolchain/gbdk`) rather than vendoring a third copy.
+`ascent/Makefile` mirrors `wayfarer/Makefile`'s own shape, minus the
+cart-RAM linker flags (`-Wl-yt0x03`/`-Wm-ya1`) - no save system yet,
+same as Wayfarer before its own Milestone 9.
+
+**`src/stage.c`/`.h`**: one hand-authored 20x18 BG tile map - four
+girder tiers (rows 5, 9, 13, 17) connected by two ladder columns (x=4,
+x=14) that zigzag tier to tier, built from four simple 8x8 tiles (open
+air, girder, ladder, and a "ladder-top" junction tile - a girder with a
+ladder visibly passing through it, solid for standing *and* grippable)
+rather than sloped platforms, which pixel-tile collision can't cleanly
+express. Column 4 connects the ground to tier 1 and tier 2 to tier 3;
+column 14 connects tier 1 to tier 2 - a real gap deliberately exists at
+column 4 between tier 1 and tier 2 (no ladder tile there), forcing the
+player to detour through column 14, the actual DK-style zigzag route.
+`stage_tile_at()`/`stage_is_solid()`/`stage_is_ladder()` are pixel-
+coordinate tile lookups, the same "helper the physics layer calls"
+shape as `wayfarer/src/room.c`'s own `room_blocks()`.
+
+**`src/player.c`/`.h`**: reuses `wayfarer/src/player.c`'s own proven
+4-quadrant 16x16 sprite technique and tile art verbatim (one side
+profile, mirrored via `S_FLIPX` for left/right - no reason to redraw
+already-working CGB sprite art for a plain humanoid figure). Physics
+are checked fresh every frame against the tile map, no persistent
+`is_climbing` state: if the player's center overlaps a ladder tile and
+Up/Down is held, move 1px/frame vertically and skip gravity/walking
+entirely - this naturally self-limits, since stepping past the ladder
+tile into open air or a plain floor tile means the very next frame's
+check no longer grants a climb, and gravity resumes (confirmed this is
+exactly what makes the column-4 gap between tier 1 and tier 2 work as
+a real dead end, not a special case needing extra code). Otherwise,
+gravity: fall 1px/frame when the tile below the feet isn't solid, or
+snap to rest exactly on top of it when it is (allowing Left/Right only
+while grounded).
+
+**A real debugging story worth recording honestly**: the first
+attempt to test ladder climbing against the built ROM appeared to fail
+outright (the player would walk to a ladder column and simply stop,
+never climbing, no matter how long Up was held). Root cause wasn't a
+logic bug - it was a bad assumption in the *test harness* while
+calibrating input-script frame counts by scanning rendered PPM output
+for the player sprite's tunic-blue pixels: the assumed relationship
+between that pixel bounding box and the player's real `player_x` was
+off by 4px, so a script "walked" to what looked like the ladder's
+alignment window but actually landed the player's real center just
+outside the ladder tile's 8px grip window. Re-calibrating the offset
+against a known-good position (a temporary debug build with a
+hardcoded spawn point exactly on the ladder column) confirmed the
+physics code itself was correct the whole time, and every leg of the
+final route was then found by real bisection against the built ROM,
+not by trusting the earlier, miscalibrated arithmetic.
+
+**Verification**: `ascent/input_script_m1.txt` walks one continuous
+route - ground → tier 1 (x=4 ladder) → tier 2 (x=14 ladder, proving the
+second column independently) → tier 3, the top (x=4 ladder again) -
+with the player spawning 8px above true rest height, so the opening
+frames' fall onto the ground girder is itself a free, automatic proof
+of gravity/landing with no dedicated checkpoint needed. One PPM
+reference (`reference_m1.ppm`) checkpoints the player at rest on the
+top platform, confirmed genuinely at rest (not still settling) by also
+rendering a later frame and finding it identical. New
+`gameboy-ascent-build` Makefile target follows `gameboy-wayfarer-build`'s
+exact shape - opt-in, not part of plain `make`/`make gameboy-test`.
+Full regression suite (unit tests, all visual/game/savestate targets,
+all three RGBDS ROMs, `gameboy-prism-build`, `gameboy-wayfarer-build`)
+stayed green throughout a full `make clean` rebuild, including the same
+3 known pre-existing Mooneye timer failures (`rapid_toggle`,
+`tima_write_reloading`, `tma_write_reloading`) already documented
+above - this change touches only `ascent/` and the root `Makefile`.
+
+**Next**: further Ascent work is open-ended (a jump alongside barrels
+being the natural next milestone, then a goal/win condition, score,
+sound) rather than following a fixed list, once user-directed.
