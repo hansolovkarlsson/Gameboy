@@ -17,6 +17,13 @@ void player_update(uint8_t joy);
 uint8_t player_get_x(void);
 uint8_t player_get_y(void);
 
+// True while a jump is in progress (rise or fall) - score.c's own
+// barrel-jump bonus (main.c wires it in) only counts a barrel passed
+// underneath while actually airborne, not one merely brushed past
+// while grounded (which barrel_check_hit()'s own full AABB already
+// turns into a respawn instead).
+uint8_t player_is_jumping(void);
+
 // Snaps the player back to the spawn point (the same 8px-above-rest
 // drop-in player_init() already uses, so the existing gravity code
 // animates the "drop back in" for free) and clears any in-progress

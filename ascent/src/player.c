@@ -240,6 +240,7 @@ void player_update(uint8_t joy) {
 
 uint8_t player_get_x(void) { return player_x; }
 uint8_t player_get_y(void) { return player_y; }
+uint8_t player_is_jumping(void) { return jumping; }
 
 void player_respawn(void) {
     player_x = SPAWN_X;

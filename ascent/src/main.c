@@ -9,13 +9,16 @@
 // respawn the player at the ground on contact. Milestone 4 added a win
 // condition - a flag on the top platform (goal.h/goal.c) that ends the
 // run with a "WIN" screen (win.h/win.c) once reached. This pass
-// (Milestone 5) adds the one way back out of that screen: a Start
+// (Milestone 5) added the one way back out of that screen: a Start
 // press restarts the whole game, the same escape
 // wayfarer/src/world.c's own win screen already gives - re-running the
 // exact same init sequence real boot uses, since every module's own
 // _init() is already a full, idempotent reset (confirmed by reading
 // each one - none of them carry state across calls that a fresh call
-// wouldn't itself overwrite).
+// wouldn't itself overwrite). This pass (Milestone 6) adds a score
+// (score.h/score.c): 100 points for each barrel jumped over, the same
+// real Donkey Kong (1981) mechanic and point value, shown live on
+// background row 0.
 
 #include <gb/gb.h>
 #include <gb/cgb.h>
@@ -27,6 +30,7 @@
 #include "barrel.h"
 #include "goal.h"
 #include "win.h"
+#include "score.h"
 
 void main(void) {
     initrand(DIV_REG);
@@ -35,6 +39,7 @@ void main(void) {
     player_init();
     barrel_init();
     goal_init();
+    score_init();
 
     SHOW_BKG;
     DISPLAY_ON;
@@ -66,6 +71,7 @@ void main(void) {
                 player_init();
                 barrel_init();
                 goal_init();
+                score_init();
 
                 SHOW_BKG;
                 DISPLAY_ON;
@@ -77,6 +83,9 @@ void main(void) {
             barrel_update();
             if (barrel_check_hit(player_get_x(), player_get_y())) {
                 player_respawn();
+            } else if (player_is_jumping()) {
+                uint16_t gained = barrel_check_jump_score(player_get_x(), player_get_y());
+                if (gained) score_add(gained);
             }
             if (goal_check_reached(player_get_x(), player_get_y())) {
                 won = 1;

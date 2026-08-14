@@ -5135,6 +5135,67 @@ prism-build`, `gameboy-wayfarer-build`) stayed green throughout a full
 timer failures - this change touches only `ascent/` and the root
 `Makefile`.
 
-**Next**: further Ascent work is open-ended (a score, sound effects,
-possibly a lives/game-over system for barrel hits) rather than
+**Phase 12 ("Ascent"), Milestone 6 (this pass): done - a score.** The
+user asked for exactly this next, matching Milestone 5's own closing
+"Next" note.
+
+**New `src/score.c`/`.h`** draws a live 5-digit counter on background
+row 0 - open air in `stage.c`'s own tile map above tier 3, never
+touched by any girder or ladder tile. The digit glyphs are reused
+verbatim from `prism/src/hud.c`'s own `hud_digit_tiles` (the same
+"already-proven hand-authored art, don't redraw it" reasoning
+`player.c`/`win.c` already give for reusing `wayfarer/`'s own art),
+loaded at BG tile IDs 13-22 (`stage.c` owns 0-3, `win.c` owns 4-12)
+under a new BG palette (`stage.c` owns 0, `win.c` owns 1) whose color 0
+matches the stage's own dark navy backdrop exactly, so the digits'
+background blends into the open air above tier 3 instead of reading as
+a separate box.
+
+**Scoring is the same real Donkey Kong (1981) mechanic and point
+value**: 100 points for each barrel jumped over. `barrel.c` gained a
+per-barrel `jumped` flag (cleared only when a slot spawns a fresh
+barrel, so a reused slot's old barrel can never block a new one's own
+payout) and `barrel_check_jump_score()` - horizontal-overlap-only
+against the player's box (unlike `barrel_check_hit()`'s own full AABB,
+since the point here is "passed over", not "collided with"), gated to
+barrels within 24px of the player's own vertical position. That gate
+matters: tiers are 32px apart (`stage.c`'s own rows 5/9/13/17) and the
+jump's own 20px arc (`player.c`'s `JUMP_RISE_FRAMES`) never reaches a
+neighboring one, so 24px is generous enough to cover the whole jump
+while still guaranteeing a barrel on an unrelated tier can never
+match - confirmed against the real tile geometry, not picked
+arbitrarily. `player.c` gained a small `player_is_jumping()` accessor
+so `main.c` only calls the jump-score check while a jump is actually in
+progress; walking into a barrel already trips `barrel_check_hit()`'s
+own full AABB into a respawn instead (`main.c` checks that branch
+first), so the two conditions can never both fire on the same contact.
+
+**A real, expected ripple effect, not a bug** - the same "one static,
+never-scrolling screen" consequence Milestone 4's own goal flag already
+established: the score field reads "00000" from the very first frame,
+so it's visible in every capture from now on. `reference_m1.ppm`,
+`reference_m2_survive.ppm`, `reference_m2_respawn.ppm`,
+`reference_m3_climbdown.ppm`, and `reference_m5_restart.ppm` were all
+re-rendered, visually confirmed correct (including a genuine "00100"
+readout on the two references capturing a post-jump state), and
+re-locked. `reference_m4_win.ppm` needed no change - `win_play()` wipes
+row 0 along with everything else, and its own script never jumps a
+barrel.
+
+**Verification**: new `input_script_m6_score.txt` reuses Milestone 2's
+own exact route and already-bisected jump timing (frames 5-477) -
+Milestone 2 already proved the jump survives contact; this script's own
+new claim is what the score shows afterward, not the jump itself.
+**Checkpoint** (frame 600, the same timing as Milestone 2's own
+checkpoint A): the score field reads "00100" - one barrel's worth of
+points, paid out exactly once despite the jump's own multi-frame
+overlap window with the barrel. `gameboy-ascent-build` gained a sixth
+`cmp` step. Full regression suite (unit tests, all visual/game/
+savestate targets, all three RGBDS ROMs, `gameboy-prism-build`,
+`gameboy-wayfarer-build`) stayed green throughout a full `make clean`
+rebuild, including the same 3 known pre-existing Mooneye timer
+failures - this change touches only `ascent/` and the root `Makefile`.
+
+**Next**: further Ascent work is open-ended (sound effects, possibly a
+lives/game-over system for barrel hits) rather than
 following a fixed list, once user-directed.

@@ -34,7 +34,7 @@ through this project's own `bin/gameboy --mode cgb`, same treatment
 `gameboy-prism-build`/`gameboy-wayfarer-build`/`gameboy-sdl`/the RGBDS
 targets get: opt-in, never part of plain `make`/`make gameboy-test`.
 
-## Status: Milestone 5 (restart from the win screen)
+## Status: Milestone 6 (a score)
 
 One static 20x18-tile screen (`src/stage.c`): four girder tiers
 (rows 5, 9, 13, 17 of a 18-row screen) connected by two ladder columns
@@ -229,3 +229,49 @@ them, with no barrels yet (a fresh spawn timer). A further short walk
 restarted game is actually playable, not just visually reset - the
 player responds to input and settles at a new position, not just
 sitting frozen post-restart.
+
+Milestone 6 adds a score. New `src/score.c`/`.h` draws a live 5-digit
+counter on background row 0 - open air in `stage.c`'s own tile map
+above tier 3, never touched by any girder or ladder tile, so nothing to
+dodge. The digit glyphs are reused verbatim from `prism/src/hud.c`'s
+own `hud_digit_tiles` (the same "already-proven hand-authored art,
+don't redraw it" reasoning `player.c`/`win.c` already give for reusing
+`wayfarer/`'s own art), loaded at BG tile IDs 13-22 (`stage.c` owns
+0-3, `win.c` owns 4-12) with a new BG palette (`stage.c` owns 0,
+`win.c` owns 1) - color 0 the same dark navy as the stage's own
+backdrop, so the digits' own background blends in rather than reading
+as a separate box.
+
+Scoring itself is the same real Donkey Kong (1981) mechanic and point
+value: 100 points for each barrel jumped over. `barrel.c` gained a
+per-barrel `jumped` flag (cleared only when that slot spawns a fresh
+barrel) and `barrel_check_jump_score()` - a horizontal-only overlap
+test, gated to barrels within 24px of the player's own vertical
+position (tiers are 32px apart and the jump's own 20px arc never
+reaches a neighboring one, so this margin only ever matches a barrel
+genuinely on the player's own tier) so an unrelated barrel elsewhere on
+the stage can never pay out. `player.c` gained a small
+`player_is_jumping()` accessor so `main.c` only calls this check while
+a jump is actually in progress - walking into a barrel already trips
+`barrel_check_hit()`'s own full AABB into a respawn instead, so the two
+conditions can never fire on the same contact.
+
+**A real, expected ripple effect, not a bug**: the score field is
+non-blank ("00000") from the very first frame, so it's visible in every
+capture from now on, the same "one static, never-scrolling screen"
+consequence Milestone 4's own goal flag already established.
+`reference_m1.ppm`, `reference_m2_survive.ppm`,
+`reference_m2_respawn.ppm`, `reference_m3_climbdown.ppm`, and
+`reference_m5_restart.ppm` were all re-rendered, visually confirmed
+still correct (including a real "00100" readout on the two references
+that capture a state after the scripted jump), and re-locked.
+`reference_m4_win.ppm` needed no change - `win_play()` wipes row 0 too,
+and its own script never jumps a barrel.
+
+**Verification**: new `input_script_m6_score.txt` reuses Milestone 2's
+own exact route and bisected jump timing (frames 5-477) - Milestone 2
+already proved the jump survives contact; this script's own new claim
+is what the score shows afterward. **Checkpoint** (frame 600, same
+timing as Milestone 2's own checkpoint A): the score field reads
+"00100" - one barrel's worth of points, paid out exactly once despite
+the jump's own multi-frame overlap window with the barrel.

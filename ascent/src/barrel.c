@@ -90,6 +90,11 @@ typedef struct {
     // stand on, but a barrel arriving there while rolling should pass
     // through it going down, not land on it immediately).
     uint8_t descend_start_row;
+    // Set once barrel_check_jump_score() has paid out for this barrel
+    // (see barrel.h) - a fresh barrel spawn (spawn_barrel()) always
+    // clears it, so a reused slot's old barrel can never block a new
+    // one's own bonus.
+    uint8_t jumped;
 } barrel_t;
 
 static barrel_t barrels[MAX_BARRELS];
@@ -127,6 +132,7 @@ static void spawn_barrel(void) {
             barrels[i].y = BARREL_SPAWN_Y;
             barrels[i].dir = -1;
             barrels[i].descending = 0;
+            barrels[i].jumped = 0;
             return;
         }
     }
@@ -174,4 +180,35 @@ uint8_t barrel_check_hit(uint8_t player_x, uint8_t player_y) {
         }
     }
     return 0;
+}
+
+// 100 points/barrel - the same value real Donkey Kong (1981) awards
+// for a jumped barrel, not picked arbitrarily.
+#define JUMP_SCORE_POINTS 100
+
+// A barrel more than this many pixels away (feet-to-feet) from the
+// player's own vertical position is on a different tier entirely, not
+// one the player could plausibly be jumping over right now - tiers are
+// 32px apart (stage.c's own rows 5/9/13/17), a 20px jump arc
+// (player.c's own JUMP_RISE_FRAMES) never reaches a neighboring one, so
+// this margin only ever matches a barrel genuinely on the player's own
+// tier.
+#define JUMP_SCORE_MAX_DY 24
+
+uint16_t barrel_check_jump_score(uint8_t player_x, uint8_t player_y) {
+    uint16_t points = 0;
+    uint8_t player_feet_y = player_y + 16;
+    for (uint8_t i = 0; i < MAX_BARRELS; i++) {
+        if (!barrels[i].active || barrels[i].jumped) continue;
+        uint8_t barrel_feet_y = barrels[i].y + 8;
+        uint8_t dy = player_feet_y > barrel_feet_y
+                         ? player_feet_y - barrel_feet_y
+                         : barrel_feet_y - player_feet_y;
+        if (dy > JUMP_SCORE_MAX_DY) continue;
+        if (player_x < barrels[i].x + 8 && player_x + 16 > barrels[i].x) {
+            barrels[i].jumped = 1;
+            points = (uint16_t)(points + JUMP_SCORE_POINTS);
+        }
+    }
+    return points;
 }

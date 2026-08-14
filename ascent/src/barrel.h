@@ -17,4 +17,14 @@ void barrel_update(void);
 // decoupled from player.c - main.c wires the two together.
 uint8_t barrel_check_hit(uint8_t player_x, uint8_t player_y);
 
+// Points earned this call for barrels just cleared by jumping - main.c
+// only calls this while player_is_jumping() is true, and each barrel
+// only ever pays out once (a per-barrel "already scored" flag, cleared
+// only when that slot spawns a fresh barrel). Horizontal overlap only,
+// gated to barrels near the player's own vertical position (same
+// reasoning as barrel_check_hit's own AABB, just without requiring
+// full vertical overlap - the point is "passed over", not "collided
+// with") so a barrel on an unrelated tier can never match.
+uint16_t barrel_check_jump_score(uint8_t player_x, uint8_t player_y);
+
 #endif

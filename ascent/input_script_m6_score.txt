@@ -1,0 +1,34 @@
+# Ascent Milestone 6 verification script - proves score.c's own
+# 100-point barrel-jump bonus (main.c calls barrel_check_jump_score()
+# only while player_is_jumping() is true) actually reaches the screen.
+#
+# Identical route and timing to Milestone 2's own
+# input_script_m2_barrels.txt (frames 5-477: Milestone 1's own climb,
+# a walk to open ground on tier 3, then the same bisected jump window -
+# frames 474-476 - that clears barrel 1's real approach) - Milestone 2
+# already proved the jump survives contact; this script's own new claim
+# is what the score readout shows afterward, not the jump/survival
+# itself.
+#
+# **Checkpoint** (frame 600, same timing as Milestone 2's own
+# checkpoint A - well after the jump lands and settles, well before
+# barrel 2 is anywhere near): the score field (background row 0) reads
+# "00100" - one barrel's worth of points, awarded exactly once despite
+# the jump's own multi-frame horizontal overlap window with the barrel
+# (barrel.c's own per-barrel `jumped` flag prevents a repeat payout).
+5 LEFT down
+64 LEFT up
+64 UP down
+114 UP up
+114 RIGHT down
+194 RIGHT up
+194 UP down
+244 UP up
+244 LEFT down
+324 LEFT up
+324 UP down
+374 UP up
+374 RIGHT down
+444 RIGHT up
+475 A down
+477 A up
