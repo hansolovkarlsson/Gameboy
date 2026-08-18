@@ -1,0 +1,44 @@
+# GitHub Pages site config. The site is published from this docs/
+# directory (Settings -> Pages -> main:/docs); the tutorial lives in
+# guide/, and the three pre-existing reference docs
+# (GAMEBOY_ROADMAP.md, CPU_REFERENCE.md, HARDWARE_REFERENCE.md) are
+# rendered too (jekyll-optional-front-matter is a GitHub Pages
+# default) but kept out of the sidebar via the defaults block below
+# rather than by editing the files themselves.
+title: Build a Game Boy Emulator
+description: >-
+  A step-by-step guide to writing a Game Boy (DMG) emulator in C,
+  grounded in the real development history of a working emulator.
+remote_theme: just-the-docs/just-the-docs@v0.10.1
+plugins:
+  - jekyll-remote-theme
+
+# just-the-docs settings
+search_enabled: true
+heading_anchors: true
+aux_links:
+  "GitHub repository":
+    - "https://github.com/hansolovkarlsson/gameboy"
+footer_content: >-
+  Written alongside the
+  <a href="https://github.com/hansolovkarlsson/gameboy">hansolovkarlsson/gameboy</a>
+  emulator. Hardware claims are grounded in
+  <a href="https://gbdev.io/pandocs/">Pan Docs</a>.
+
+defaults:
+  - scope:
+      path: ""
+    values:
+      layout: "default"
+  - scope:
+      path: "GAMEBOY_ROADMAP.md"
+    values:
+      nav_exclude: true
+  - scope:
+      path: "CPU_REFERENCE.md"
+    values:
+      nav_exclude: true
+  - scope:
+      path: "HARDWARE_REFERENCE.md"
+    values:
+      nav_exclude: true

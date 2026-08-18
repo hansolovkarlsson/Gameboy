@@ -1,5 +1,10 @@
 # Game Boy emulator - directory layout
 
+**Tutorial site**: [Build a Game Boy Emulator](https://hansolovkarlsson.github.io/gameboy/)
+- a step-by-step guide for hobbyists, distilled from this project's
+real development history (published via GitHub Pages from `docs/`;
+the guide's chapters live in `docs/guide/`).
+
 A standalone Game Boy (DMG) emulator. Originally developed as a
 subproject inside a Z80/CP-M emulator repo, then split out (via `git
 subtree split`, preserving its real commit history) once it became
