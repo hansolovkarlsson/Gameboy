@@ -60,7 +60,7 @@ will mirror them one module per subsystem:
 | APU | Four sound channels | [6](06-apu.md) |
 
 The reference implementation keeps each of these in its own C file
-([`src/`](https://github.com/hansolovkarlsson/gameboy/tree/main/src):
+([`src/`](https://github.com/hansolovkarlsson/Gameboy/tree/main/src):
 `cpu.c`, `mmu.c`, `cart.c`, `ppu.c`, `timer.c`, `joypad.c`, `apu.c`),
 with `main.c` as a thin headless driver. That last point matters more
 than it looks:

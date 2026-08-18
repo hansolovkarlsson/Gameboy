@@ -27,9 +27,9 @@ The most satisfying validation there is: your emulator becomes a
 The reference repo contains three complete original CGB games built
 this way — a match-3 puzzle, a Zelda-like adventure, and a
 Donkey Kong-style platformer
-([`prism/`](https://github.com/hansolovkarlsson/gameboy/tree/main/prism),
-[`wayfarer/`](https://github.com/hansolovkarlsson/gameboy/tree/main/wayfarer),
-[`ascent/`](https://github.com/hansolovkarlsson/gameboy/tree/main/ascent)) —
+([`prism/`](https://github.com/hansolovkarlsson/Gameboy/tree/main/prism),
+[`wayfarer/`](https://github.com/hansolovkarlsson/Gameboy/tree/main/wayfarer),
+[`ascent/`](https://github.com/hansolovkarlsson/Gameboy/tree/main/ascent)) —
 each developed milestone by milestone against the emulator itself,
 with every milestone locked in by the same scripted-input/byte-exact
 regression machinery from [chapter 7](07-real-games.md).

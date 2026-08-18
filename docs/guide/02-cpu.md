@@ -42,7 +42,7 @@ The classic shape works well:
   64 opcodes; the ALU groups and the entire CB table decode
   mechanically from bit fields), so you can write generic handlers for
   those and individually-named handlers only for the irregular rest.
-  The reference [`cpu.c`](https://github.com/hansolovkarlsson/gameboy/blob/main/src/cpu.c)
+  The reference [`cpu.c`](https://github.com/hansolovkarlsson/Gameboy/blob/main/src/cpu.c)
   covers all 512 opcodes with about 35 distinct handler functions.
 - An ALU module for the flag-setting arithmetic — half-carry logic is
   fiddly enough to want in exactly one place.

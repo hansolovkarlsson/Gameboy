@@ -11,7 +11,7 @@ Game Boy (DMG) in plain C, for any hobbyist who wants to attempt it
 themselves.
 
 This isn't a theoretical tutorial. It was written alongside a
-[real, working emulator](https://github.com/hansolovkarlsson/gameboy)
+[real, working emulator](https://github.com/hansolovkarlsson/Gameboy)
 that passes [dmg-acid2](https://github.com/mattcurrie/dmg-acid2) and
 [cgb-acid2](https://github.com/mattcurrie/cgb-acid2) at 100%, passes
 80/83 of a committed [Mooneye](https://github.com/Gekkio/mooneye-test-suite)

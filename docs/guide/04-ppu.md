@@ -80,7 +80,7 @@ your build as an automated comparison — render a frame with your
 `--ppm` flag, compare against the reference, print a match
 percentage. (A ~60-line dependency-free PNG decoder is enough; the
 reference project's
-[`tests/compare_frame.py`](https://github.com/hansolovkarlsson/gameboy/blob/main/tests/compare_frame.py)
+[`tests/compare_frame.py`](https://github.com/hansolovkarlsson/Gameboy/blob/main/tests/compare_frame.py)
 shows the shape.)
 
 Now, the most instructive result in this whole guide. At this point in

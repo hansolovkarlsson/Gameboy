@@ -22,7 +22,7 @@ it wholesale with SDL2 at a fraction of the code, losing nothing it
 used. Match the toolkit to the output shape from the start.
 
 The whole shape of
-[`sdl/src/main.c`](https://github.com/hansolovkarlsson/gameboy/blob/main/sdl/src/main.c):
+[`sdl/src/main.c`](https://github.com/hansolovkarlsson/Gameboy/blob/main/sdl/src/main.c):
 
 - **Video**: step the core one video frame (70224 T-states), upload
   the 160×144 framebuffer to a texture, draw it

@@ -113,7 +113,7 @@ first real appearance of this guide's testing philosophy:
    ROM/RAM offsets out — covering MBC1's both modes, the bank-0
    quirks, RAM enable/disable, MBC3's latch sequence, MBC5's 9-bit
    number. The reference project's
-   [`tests/test_cart.c`](https://github.com/hansolovkarlsson/gameboy/blob/main/tests/test_cart.c)
+   [`tests/test_cart.c`](https://github.com/hansolovkarlsson/Gameboy/blob/main/tests/test_cart.c)
    is exactly this.
 2. **Mooneye's `emulator-only/mbc1` and `mbc5` ROM suites later.**
    Real, MIT-licensed, committable test ROMs, verified against real

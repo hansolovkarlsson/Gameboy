@@ -18,10 +18,10 @@ search_enabled: true
 heading_anchors: true
 aux_links:
   "GitHub repository":
-    - "https://github.com/hansolovkarlsson/gameboy"
+    - "https://github.com/hansolovkarlsson/Gameboy"
 footer_content: >-
   Written alongside the
-  <a href="https://github.com/hansolovkarlsson/gameboy">hansolovkarlsson/gameboy</a>
+  <a href="https://github.com/hansolovkarlsson/Gameboy">hansolovkarlsson/Gameboy</a>
   emulator. Hardware claims are grounded in
   <a href="https://gbdev.io/pandocs/">Pan Docs</a>.
 
