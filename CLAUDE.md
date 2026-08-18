@@ -54,8 +54,9 @@ bin/gameboy test_roms/dmg-acid2/dmg-acid2.gb --ppm out.ppm --frames 2
 ```
 
 See `bin/gameboy --help` for the full flag set (`--ppm`/`--wav`/
-`--input`/`--load-state`/`--save-state`), and `sdl/src/main.c`'s own
-top comment for the SDL front end's key bindings.
+`--input`/`--load-state`/`--save-state`), and `README.md`'s "Playing"
+section (or `bin/gameboy-sdl --help`) for the SDL front end's key
+bindings.
 
 Correctness is verified two ways, both grounded rather than
 self-referential: **real ROMs** (`test_roms/` - open-source homebrew

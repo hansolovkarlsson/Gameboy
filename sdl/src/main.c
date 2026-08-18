@@ -21,10 +21,10 @@
 // testing.
 //
 // Real-time video, keyboard input, live audio, and save states (F5
-// save / F9 load, src/savestate.c - see handle_key_down() below). CGB
-// color rendering (VRAM/WRAM banking, palettes) is implemented as of
-// Phase 9 - see docs/GAMEBOY_ROADMAP.md; double-speed mode, HDMA/GDMA,
-// and infrared remain unimplemented.
+// save / F9 load, src/savestate.c - see handle_key_down() below). Full
+// CGB support (VRAM/WRAM banking, palettes, double-speed mode,
+// HDMA/GDMA, and the IR port at register level) is implemented as of
+// Phase 9 and its follow-ups - see docs/GAMEBOY_ROADMAP.md.
 
 #include <SDL2/SDL.h>
 #include <stdio.h>

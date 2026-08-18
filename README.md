@@ -5,6 +5,29 @@
 real development history (published via GitHub Pages from `docs/`;
 the guide's chapters live in `docs/guide/`).
 
+## Playing
+
+Build the SDL2 front end (`brew install sdl2`, then `make gameboy-sdl`)
+and run a ROM in a real window:
+
+```
+bin/gameboy-sdl <rom.gb> [--mode dmg|cgb|auto]
+```
+
+Key bindings (see `sdl/src/main.c`'s `handle_key_down()` - the
+BGB/SameBoy-style default layout, not invented here):
+
+| Key | Game Boy |
+|---|---|
+| Arrow keys | D-pad |
+| X | A |
+| Z | B |
+| Enter | Start |
+| Right Shift | Select |
+| F5 / F9 | Save state / load state (to/from `<rom>.state`) |
+
+## Project
+
 A standalone Game Boy emulator - both the original DMG (the 1989
 monochrome hardware) and the Game Boy Color (CGB). Originally developed as a
 subproject inside a Z80/CP-M emulator repo, then split out (via `git
@@ -56,5 +79,4 @@ they're treated differently.
   driver `src/main.c` still provides for testing. Replaced an earlier
   GTK4+Cairo+CoreAudio front end - see `sdl/src/main.c`'s own top
   comment and `docs/GAMEBOY_ROADMAP.md`'s Phase 7 status for the full
-  reasoning, current key bindings, and what's still unscoped (Game Boy
-  Color support).
+  reasoning, and the "Playing" section above for the key bindings.
