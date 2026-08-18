@@ -5,7 +5,8 @@
 real development history (published via GitHub Pages from `docs/`;
 the guide's chapters live in `docs/guide/`).
 
-A standalone Game Boy (DMG) emulator. Originally developed as a
+A standalone Game Boy emulator - both the original DMG (the 1989
+monochrome hardware) and the Game Boy Color (CGB). Originally developed as a
 subproject inside a Z80/CP-M emulator repo, then split out (via `git
 subtree split`, preserving its real commit history) once it became
 clear the two shared no code at all - see `docs/GAMEBOY_ROADMAP.md`'s

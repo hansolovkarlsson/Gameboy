@@ -2,7 +2,8 @@
 
 ## Project
 
-A Game Boy (DMG, the original 1989 hardware) emulator. Originally
+A Game Boy emulator - both the original DMG (the 1989 monochrome
+hardware) and the Game Boy Color (CGB, Phase 9). Originally
 developed as a separate subproject inside a Z80/CP-M emulator repo
 (sharing nothing but a build directory and general-purpose tooling with
 it - see the "Architecture decision" section just below), then split

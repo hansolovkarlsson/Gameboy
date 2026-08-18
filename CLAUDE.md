@@ -4,7 +4,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project
 
-A Game Boy (DMG, the original 1989 hardware) emulator written in C.
+A Game Boy emulator written in C - both the original DMG (the 1989
+monochrome hardware) and the Game Boy Color (CGB).
 Originally developed as a subproject inside a Z80/CP-M emulator repo,
 then split out into this standalone repo (via `git subtree split`,
 preserving its real commit history) once it became clear the two
